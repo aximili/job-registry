@@ -1,0 +1,9 @@
+node_modules/
+data/
+config/settings.json
+config/secrets.json
+ai/
+web/dist/
+test-results/
+playwright-report/
+.superpowers/

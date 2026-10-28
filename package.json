@@ -1,0 +1,43 @@
+{
+  "name": "job-registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A personal, local-first job application registry.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:server": "node --watch server/main.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "start": "node server/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && svelte-check --tsconfig web/tsconfig.json --fail-on-warnings",
+    "check:deps": "depcruise server shared web/src --config .dependency-cruiser.cjs",
+    "test:unit": "vitest run",
+    "test": "npm run typecheck && npm run check:deps && vitest run",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "devDependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
+    "@playwright/test": "^1.64.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "dependency-cruiser": "^18.7.0",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.7",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.8",
+    "@mozilla/readability": "^0.6.0",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.7",
+    "linkedom": "^0.18.14",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  }
+}
