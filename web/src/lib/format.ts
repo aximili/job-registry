@@ -1,20 +1,11 @@
 import type { EmploymentType, Salary, SalaryPeriod, WorkMode } from '../../../shared/contracts/index.ts';
+import { formatDate } from '../../../shared/dates.ts';
+import { joinList, verdictLabel } from '../../../shared/labels.ts';
 
-// How dates, missing values and search snippets are shown.
-// Month names are written out by hand so the format never depends on the
-// browser's locale data: always "28 Oct 2026".
+export { formatDate, joinList, verdictLabel };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-export function formatDate(localOrIso: string | null): string {
-  if (!localOrIso) return '';
-  const local = LOCAL_DATE.exec(localOrIso);
-  if (local) return `${Number(local[3])} ${MONTHS[Number(local[2]) - 1]} ${local[1]}`;
-  const d = new Date(localOrIso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-}
+// How dates, missing values and search snippets are shown. Dates themselves
+// ("28 Oct 2026") come from shared/dates.ts.
 
 export function formatRelative(iso: string, now: Date = new Date()): string {
   const minutes = Math.floor((now.getTime() - new Date(iso).getTime()) / 60_000);
@@ -76,3 +67,8 @@ export const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   casual: 'Casual',
   unknown: '',
 };
+
+// "1 job", "2 jobs".
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}

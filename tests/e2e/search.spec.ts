@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { reset, seedCall, seedJob } from './helpers.ts';
+import { patchJob, reset, seedCall, seedJob, setAiMode } from './helpers.ts';
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -65,8 +65,40 @@ test('status chips filter the list', async ({ page, request }) => {
 });
 
 test('a job with no title or company shows placeholders', async ({ page, request }) => {
+  await setAiMode(request, 'fail'); // otherwise the AI fills in a title
   await seedJob(request, {});
   await page.goto('/');
   await expect(jobsTable(page)).toContainText('Untitled role');
   await expect(jobsTable(page)).toContainText('Unknown company');
+});
+
+test('a person whose jobs are all archived still shows, with no job linked', async ({ page, request }) => {
+  const job = await seedJob(request, { company: 'Atlassian', title: 'Senior Engineer' });
+  await seedCall(request, job.id, { name: 'Priya Shah', phone: '0412 345 678' });
+  await patchJob(request, job.id, { archived: true });
+  await page.goto('/');
+  await page.keyboard.type('priya');
+  const hit = results(page).getByRole('option').first();
+  await expect(hit).toContainText('Priya Shah', { timeout: 2000 });
+  await expect(hit).toContainText('No current job');
+});
+
+test('a slow answer for an older filter never replaces the newer one', async ({ page, request }) => {
+  await seedJob(request, { company: 'Applied Co', title: 'Role A', status: 'applied' });
+  await seedJob(request, { company: 'Rejected Co', title: 'Role B', status: 'rejected' });
+  await page.goto('/');
+  await expect(jobsTable(page)).toContainText('Applied Co');
+  const isAll = (url: URL) => url.pathname === '/api/v1/jobs' && url.searchParams.get('status') === 'all';
+  await page.route(isAll, async (route) => {
+    await new Promise((r) => setTimeout(r, 800));
+    await route.continue();
+  });
+  const late = page.waitForResponse((r) => isAll(new URL(r.url())));
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await page.getByRole('button', { name: 'Closed', exact: true }).click();
+  await expect(jobsTable(page)).toContainText('Rejected Co');
+  await late;
+  await page.waitForTimeout(100);
+  await expect(jobsTable(page)).toContainText('Rejected Co');
+  await expect(jobsTable(page)).not.toContainText('Applied Co');
 });

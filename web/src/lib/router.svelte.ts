@@ -18,7 +18,7 @@ function match(path: string): Route {
 export const router = $state({ route: match(location.pathname) as Route });
 
 export function navigate(path: string): void {
-  if (path !== location.pathname + location.search) history.pushState({}, '', path);
+  if (path !== location.pathname + location.search + location.hash) history.pushState({}, '', path);
   router.route = match(location.pathname);
   window.scrollTo(0, 0);
 }
@@ -34,5 +34,5 @@ document.addEventListener('click', (event) => {
   const url = new URL(link.href);
   if (url.origin !== location.origin) return;
   event.preventDefault();
-  navigate(url.pathname + url.search);
+  navigate(url.pathname + url.search + url.hash);
 });

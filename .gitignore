@@ -1,9 +1,14 @@
 node_modules/
-data/
+# A leading / means "only at the top of the project", so these never hide source
+# folders with the same name, such as server/modules/ai/.
+/data/
 config/settings.json
+# Your master profile and preferences: personal, so never committed.
+/profile/
 config/secrets.json
-ai/
+/ai/
 web/dist/
+/extension/dist/
 test-results/
 playwright-report/
 .superpowers/

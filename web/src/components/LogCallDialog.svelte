@@ -1,8 +1,10 @@
 <script lang="ts">
   // Log a call in a few seconds: pick the person (or type a new name), type
   // what was said, press Ctrl+Enter. The person is linked to the job for you.
+  import { tick } from 'svelte';
   import type { Contact, InteractionKind, JobContact } from '../../../shared/contracts/index.ts';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
 
   let { jobId, people, onSaved }: { jobId: number; people: JobContact[]; onSaved: () => void } = $props();
 
@@ -11,6 +13,8 @@
 
   let dialog: HTMLDialogElement;
   let personInput: HTMLInputElement;
+  let phoneInput = $state<HTMLInputElement>();
+  let notesInput: HTMLTextAreaElement;
   let query = $state('');
   let picked = $state<Pick | null>(null);
   let others = $state<Contact[]>([]);
@@ -65,10 +69,14 @@
     }, 120);
   }
 
-  function choose(option: Option) {
+  // After picking, the cursor moves on: to Phone for a new person, otherwise
+  // straight to Notes.
+  async function choose(option: Option) {
     picked = option.pick;
     query = option.pick.kind === 'existing' ? option.pick.contact.name : option.pick.name;
     listOpen = false;
+    await tick();
+    (option.pick.kind === 'new' ? phoneInput : notesInput)?.focus();
   }
 
   function onPersonKeydown(event: KeyboardEvent) {
@@ -88,7 +96,7 @@
       active = (active - 1 + options.length) % options.length;
     } else if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
-      choose(options[active]!);
+      void choose(options[active]!);
     }
   }
 
@@ -122,7 +130,7 @@
       dialog.close();
       onSaved();
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       saving = false;
     }
@@ -187,7 +195,7 @@
               class:active={i === active}
               tabindex="-1"
               onmousedown={(e) => e.preventDefault()}
-              onclick={() => choose(option)}>{option.label}</button
+              onclick={() => void choose(option)}>{option.label}</button
             >
           {/each}
         </div>
@@ -196,7 +204,7 @@
 
     {#if isNew}
       <div class="grid">
-        <label class="field"><span>Phone</span><input bind:value={details.phone} inputmode="tel" /></label>
+        <label class="field"><span>Phone</span><input bind:this={phoneInput} bind:value={details.phone} inputmode="tel" /></label>
         <label class="field"><span>Email</span><input bind:value={details.email} type="email" /></label>
         <label class="field"><span>Role</span><input bind:value={details.role} placeholder="For example, Talent partner" /></label>
         <label class="field"><span>Organisation</span><input bind:value={details.organisation} placeholder="Agency or company" /></label>
@@ -215,10 +223,10 @@
 
     <label class="field">
       <span>Notes</span>
-      <textarea bind:value={notes} rows="4" placeholder="What did you talk about? Ctrl+Enter saves."></textarea>
+      <textarea bind:this={notesInput} bind:value={notes} rows="4" placeholder="What did you talk about? Ctrl+Enter saves."></textarea>
     </label>
 
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     <div class="dialog-actions">
       <button

@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Job Registry",
+  "description": "Save job ads from Seek, LinkedIn and Indeed to Job Registry on your own computer, and see how well each job fits you.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://www.seek.com.au/*",
+    "https://www.seek.co.nz/*",
+    "https://*.linkedin.com/*",
+    "https://*.indeed.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.seek.com.au/*",
+        "https://www.seek.co.nz/*",
+        "https://*.linkedin.com/*",
+        "https://*.indeed.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Job Registry",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+J"
+      },
+      "description": "Open Job Registry"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}

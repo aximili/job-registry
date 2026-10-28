@@ -10,12 +10,13 @@
   import { navigate, router } from './lib/router.svelte.ts';
   import { registerNewJob } from './lib/new-job.svelte.ts';
   import { focusSearch } from './lib/search.svelte.ts';
-  import { toast } from './lib/toast.svelte.ts';
+  import { friendlyError } from './lib/errors.ts';
+  import { showToast, toast } from './lib/toast.svelte.ts';
 
   let newJob = $state<NewJobDialog>();
 
   onMount(() => {
-    void loadSettings();
+    loadSettings().catch((err: unknown) => showToast(friendlyError(err)));
     const stopWatching = watchSettings();
     const unregister = registerNewJob((text) => void newJob?.open(text));
     return () => {

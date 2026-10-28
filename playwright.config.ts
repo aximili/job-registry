@@ -2,8 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Browser tests run against the real app with the built dashboard.
 // `npm run test:e2e` builds first. Firefox is what you use day to day.
+// The extension's tests load the real extension, which Playwright can only
+// do in Chromium (tests/e2e-extension).
 export default defineConfig({
-  testDir: 'tests/e2e',
   testMatch: '*.spec.ts',
   workers: 1,
   fullyParallel: false,
@@ -14,8 +15,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', testDir: 'tests/e2e', use: { ...devices['Desktop Firefox'] } },
+    { name: 'chromium', testDir: 'tests/e2e', use: { ...devices['Desktop Chrome'] } },
+    { name: 'extension', testDir: 'tests/e2e-extension' },
   ],
   webServer: {
     command: 'node tests/e2e/serve.ts',

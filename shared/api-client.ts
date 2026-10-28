@@ -66,12 +66,14 @@ export function createApiClient(opts: ApiClientOptions) {
   }
 
   return {
-    health: () => call(C.Health, 'GET', '/health'),
+    health: (o: { signal?: AbortSignal } = {}) => call(C.Health, 'GET', '/health', undefined, o.signal),
     previewCapture: (req: C.CapturePreviewRequest) =>
       call(C.CapturePreviewResponse, 'POST', '/captures/preview', req),
 
-    checkJob: (req: C.JobCheckRequest) => call(C.JobCheckResponse, 'POST', '/jobs/check', req),
-    saveJob: (req: z.input<typeof C.SaveJobRequest>) => call(C.SaveJobResponse, 'POST', '/jobs', req),
+    checkJob: (req: C.JobCheckRequest, o: { signal?: AbortSignal } = {}) =>
+      call(C.JobCheckResponse, 'POST', '/jobs/check', req, o.signal),
+    saveJob: (req: z.input<typeof C.SaveJobRequest>, o: { signal?: AbortSignal } = {}) =>
+      call(C.SaveJobResponse, 'POST', '/jobs', req, o.signal),
     listJobs: (q: Partial<C.ListJobsQuery> = {}) => call(z.array(C.JobSummary), 'GET', `/jobs${queryString(q)}`),
     getJob: (id: number) => call(C.Job, 'GET', `/jobs/${id}`),
     updateJob: (id: number, patch: C.UpdateJobRequest) => call(C.Job, 'PATCH', `/jobs/${id}`, patch),
@@ -103,6 +105,13 @@ export function createApiClient(opts: ApiClientOptions) {
     updateSettings: (patch: z.input<typeof C.UpdateSettingsRequest>) =>
       call(C.Settings, 'PATCH', '/settings', patch),
     backupNow: () => call(C.BackupResponse, 'POST', '/system/backup'),
+
+    aiStatus: () => call(C.AiStatus, 'GET', '/ai/status'),
+    testAi: () => call(C.AiTestResult, 'POST', '/ai/test', {}),
+    rate: (req: z.input<typeof C.RateRequest>, o: { signal?: AbortSignal } = {}) =>
+      call(C.RateResponse, 'POST', '/ratings', req, o.signal),
+    ratingsStatus: () => call(C.RatingsStatus, 'GET', '/ratings/status'),
+    reparseJob: (id: number) => call(C.Job, 'POST', `/jobs/${id}/reparse`, {}),
   };
 }
 

@@ -14,6 +14,8 @@ beforeEach(async () => {
   const saved = app.services.jobs.save({ capture: pastedCapture() });
   if (saved.result !== 'created') throw new Error('setup failed');
   jobId = saved.job.id;
+  // The AI reads the ad in the background; let it finish before counting events.
+  await app.services.enrich.onIdle();
   events = [];
   app.bus.onAny((name, payload) => events.push([name, payload]));
 });

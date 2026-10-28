@@ -15,7 +15,7 @@ const longParagraph =
 describe('capture service', () => {
   it('fromText normalises messy pasted text but keeps all of it', () => {
     const service = createCaptureService({ now });
-    const messy = 'Senior Engineer 🚀  \r\nAtlassian\r\n\r\n\r\n\r\nAbout the role   \r\n';
+    const messy = 'Senior Engineer\u00A0🚀  \r\nAtlassian\r\n\r\n\r\n\r\nAbout the role   \r\n';
     const capture = service.fromText(messy);
     expect(capture.jdText).toBe('Senior Engineer 🚀\nAtlassian\n\nAbout the role');
     expect(capture).toMatchObject({

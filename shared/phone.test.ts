@@ -25,6 +25,10 @@ describe('queryDigits', () => {
     ['12', null],
     ['atl', null],
     ['Interview 2 2025', null],
+    // "+61 4" is only "04" once it's in local form, which every mobile starts with.
+    ['+61 4', null],
+    ['0061 4', null],
+    ['+61 41', '041'],
   ])('%s → %s', (q, expected) => {
     expect(queryDigits(q)).toBe(expected);
   });

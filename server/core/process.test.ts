@@ -32,6 +32,23 @@ describe('process handlers', () => {
     expect(logger.fatal).toHaveBeenCalledTimes(2);
     expect(proc.exit).toHaveBeenCalledWith(1);
   });
+
+  it('a crash ends the AI program first, so it never outlives the app holding GPU memory', () => {
+    const proc = fakeProcess();
+    const order: string[] = [];
+    proc.exit.mockImplementation(() => order.push('exit'));
+    installProcessHandlers(proc, { stop: vi.fn(), logger: fakeLogger(), onExit: () => order.push('ai stopped') });
+    proc.emit('uncaughtException', new Error('boom'));
+    expect(order).toEqual(['ai stopped', 'exit']);
+  });
+
+  it('any exit ends the AI program too', () => {
+    const proc = fakeProcess();
+    const onExit = vi.fn();
+    installProcessHandlers(proc, { stop: vi.fn(), logger: fakeLogger(), onExit });
+    proc.emit('exit', 0);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('start-up error file', () => {
@@ -52,3 +69,20 @@ describe('start-up error file', () => {
     expect(existsSync(join(logs, 'startup-error.txt'))).toBe(false);
   });
 });
+
+describe('start-up error file', () => {
+  it('is plain ASCII, so cmd.exe shows it without garbled characters', () => {
+    const logs = mkdtempSync(join(tmpdir(), 'jr-startup-'));
+    try {
+      writeStartupError(logs, 'C:\\Users\\Zoë\\settings.json has a problem:\n✖ Too short → at statuses[3].label — “Applied” …');
+      const bytes = readFileSync(join(logs, 'startup-error.txt'));
+      expect([...bytes].every((b) => b < 128)).toBe(true);
+      expect(bytes.toString('ascii')).toBe(
+        'C:\\Users\\Zoe\\settings.json has a problem:\n- Too short -> at statuses[3].label - "Applied" ...\n',
+      );
+    } finally {
+      rmSync(logs, { recursive: true, force: true });
+    }
+  });
+});
+

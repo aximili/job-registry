@@ -166,7 +166,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 - Uses your `master-profile.md` plus a short `preferences.md` (roles you want, salary floor, locations, work mode, deal-breakers).
 - Shows a verdict (Strong, Good, Stretch or Weak), a score, up to 4 reasons for, up to 4 reasons against, and any deal-breakers hit.
 - Runs automatically on job pages, with an on/off toggle. If you click through jobs quickly, it cancels the stale request.
-- Results are cached by URL and profile version.
+- Results are cached by the ad (its link and a short hash of its text) and the profile version.
 - The profile comes first in the prompt, so llama-server reuses its cache and each rating takes a few seconds.
 
 **Resume and cover letter**
@@ -209,8 +209,8 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 
   Each task is a prompt plus a zod schema (turned into JSON Schema for constrained output), with validation and one retry. The prompts are text files in `server/modules/ai/prompts/`.
 - Each task can have its own settings in `settings.json`: model, temperature, thinking on or off, extra request fields.
-  - Default: thinking **off** for parsing, rating and email (`chat_template_kwargs: {enable_thinking:false}`), and **on** for resume and cover letter.
-  - The Ollama preset maps these to Ollama's own options.
+  - Default: thinking **off** for parsing, rating and email (`reasoning_effort: "none"`), and **on** for resume and cover letter (`reasoning_effort: "medium"`).
+  - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
 - A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached.
 
 ## Windows setup and running

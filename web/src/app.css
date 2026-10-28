@@ -22,6 +22,7 @@
   --good: #1b7a4b;
   --closed: #8a94a3;
   --danger: #b3261e;
+  --ok: #1a7f37;
   --mark: #fff1a8;
 
   --font: 'Atkinson Hyperlegible Next Variable', 'Segoe UI', system-ui, sans-serif;
@@ -56,6 +57,7 @@
     --good: #5cc58e;
     --closed: #6e7886;
     --danger: #ff8a80;
+    --ok: #6fd58a;
     --mark: #5a4b00;
   }
 }

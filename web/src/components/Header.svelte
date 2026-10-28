@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AiPill from './AiPill.svelte';
   import SearchBox from './SearchBox.svelte';
 
   let { onNewJob }: { onNewJob?: () => void } = $props();
@@ -8,6 +9,7 @@
   <div class="bar">
     <a href="/" class="brand">Job Registry</a>
     <nav aria-label="Main">
+      <AiPill />
       {#if onNewJob}
         <button type="button" class="button primary" onclick={onNewJob}>New job <kbd>N</kbd></button>
       {/if}

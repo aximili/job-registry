@@ -10,6 +10,7 @@ import {
   Posting,
   StatusChange,
   type EditableJobFields,
+  type Rating,
   type ParseState,
   type SourceSite,
   type StatusSource,
@@ -25,6 +26,9 @@ export type JobChanges = Partial<
     fieldSources: Record<string, z.infer<typeof FieldSource>>;
     parseState: ParseState;
     parseError: string | null;
+    matchVerdict: string | null;
+    matchScore: number | null;
+    match: Rating | null;
     archived: boolean;
   }
 >;
@@ -59,6 +63,8 @@ const PLAIN_COLUMNS: Record<string, string> = {
   summary: 'summary',
   parseState: 'parse_state',
   parseError: 'parse_error',
+  matchVerdict: 'match_verdict',
+  matchScore: 'match_score',
 };
 const JSON_COLUMNS: Record<string, string> = {
   requirements: 'requirements',
@@ -66,6 +72,7 @@ const JSON_COLUMNS: Record<string, string> = {
   responsibilities: 'responsibilities',
   adContact: 'ad_contact',
   fieldSources: 'field_sources',
+  match: 'match_json',
 };
 
 function toColumns(changes: JobChanges): Record<string, unknown> {
@@ -121,6 +128,7 @@ function rowToJob(row: Row): Job {
     parseError: row.parse_error,
     matchVerdict: row.match_verdict,
     matchScore: row.match_score,
+    match: parseJsonColumn(row.match_json),
     archived: row.archived === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -221,6 +229,12 @@ export function createJobsRepo(db: Db) {
         .prepare(sql)
         .all({ archived: filter.archived ? 1 : 0, ...(filter.statusIds ? { statusIds: JSON.stringify(filter.statusIds) } : {}) });
       return (rows as Row[]).map(rowToSummary);
+    },
+
+    // Unarchived jobs in one parse state, oldest first.
+    listIdsByParseState(state: ParseState): number[] {
+      const rows = db.prepare('SELECT id FROM jobs WHERE parse_state = ? AND archived = 0 ORDER BY created_at, id').all(state);
+      return (rows as { id: number }[]).map((r) => r.id);
     },
 
     listIds(archived: boolean): number[] {

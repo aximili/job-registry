@@ -12,7 +12,6 @@ import type {
 } from '../../../shared/contracts/index.ts';
 import { phoneDigits, queryDigits } from '../../../shared/phone.ts';
 import type { Clock } from '../../core/config.ts';
-import { isConstraintError } from '../../core/db/db.ts';
 import { NotFoundError } from '../../core/errors.ts';
 import type { EventBus } from '../../core/events.ts';
 import type { ContactFields, ContactsRepo } from './repo.ts';
@@ -61,16 +60,6 @@ export function createContactsService(opts: { repo: ContactsRepo; bus: EventBus;
     return contact;
   }
 
-  // The only foreign key left to fail, once the contact is known, is the job.
-  function forJob<T>(jobId: number, fn: () => T): T {
-    try {
-      return fn();
-    } catch (err) {
-      if (isConstraintError(err, 'FOREIGNKEY')) throw new NotFoundError(`Job ${jobId} not found`);
-      throw err;
-    }
-  }
-
   return {
     create(req) {
       const id = repo.insertContact(toFields(req), opts.now().toISOString());
@@ -105,7 +94,7 @@ export function createContactsService(opts: { repo: ContactsRepo; bus: EventBus;
 
     linkToJob(jobId, req) {
       get(req.contactId);
-      forJob(jobId, () => repo.link(jobId, req.contactId, req.relation));
+      repo.forJob(jobId, () => repo.link(jobId, req.contactId, req.relation));
       bus.emit('contact.linked', { contactId: req.contactId, jobId });
       return repo.listForJob(jobId).find((c) => c.id === req.contactId)!;
     },
@@ -138,7 +127,7 @@ export function createContactsService(opts: { repo: ContactsRepo; bus: EventBus;
         const insert = () =>
           repo.insertInteraction({ contactId, jobId, kind: req.kind, happenedAt: req.happenedAt ?? at, notes: req.notes.trim() });
         if (jobId === null) return insert();
-        return forJob(jobId, () => {
+        return repo.forJob(jobId, () => {
           if (contactId !== null) newLink = repo.ensureLink(jobId, contactId, 'recruiter');
           return insert();
         });

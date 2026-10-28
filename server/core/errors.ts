@@ -48,3 +48,22 @@ export class AiUnavailableError extends AppError {
     this.name = 'AiUnavailableError';
   }
 }
+
+// The AI server worked, but its answer didn't fit, even after a second try.
+// Unlike AiUnavailableError, trying again later won't help on its own.
+export class AiAnswerError extends AiUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiAnswerError';
+  }
+}
+
+// The AI server was there, but refused this request or didn't answer it in
+// time (an HTTP error, a timeout). Often about this one request, such as an ad
+// too long for the server's context, so other work can still go ahead.
+export class AiRefusedError extends AiUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiRefusedError';
+  }
+}

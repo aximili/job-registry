@@ -80,6 +80,64 @@ describe('architecture rules', () => {
     expect(await violations(dir, ['server'])).toContain('composite-allow-list-ratings');
   });
 
+  it('flags core importing a module', async () => {
+    const dir = tree({
+      ...jobsModule,
+      'server/core/config.ts': "import { jobs } from '../modules/jobs/index.ts';\nexport const config = jobs;\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('core-not-modules');
+  });
+
+  it('flags a module building another module (only app.ts wires modules)', async () => {
+    const dir = tree({
+      ...jobsModule,
+      'server/modules/search/service.ts': "import { jobs } from '../jobs/index.ts';\nexport const search = jobs;\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('only-app-wires-modules');
+  });
+
+  it('allows a module to import another module’s types', async () => {
+    const dir = tree({
+      'server/modules/jobs/index.ts': 'export type JobsService = { get(): number };\n',
+      'server/modules/search/service.ts':
+        "import type { JobsService } from '../jobs/index.ts';\nexport const search = (j: JobsService) => j.get();\n",
+    });
+    expect(await violations(dir, ['server'])).toEqual([]);
+  });
+
+  it('flags main.ts reaching a module without app.ts', async () => {
+    const dir = tree({
+      ...jobsModule,
+      'server/main.ts': "import { jobs } from './modules/jobs/index.ts';\nconsole.log(jobs);\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('main-uses-app');
+  });
+
+  it('flags a service using database code', async () => {
+    const dir = tree({
+      'server/core/db/db.ts': 'export const isConstraintError = () => false;\n',
+      'server/modules/notes/service.ts':
+        "import { isConstraintError } from '../../core/db/db.ts';\nexport const notes = isConstraintError;\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('no-sql-in-services');
+  });
+
+  it('flags module code importing a runtime directly', async () => {
+    const dir = tree({
+      'server/modules/ai/runtime/llama-server.ts': 'export const runtime = 1;\n',
+      'server/modules/ai/service.ts': "import { runtime } from './runtime/llama-server.ts';\nexport const ai = runtime;\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('adapters-only-from-index');
+  });
+
+  it("flags extension code other than the background script calling the server's API", async () => {
+    const dir = tree({
+      'shared/api-client.ts': 'export const createApiClient = () => 1;\n',
+      'extension/src/content.ts': "import { createApiClient } from '../../shared/api-client.ts';\nexport const c = createApiClient;\n",
+    });
+    expect(await violations(dir, ['extension', 'shared'])).toContain('only-background-calls-server');
+  });
+
   it('flags shared importing server code', async () => {
     const dir = tree({
       'server/app.ts': 'export const app = 1;\n',

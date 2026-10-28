@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "es2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node",
+      "chrome"
+    ]
+  },
+  "include": [
+    "./**/*.ts",
+    "../e2e-extension/**/*.ts"
+  ],
+  "exclude": []
+}

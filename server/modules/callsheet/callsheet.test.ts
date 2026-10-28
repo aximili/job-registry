@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import { FakeAiProvider } from '../../../tests/fakes/fake-ai-provider.ts';
 import { seekCapture } from '../../../tests/helpers/jobs.ts';
+import { AiUnavailableError } from '../../core/errors.ts';
 import { createTestApp, type TestApp } from '../../../tests/helpers/test-app.ts';
 
 let app: TestApp;
@@ -40,4 +42,20 @@ it('is a 404 for an unknown job', async () => {
   const res = await app.request('GET', '/api/v1/jobs/999/callsheet');
   expect(res.status).toBe(404);
   expect(res.body.error.message).toBe('Job 999 not found');
+});
+
+it('works for a job with no title yet, as pasted ads have until the AI reads them', async () => {
+  await app.cleanup();
+  const ai = new FakeAiProvider(() => new AiUnavailableError("Can't reach the AI."));
+  app = await createTestApp({ now: () => clock, fakes: { ai } });
+  const saved = app.services.jobs.save({ capture: seekCapture('1'), fields: { company: 'Atlassian' } });
+  if (saved.result !== 'created') throw new Error('setup failed');
+  await app.services.enrich.onIdle();
+  const res = await app.request('GET', `/api/v1/jobs/${saved.job.id}/callsheet`);
+  expect(res.status).toBe(200);
+  expect(res.body.job).toMatchObject({ title: null, company: 'Atlassian', parseState: 'pending' });
+
+  const search = await app.request('GET', '/api/v1/search?q=atlassian');
+  expect(search.status).toBe(200);
+  expect(search.body.hits).toEqual([expect.objectContaining({ kind: 'job', jobId: saved.job.id, title: null })]);
 });

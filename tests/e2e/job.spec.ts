@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { localDate } from '../../shared/dates.ts';
 import { formatDate } from '../../web/src/lib/format.ts';
-import { patchJob, reset, seedJob } from './helpers.ts';
+import { ORIGIN, patchJob, reset, seedJob, setAiMode } from './helpers.ts';
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -102,4 +102,48 @@ test('Esc goes back to the list', async ({ page, request }) => {
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('table', { name: 'Jobs' })).toContainText('Canva');
+});
+
+test('the Edit dialog stays open with your typing when the AI updates the job, and saves only what you changed', async ({ page, request }) => {
+  await setAiMode(request, 'fail');
+  const job = await seedJob(request, { jdText: 'Data Analyst\nXero\nNumbers.\n$90,000 - $110,000 per year' });
+  await page.goto(`/jobs/${job.id}`);
+  await expect(page.getByText("Couldn't read the ad yet.")).toBeVisible();
+  await page.keyboard.press('e');
+  const dialog = page.getByRole('dialog', { name: 'Edit job' });
+  await dialog.getByLabel('Role').fill('My own title');
+
+  // The AI reads the ad while the dialog is open.
+  await setAiMode(request, 'smart');
+  const res = await request.post(`/api/v1/jobs/${job.id}/reparse`, { headers: { origin: ORIGIN }, data: {} });
+  expect(res.status()).toBe(202);
+  await expect(page.locator('section[aria-label="Call sheet"]')).toContainText('$90,000', { timeout: 10_000 });
+
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Role')).toHaveValue('My own title');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog).toBeHidden();
+
+  const saved = (await (await request.get(`/api/v1/jobs/${job.id}`)).json()) as { title: string; company: string; salary: { text: string }; fieldSources: Record<string, string> };
+  expect(saved.title).toBe('My own title');
+  expect(saved.company).toBe('Xero');
+  expect(saved.salary.text).toBe('$90,000 - $110,000');
+  expect(saved.fieldSources).toMatchObject({ title: 'user', company: 'ai', salary: 'ai' });
+});
+
+
+test('a failed archive says why instead of failing silently', async ({ page, request }) => {
+  const job = await seedJob(request, { company: 'Xero', title: 'Analyst' });
+  await page.goto(`/jobs/${job.id}`);
+  await expect(callSheet(page)).toContainText('Xero');
+  await page.route(`**/api/v1/jobs/${job.id}`, (route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'The database is busy.' } }) })
+      : route.continue(),
+  );
+  page.once('dialog', (d) => void d.accept());
+  await page.getByText('More').click();
+  await page.getByRole('button', { name: 'Archive job' }).click();
+  await expect(page.getByRole('alert')).toContainText('The database is busy.');
+  await expect(page).toHaveURL(new RegExp(`/jobs/${job.id}$`));
 });

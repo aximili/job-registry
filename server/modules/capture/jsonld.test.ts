@@ -58,3 +58,21 @@ describe('extractJobPosting', () => {
     expect(extractJobPosting('<html><body>No data</body></html>')).toBeNull();
   });
 });
+
+describe('extractJobPosting: closing dates', () => {
+  const closing = (validThrough: string) => extractJobPosting(page(script({ ...seekPosting, validThrough })))?.structured.closingDate;
+
+  it('validThrough with an offset keeps the date as written', () => {
+    expect(closing('2026-11-30T00:00:00+11:00')).toBe('2026-11-30');
+    expect(closing('2026-11-30T23:59:59-05:00')).toBe('2026-11-30');
+  });
+
+  it('validThrough in UTC uses the local Sydney date', () => {
+    expect(closing('2026-11-30T14:00:00Z')).toBe('2026-12-01');
+    expect(closing('2026-11-30T12:59:59.000Z')).toBe('2026-11-30');
+  });
+
+  it('a plain date stays as it is', () => {
+    expect(closing('2026-11-30')).toBe('2026-11-30');
+  });
+});

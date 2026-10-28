@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 
 let port = 4777;
 try {
-  const text = readFileSync(new URL('../config/settings.json', import.meta.url), 'utf8').replace(/^﻿/, '');
+  const text = readFileSync(new URL('../config/settings.json', import.meta.url), 'utf8').replace(/^\uFEFF/, '');
   const value = JSON.parse(text)?.server?.port;
   if (Number.isInteger(value)) port = value;
 } catch {

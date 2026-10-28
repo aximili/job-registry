@@ -7,6 +7,11 @@ import type { Logger } from '../logger.ts';
 // logged in full but shown to the user only as a plain sentence.
 export function registerErrorHandler(http: FastifyInstance, logger: Logger): void {
   http.setErrorHandler((err: FastifyError, req, reply) => {
+    // Cancelled work, such as a rating you moved on from, is normal: no alarm.
+    if (err.name === 'AbortError') {
+      logger.debug({ method: req.method, url: req.url }, 'Request cancelled');
+      return reply.status(503).send({ error: { code: 'ai_unavailable', message: err.message || 'The AI task was cancelled.' } });
+    }
     if (err instanceof AppError) {
       return reply.status(err.status).send({ error: { code: err.code, message: err.message } });
     }

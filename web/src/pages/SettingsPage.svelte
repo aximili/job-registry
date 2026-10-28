@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { Status } from '../../../shared/contracts/index.ts';
+  import AiSettingsSection from '../components/AiSettingsSection.svelte';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
+  import { focusAiSettings } from '../lib/ai-state.svelte.ts';
   import { app, loadSettings } from '../lib/app-state.svelte.ts';
+  import { plural } from '../lib/format.ts';
   import { moveStatus, slugifyStatusId } from '../lib/statuses.ts';
   import { showToast } from '../lib/toast.svelte.ts';
 
@@ -23,9 +27,19 @@
   }
 
   onMount(async () => {
-    await loadSettings();
+    try {
+      await loadSettings();
+    } catch (err) {
+      error = friendlyError(err);
+      return;
+    }
     take(app.settings.statuses);
     loaded = true;
+    // The AI pill links to /settings#ai.
+    if (location.hash === '#ai') {
+      await tick();
+      focusAiSettings();
+    }
   });
 
   function addStatus() {
@@ -52,7 +66,7 @@
       take(next.statuses);
       showToast('Statuses saved.');
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       saving = false;
     }
@@ -63,16 +77,16 @@
       const { file } = await api.backupNow();
       backupMessage = `Backed up to ${file}`;
     } catch (err) {
-      backupMessage = (err as Error).message;
+      backupMessage = friendlyError(err);
     }
   }
 
   async function rebuild() {
     try {
       const res = await api.rebuildSearch();
-      rebuildMessage = `Search index rebuilt: ${res.jobs} jobs, ${res.contacts} contacts.`;
+      rebuildMessage = `Search index rebuilt: ${plural(res.jobs, 'job')}, ${plural(res.contacts, 'contact')}.`;
     } catch (err) {
-      rebuildMessage = (err as Error).message;
+      rebuildMessage = friendlyError(err);
     }
   }
 </script>
@@ -122,10 +136,14 @@
       <label class="field"><span>New status</span><input bind:value={newLabel} placeholder="For example, Phone screen" /></label>
       <button type="submit" class="button" disabled={!newLabel.trim()}>Add status</button>
     </form>
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button type="button" class="button primary" disabled={saving} onclick={saveStatuses}>Save statuses</button>
+    {:else if error}
+      <p class="error" role="alert">{error}</p>
     {/if}
   </section>
+
+  {#if loaded}<AiSettingsSection />{/if}
 
   <section aria-labelledby="data-heading">
     <h2 id="data-heading">Your data</h2>

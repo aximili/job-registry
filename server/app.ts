@@ -13,12 +13,24 @@ import { registerErrorHandler } from './core/http/errors.ts';
 import { registerSecurity } from './core/http/security.ts';
 import { serveDashboard } from './core/http/static.ts';
 import { createLogger, type Logger } from './core/logger.ts';
+import {
+  createAiModule,
+  createLlamaServerRuntime,
+  createNoopRuntime,
+  createOpenAiCompatibleProvider,
+  type AiProvider,
+  type AiService,
+  type ModelRuntime,
+} from './modules/ai/index.ts';
 import { createCallsheetModule, type CallsheetService } from './modules/callsheet/index.ts';
 import { createCaptureModule, type CaptureService } from './modules/capture/index.ts';
 import { createContactsModule, type ContactsService } from './modules/contacts/index.ts';
+import { createEnrichModule, type EnrichService } from './modules/enrich/index.ts';
 import { createJobsModule, type JobsService } from './modules/jobs/index.ts';
 import { createLiveModule, type LiveService } from './modules/live/index.ts';
 import { createNotesModule, type NotesService } from './modules/notes/index.ts';
+import { createProfileModule } from './modules/profile/index.ts';
+import { createRatingsModule, type RatingsService } from './modules/ratings/index.ts';
 import { createSearchModule, type SearchService } from './modules/search/index.ts';
 import { createSettingsModule, type SettingsService } from './modules/settings/index.ts';
 import { createSystemModule, type SystemService } from './modules/system/index.ts';
@@ -33,8 +45,14 @@ export type AppOptions = {
   version?: string;
 };
 
+// Stand-ins for the outside world, for tests.
+export type Fakes = { ai: AiProvider; runtime: ModelRuntime };
+
 export type AppServices = {
   settings: SettingsService;
+  ai: AiService;
+  ratings: RatingsService;
+  enrich: EnrichService;
   system: SystemService;
   capture: CaptureService;
   jobs: JobsService;
@@ -51,10 +69,14 @@ export type App = {
   bus: EventBus;
   port: number;
   services: AppServices;
+  // After the server is listening: reads ads still waiting from before.
+  startBackgroundWork(): void;
+  // For a crash or exit: ends the AI program the app started, at once.
+  stopChildrenNow(): void;
   close(): Promise<void>;
 };
 
-export async function buildApp(opts: AppOptions): Promise<App> {
+export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Promise<App> {
   const logger = opts.logger ?? createLogger({ dir: null });
   const now = opts.now ?? (() => new Date());
   const bus = createEventBus(logger);
@@ -83,9 +105,30 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     onShutdown: opts.onShutdown ?? (() => {}),
   });
   const capture = createCaptureModule({ fetch: opts.fetch, now });
+
+  // The AI: one provider for every OpenAI-style server. The runtime is the
+  // llama-server the app manages, or a check on a server you run yourself.
+  const aiConfig = () => settings.service.get().ai;
+  const provider =
+    fakes.ai ??
+    createOpenAiCompatibleProvider(() => {
+      const c = aiConfig();
+      return { baseUrl: c.baseUrl, model: c.model, timeoutSec: c.timeoutSec };
+    });
+  const managedRuntime = createLlamaServerRuntime({ root: opts.paths.root, logFile: join(opts.paths.logs, 'llama.log'), getConfig: aiConfig });
+  const externalRuntime = createNoopRuntime(provider, aiConfig);
+  const runtime = (): ModelRuntime => {
+    if (fakes.runtime) return fakes.runtime;
+    const c = aiConfig();
+    return c.preset === 'llama-server' && c.managed.enabled ? managedRuntime : externalRuntime;
+  };
+  const ai = createAiModule({ provider, runtime, getConfig: aiConfig, bus, logger, now });
+  const profile = createProfileModule({ dir: opts.paths.profile });
+  const ratings = createRatingsModule({ db, ai: ai.service, profile: profile.service, now });
   const jobs = createJobsModule({ db, bus, statuses: () => settings.service.statuses(), now });
   const notes = createNotesModule({ db, bus, now });
   const contacts = createContactsModule({ db, bus, now });
+  const enrich = createEnrichModule({ bus, jobs: jobs.service, ai: ai.service, ratings: ratings.service, logger });
   const search = createSearchModule({
     db,
     bus,
@@ -105,7 +148,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   });
   registerSecurity(http, { port });
   registerErrorHandler(http, logger);
-  for (const module of [settings, system, capture, jobs, notes, contacts, search, callsheet, live]) {
+  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, search, callsheet, live]) {
     await http.register(module.routes, { prefix: '/api/v1' });
   }
   await serveDashboard(http, opts.paths.webDist);
@@ -115,13 +158,32 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     db,
     bus,
     port,
-    services: { settings: settings.service, system: system.service, capture: capture.service, jobs: jobs.service, notes: notes.service,
+    services: {
+      settings: settings.service,
+      ai: ai.service,
+      ratings: ratings.service,
+      enrich: enrich.service,
+      system: system.service,
+      capture: capture.service,
+      jobs: jobs.service,
+      notes: notes.service,
       contacts: contacts.service,
       search: search.service,
       callsheet: callsheet.service,
       live: live.service,
     },
+    stopChildrenNow() {
+      ai.service.stopNow();
+    },
+    startBackgroundWork() {
+      const waiting = enrich.service.sweep();
+      if (waiting > 0) logger.info(`Reading ${waiting} saved ads with the AI, one at a time`);
+    },
     async close() {
+      // AI work first, so nothing writes to the database after it closes,
+      // and a llama-server the app started is never left running.
+      await ai.service.stop().catch((err: unknown) => logger.error({ err }, 'Stopping the AI failed'));
+      await enrich.service.onIdle();
       await http.close();
       db.close();
     },

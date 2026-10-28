@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Capture, SourceSite } from './capture.ts';
 import { Id, IsoDateTime, LocalDate } from './common.ts';
 import { AdContact, EmploymentType, Salary, WorkMode } from './parsed-job.ts';
+import { Rating } from './rating.ts';
 
 export const FieldSource = z.enum(['user', 'ad', 'ai']);
 export type FieldSource = z.infer<typeof FieldSource>;
@@ -39,6 +40,7 @@ export const Job = EditableJobFields.extend({
   parseError: z.string().nullable(),
   matchVerdict: z.string().nullable(),
   matchScore: z.number().int().nullable(),
+  match: Rating.nullable(),
   archived: z.boolean(),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

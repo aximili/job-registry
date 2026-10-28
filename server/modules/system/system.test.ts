@@ -9,18 +9,33 @@ afterEach(async () => {
   app = undefined;
 });
 
-it('backupNow writes jobs-YYYY-MM-DD-HHmmss.db and keeps only the newest N', async () => {
-  let time = new Date('2026-10-28T03:15:00Z').getTime();
+it('backupNow writes jobs-YYYY-MM-DD-HHmmss.db and keeps the newest one from each of the last N days', async () => {
+  let time = 0;
   app = await createTestApp({ now: () => new Date(time), settings: { backups: { dir: 'data/backups', keep: 2 } } });
   const files: string[] = [];
-  for (let i = 0; i < 3; i++) {
+  // Several starts in one day must not push out the older days.
+  // Sydney is 11 hours ahead of UTC in late October.
+  for (const at of [
+    '2026-10-25T22:00:00Z', // 26 Oct, 9 am
+    '2026-10-26T22:00:00Z', // 27 Oct, 9 am
+    '2026-10-26T23:00:00Z', // 27 Oct, 10 am
+    '2026-10-28T03:15:00Z', // 28 Oct, 2:15 pm
+    '2026-10-28T04:15:00Z', // 28 Oct, 3:15 pm
+  ]) {
+    time = new Date(at).getTime();
     files.push(await app.services.system.backupNow());
-    time += 60_000;
   }
-  // 03:15 UTC is 14:15 in Sydney.
-  expect(files[0]).toMatch(/jobs-2026-10-28-141500\.db$/);
+  expect(files[3]).toMatch(/jobs-2026-10-28-141500\.db$/);
   const kept = readdirSync(dirname(files[0]!)).sort();
-  expect(kept).toEqual(['jobs-2026-10-28-141600.db', 'jobs-2026-10-28-141700.db']);
+  expect(kept).toEqual(['jobs-2026-10-27-100000.db', 'jobs-2026-10-28-151500.db']);
+});
+
+it('two backups asked for at once share one backup instead of failing', async () => {
+  app = await createTestApp({ now: () => new Date('2026-10-28T03:15:00Z') });
+  const [a, b] = await Promise.all([app.services.system.backupNow(), app.services.system.backupNow()]);
+  expect(a).toMatch(/jobs-2026-10-28-141500\.db$/);
+  expect(b).toBe(a);
+  expect(readdirSync(dirname(a)).sort()).toEqual(['jobs-2026-10-28-141500.db']);
 });
 
 it('POST /system/backup returns the file it wrote', async () => {

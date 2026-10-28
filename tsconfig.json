@@ -1,10 +1,14 @@
 {
   "compilerOptions": {
     "target": "es2024",
-    "lib": ["es2024", "DOM", "DOM.Iterable"],
+    "lib": [
+      "es2024"
+    ],
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
@@ -14,6 +18,19 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["server", "shared", "tests", "scripts", "*.ts"],
-  "exclude": ["web", "node_modules"]
+  "include": [
+    "server",
+    "shared",
+    "tests",
+    "scripts",
+    "*.ts"
+  ],
+  "exclude": [
+    "web",
+    "node_modules",
+    "tests/e2e",
+    "extension",
+    "scripts/ext-check.ts",
+    "tests/e2e-extension"
+  ]
 }

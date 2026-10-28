@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Note } from '../../../shared/contracts/index.ts';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
   import { formatRelative } from '../lib/format.ts';
 
   let { jobId, notes, onSaved }: { jobId: number; notes: Note[]; onSaved: () => void } = $props();
@@ -30,7 +31,7 @@
       error = null;
       onSaved();
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       saving = false;
     }
@@ -60,7 +61,7 @@
       <button type="button" class="button primary" disabled={saving} onclick={save}>Save note</button>
     </div>
   {/if}
-  {#if error}<p class="error">{error}</p>{/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
   <ul>
     {#each visible as note (note.id)}
       <li>

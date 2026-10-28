@@ -43,6 +43,7 @@ if (dbExisted) {
   app.services.system.backupNow().catch((err: unknown) => logger.error({ err }, 'The start-up backup failed'));
 }
 const stopBackups = app.services.system.startDailyBackups();
+app.startBackgroundWork();
 
 let stopping = false;
 async function stop(): Promise<void> {
@@ -53,4 +54,4 @@ async function stop(): Promise<void> {
   await app.close();
   process.exit(0);
 }
-installProcessHandlers(process, { stop, logger });
+installProcessHandlers(process, { stop, logger, onExit: () => app.stopChildrenNow() });

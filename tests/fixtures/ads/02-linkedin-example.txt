@@ -1,0 +1,21 @@
+Platform Engineer
+Kestrel Software · Sydney, New South Wales, Australia (Remote)
+
+About the job
+Kestrel builds scheduling software for hospitals across Australia and New Zealand. We're looking for a Platform Engineer to help us run a reliable, secure platform on AWS.
+
+Responsibilities
+• Own our Kubernetes clusters and CI/CD pipelines
+• Improve monitoring and on-call
+• Work with product teams to ship safely
+
+Requirements
+• 3+ years running production systems on AWS
+• Kubernetes and Terraform
+• A scripting language such as Go or Python
+
+Nice to have
+• Experience in healthcare
+• AWS certification
+
+This is a permanent, full-time role. Salary isn't listed; we pay at market rate.

@@ -17,6 +17,8 @@ beforeEach(async () => {
   clock = new Date('2026-10-28T03:15:00.000Z');
   app = await createTestApp({ now: () => clock });
   jobId = newJob();
+  // The AI reads the ad in the background; let it finish before counting events.
+  await app.services.enrich.onIdle();
   events = [];
   app.bus.onAny((name, payload) => events.push([name, payload]));
 });

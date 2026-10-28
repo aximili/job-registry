@@ -1,64 +1,45 @@
 <script lang="ts">
-  import type { EmploymentType, Job, UpdateJobRequest, WorkMode } from '../../../shared/contracts/index.ts';
+  // Edit a job's fields. The form is taken when the dialog opens and isn't
+  // replaced while it's open, even if the AI updates the job meanwhile.
+  // Saving sends only the fields you changed.
+  import type { EmploymentType, Job, WorkMode } from '../../../shared/contracts/index.ts';
   import { api } from '../lib/api.ts';
+  import { buildPatch, emptyForm, formFromJob, type EditForm } from '../lib/edit-job.ts';
+  import { friendlyError } from '../lib/errors.ts';
   import { EMPLOYMENT_LABEL, WORK_MODE_LABEL } from '../lib/format.ts';
 
   let { job, onSaved }: { job: Job; onSaved: () => void } = $props();
 
   let dialog: HTMLDialogElement;
-  let form = $state(fromJob());
+  // Taken when the dialog opens: what you saw, so only your changes are sent.
+  let start: EditForm = emptyForm();
+  let opened: Job | null = null;
+  let form = $state<EditForm>(emptyForm());
   let saving = $state(false);
   let error = $state<string | null>(null);
 
-  function fromJob() {
-    return {
-      title: job.title ?? '',
-      company: job.company ?? '',
-      agency: job.agency ?? '',
-      location: job.location ?? '',
-      workMode: job.workMode,
-      employmentType: job.employmentType,
-      salary: job.salary.text ?? '',
-      closingDate: job.closingDate ?? '',
-      dateApplied: job.dateApplied ?? '',
-      summary: job.summary ?? '',
-      requirements: job.requirements.join('\n'),
-    };
-  }
-
   export function open() {
-    form = fromJob();
+    opened = job;
+    start = formFromJob(job);
+    form = { ...start };
     error = null;
     dialog.showModal();
   }
 
   async function save() {
+    if (!opened) return;
+    const patch = buildPatch(start, form, opened);
+    if (Object.keys(patch).length === 0) {
+      dialog.close();
+      return;
+    }
     saving = true;
-    const lines = (text: string) =>
-      text
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-    // The server keeps only the values that really changed.
-    const patch: UpdateJobRequest = {
-      title: form.title,
-      company: form.company,
-      agency: form.agency,
-      location: form.location,
-      workMode: form.workMode,
-      employmentType: form.employmentType,
-      salary: { ...job.salary, text: form.salary.trim() || null },
-      closingDate: form.closingDate || null,
-      dateApplied: form.dateApplied || null,
-      summary: form.summary,
-      requirements: lines(form.requirements),
-    };
     try {
-      await api.updateJob(job.id, patch);
+      await api.updateJob(opened.id, patch);
       dialog.close();
       onSaved();
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       saving = false;
     }
@@ -103,7 +84,7 @@
         <textarea rows="4" bind:value={form.requirements}></textarea>
       </label>
     </div>
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="dialog-actions">
       <button type="button" class="button" onclick={() => dialog.close()}>Cancel</button>
       <button type="submit" class="button primary" disabled={saving}>Save changes</button>

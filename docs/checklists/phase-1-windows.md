@@ -4,18 +4,19 @@ The app was built and tested on macOS. These steps check the parts that only Win
 
 ## Setup
 
-- [ ] **Node.js:** `node -v` in a terminal shows v24 or later. If not: `winget install OpenJS.NodeJS.LTS`.
-- [ ] **`setup.bat` finishes** with "All set." It should install packages, build the dashboard and create `config\settings.json`. No C++ build tools should be needed.
-- [ ] **Desktop shortcut:** answer Y to the question. The shortcut "Job Registry" appears and starts the app.
-- [ ] **Start at log-in:** answer y to the question. Sign out and back in. The server starts minimised, and no browser opens.
+- [x] **Node.js:** `node -v` in a terminal shows v24 or later. If not: `winget install OpenJS.NodeJS.LTS`. (Found Node.js v26.12.1)
+- [x] **`setup.bat` finishes** with "All set." It should install packages, build the dashboard and create `config\settings.json`. No C++ build tools should be needed.
+- [x] **Desktop shortcut:** answer Y to the question. The shortcut "Job Registry" appears and starts the app.
+- [ ] **Start at log-in:** answer y to the question. Sign out and back in. The server starts minimised, and no browser opens. (I chose not to atm)
 
 ## Starting and stopping
 
-- [ ] **`start.bat`** opens the dashboard at http://127.0.0.1:4777/ within about 5 seconds.
-- [ ] **Run `start.bat` again:** no second "Job Registry server" window appears, and the dashboard just opens again.
-- [ ] **`stop.bat` while the app is running** prints "Job Registry stopped.", and the server window closes. (If it says "wasn't running" while the window is still open, note it down.)
-- [ ] **Run `start.bat`, then close the "Job Registry server" window:** start it again and check your data is all still there.
-- [ ] **A broken settings file:** edit `config\settings.json` and delete a comma, then run `start.bat`. It should say the server didn't start, show a sentence naming the file and the problem, and leave your file as it was. Put the comma back.
+- [x] **`start.bat`** opens the dashboard at http://127.0.0.1:4777/ within about 5 seconds.
+- [x] **Run `start.bat` again:** no second "Job Registry server" window appears, and the dashboard just opens again.
+- [x] **`stop.bat` while the app is running** prints "Job Registry stopped.", and the server window closes. (If it says "wasn't running" while the window is still open, note it down.)
+- [x] **Run `start.bat`, then close the "Job Registry server" window:** start it again and check your data is all still there.
+- [x] **A broken settings file:** edit `config\settings.json` and delete a comma, then run `start.bat`. It should say the server didn't start, show a sentence naming the file and the problem, and leave your file as it was. Put the comma back.
+- [ ] **No garbled characters** (changed after your test): repeat the broken-settings test with a status label that's too short, such as `"label": ""`. The message shows plain characters such as `-` and `->`, not boxes or `â€"`.
 
 ## The recruiter-call test
 
@@ -33,7 +34,8 @@ The app was built and tested on macOS. These steps check the parts that only Win
 
 ## Upgrading later
 
-- [ ] **Before running `setup.bat` again** (for example, for Phase 2), stop the app with `stop.bat`. Setup can't replace the database driver while the app is using it.
+- [ ] **Run `setup.bat` while the app is running.** It should stop straight away with "Job Registry is running. Run stop.bat first, then run setup.bat again.", before it installs anything. (Setup can't replace the database driver while the app is using it.)
+- [ ] **Then stop the app and run `setup.bat` again.** It finishes with "All set." and your jobs are still there.
 
 ## In Firefox
 

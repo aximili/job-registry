@@ -6,5 +6,7 @@ export * from './notes.ts';
 export * from './contacts.ts';
 export * from './search.ts';
 export * from './callsheet.ts';
+export * from './ai.ts';
+export * from './rating.ts';
 export * from './settings.ts';
 export * from './system.ts';

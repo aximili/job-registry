@@ -115,6 +115,9 @@ export function createSearchService(opts: SearchOptions): SearchService {
     if (jobId !== null) reindexJob(jobId);
   });
 
+  const activeJobIds = (ids: number[]): number[] =>
+    ids.length === 0 ? [] : jobs.getSummaries(ids).filter((j) => !j.archived).map((j) => j.id);
+
   return {
     reindexJob,
     reindexContact,
@@ -131,7 +134,8 @@ export function createSearchService(opts: SearchOptions): SearchService {
       const digits = queryDigits(searchable(text));
       if (digits) {
         for (const match of contacts.findByPhoneDigits(digits)) {
-          if (match.jobIds.length > 0) match.jobIds.forEach((id) => phoneJobs.add(id));
+          const shown = activeJobIds(match.jobIds);
+          if (shown.length > 0) shown.forEach((id) => phoneJobs.add(id));
           else phoneContacts.add(match.contactId);
         }
       }
@@ -170,10 +174,10 @@ export function createSearchService(opts: SearchOptions): SearchService {
         });
       }
 
-      // A person only shows on their own when they aren't linked to any job:
-      // otherwise their jobs already show.
+      // A person only shows on their own when none of their jobs shows:
+      // otherwise their jobs already do. Archived jobs never show.
       for (const [contactId, rank] of contactRows) {
-        if (contacts.listJobIdsForContact(contactId).length > 0) continue;
+        if (activeJobIds(contacts.listJobIdsForContact(contactId)).length > 0) continue;
         const contact = contacts.get(contactId);
         ranked.push({
           hit: {

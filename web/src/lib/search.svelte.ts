@@ -3,6 +3,7 @@
 
 import type { SearchHit } from '../../../shared/contracts/index.ts';
 import { api } from './api.ts';
+import { friendlyError } from './errors.ts';
 
 export const search = $state({
   query: '',
@@ -41,7 +42,7 @@ async function run(q: string): Promise<void> {
     search.error = null;
   } catch (err) {
     if ((err as Error).name === 'AbortError') return;
-    search.error = (err as Error).message;
+    search.error = friendlyError(err);
   }
 }
 

@@ -19,9 +19,10 @@ export function phoneDigits(raw: string): string {
 // (part of) a phone number, or null when it doesn't.
 export function queryDigits(q: string): string | null {
   if (!/^[\d\s+\-().]+$/.test(q)) return null;
-  const digits = q.replace(/\D/g, '');
-  if (digits.length < 3) return null;
-  if (q.trim().startsWith('+61')) return localAustralian(digits, 2);
-  if (digits.startsWith('0061')) return localAustralian(digits, 4);
-  return digits;
+  const raw = q.replace(/\D/g, '');
+  let digits = raw;
+  if (q.trim().startsWith('+61')) digits = localAustralian(raw, 2);
+  else if (raw.startsWith('0061')) digits = localAustralian(raw, 4);
+  // Count digits in local form: "+61 4" becomes "04", which every mobile starts with.
+  return digits.length < 3 ? null : digits;
 }

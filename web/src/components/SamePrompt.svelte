@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Candidate, SourceSite } from '../../../shared/contracts/index.ts';
   import { statusLabel } from '../lib/app-state.svelte.ts';
-  import { displayCompany, displayTitle, formatDate } from '../lib/format.ts';
+  import { displayCompany, displayTitle, formatDate, joinList } from '../lib/format.ts';
 
   let {
     candidates,
@@ -19,7 +19,7 @@
   };
 
   function describe(c: Candidate): string {
-    const sites = c.sourceSites.map((s) => SITE[s]).join(' and ');
+    const sites = joinList(c.sourceSites.map((s) => SITE[s]));
     const status = [statusLabel(c.status), formatDate(c.dateApplied)].filter(Boolean).join(' ');
     return `Looks like ${displayTitle(c.title)} at ${displayCompany(c.company ?? c.agency)} (from ${sites}, ${status}).`;
   }

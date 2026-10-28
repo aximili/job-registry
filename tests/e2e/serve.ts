@@ -3,7 +3,7 @@
 // on port 4798 for the "paste a link" tests.
 // Run by Playwright (see playwright.config.ts). It isn't part of the app.
 
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,8 @@ import { pino } from 'pino';
 import { DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
 import { buildApp } from '../../server/app.ts';
 import { resolvePaths } from '../../server/core/config.ts';
+import { FakeRuntime } from '../fakes/fake-runtime.ts';
+import { createSmartFake, type SmartMode } from '../fakes/smart-fake-ai.ts';
 
 export const E2E_PORT = 4799;
 export const FIXTURE_PORT = 4798;
@@ -20,22 +22,72 @@ const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'jr-e2e-'));
 const paths = resolvePaths(root, { webDist: join(projectRoot, 'web', 'dist') });
 
-const app = await buildApp({ paths, port: E2E_PORT, logger: pino({ level: 'warn' }), version: 'e2e' });
+// A master profile, so saved jobs get a match rating from the fake AI.
+mkdirSync(paths.profile, { recursive: true });
+writeFileSync(join(paths.profile, 'master-profile.md'), '# Sam Taylor\nSenior engineer. Eight years of TypeScript.\n');
+
+const smart = createSmartFake();
+const runtime = new FakeRuntime();
+const app = await buildApp(
+  { paths, port: E2E_PORT, logger: pino({ level: 'warn' }), version: 'e2e' },
+  { ai: smart.provider, runtime },
+);
 
 // Test-only: empty every table between tests, and put the settings back.
+// AI work from the last test is cancelled first: SQLite reuses job ids after
+// a delete, so a late answer could otherwise land on the next test's job.
 app.http.post('/__test/reset', async () => {
+  smart.setMode('smart');
+  smart.provider.calls.length = 0;
+  smart.provider.finished.length = 0;
+  await app.services.ai.stop();
+  await app.services.enrich.onIdle();
   app.db.exec(`
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
-    DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index;`);
+    DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;`);
   app.services.settings.update(DEFAULT_SETTINGS);
+  return { ok: true };
+});
+
+// Test-only: how many AI calls each task has started, for the extension's
+// "only the last rating runs" check.
+app.http.get('/__test/ai-calls', async () => ({
+  ratings: smart.provider.callsFor('rating').length,
+  ratingsFinished: smart.provider.finished.filter((c) => c.jsonSchema?.name === 'rating').length,
+}));
+
+// Test-only: how the fake AI behaves: { mode: 'smart' | 'fail' | 'slow' | 'bad' }.
+app.http.post('/__test/ai', async (req) => {
+  smart.setMode((req.body as { mode: SmartMode }).mode);
   return { ok: true };
 });
 
 await app.http.listen({ host: '127.0.0.1', port: E2E_PORT });
 
 const fixtures = join(projectRoot, 'tests', 'e2e', 'fixtures');
+const sites = join(projectRoot, 'tests', 'fixtures', 'sites');
+
+// Copies of the job sites for the extension's tests, at /seek/…, /linkedin/…,
+// /indeed/… and /other/… (the extension's test build reads them as the real sites).
+const SITE_PAGES: [RegExp, string][] = [
+  [/^\/seek\/jobs$/, join(fixtures, 'seek-live-search.html')],
+  [/^\/seek\/job\/99999999$/, join(fixtures, 'seek-unreadable.html')],
+  [/^\/seek\/job\/88888888$/, join(fixtures, 'seek-growing.html')],
+  [/^\/seek\/job\/\d+$/, join(sites, 'seek-job.html')],
+  [/^\/linkedin\/jobs\/view\/\d+\/?$/, join(sites, 'linkedin-job.html')],
+  [/^\/indeed\/viewjob$/, join(sites, 'indeed-job.html')],
+  [/^\/other\/article$/, join(sites, 'generic-article.html')],
+];
+
 createServer((req, res) => {
-  const name = (req.url ?? '/').split('?')[0]!.slice(1);
+  const path = (req.url ?? '/').split('?')[0]!;
+  const sitePage = SITE_PAGES.find(([pattern]) => pattern.test(path))?.[1];
+  if (sitePage) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(readFileSync(sitePage));
+    return;
+  }
+  const name = path.slice(1);
   if (name === 'blocked') {
     res.writeHead(403, { 'content-type': 'text/plain' });
     res.end('Forbidden');

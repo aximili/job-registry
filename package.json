@@ -12,24 +12,33 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
     "start": "node server/main.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && svelte-check --tsconfig web/tsconfig.json --fail-on-warnings",
-    "check:deps": "depcruise server shared web/src --config .dependency-cruiser.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/e2e/tsconfig.json && svelte-check --tsconfig web/tsconfig.json --fail-on-warnings && svelte-check --tsconfig extension/tsconfig.json --fail-on-warnings",
+    "check:deps": "depcruise server shared web/src extension/src --config .dependency-cruiser.cjs",
     "test:unit": "vitest run",
     "test": "npm run typecheck && npm run check:deps && vitest run",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && node extension/build.mjs --e2e && playwright test",
+    "eval:parse": "node scripts/eval-parse.ts",
+    "ext:build": "node extension/build.mjs",
+    "ext:lint": "node extension/build.mjs && web-ext lint -s extension/dist/firefox",
+    "ext:sign": "node extension/build.mjs && node extension/sign.mjs",
+    "ext:check": "node scripts/ext-check.ts"
   },
   "devDependencies": {
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@playwright/test": "^1.64.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/better-sqlite3": "^9.6.0",
+    "@types/chrome": "^0.3.7",
     "@types/node": "^26.6.5",
     "dependency-cruiser": "^18.7.0",
+    "esbuild": "^0.28.2",
+    "esbuild-svelte": "^0.9.5",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.7",
     "typescript": "~6.0.3",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "web-ext": "^10.8.0"
   },
   "dependencies": {
     "@fastify/static": "^10.1.8",

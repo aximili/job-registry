@@ -32,7 +32,8 @@ export function canonicalJobUrl(input: string): CanonicalJobUrl {
 
   if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) {
     const id =
-      url.pathname.match(/^\/jobs\/view\/(?:[^/]*-)?(\d+)\/?$/)?.[1] ??
+      // /comm/ is the form job-alert emails link to.
+      url.pathname.match(/^\/(?:comm\/)?jobs\/view\/(?:[^/]*-)?(\d+)\/?$/)?.[1] ??
       digitsOnly(url.searchParams.get('currentJobId'));
     if (id) {
       return { canonicalUrl: `https://www.linkedin.com/jobs/view/${id}/`, sourceSite: 'linkedin', externalId: id };

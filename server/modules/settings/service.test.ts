@@ -49,7 +49,7 @@ describe('settings service', () => {
 
   it('reads a file saved with a byte-order mark, as Windows Notepad does', () => {
     const { file, bus } = setup();
-    writeSettings(file, `﻿${JSON.stringify({ server: { port: 5002 } })}`);
+    writeSettings(file, `\uFEFF${JSON.stringify({ server: { port: 5002 } })}`);
     expect(createSettingsService({ file, bus }).get().server.port).toBe(5002);
   });
 

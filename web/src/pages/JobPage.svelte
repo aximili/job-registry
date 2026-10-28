@@ -8,9 +8,10 @@
   import LogCallDialog from '../components/LogCallDialog.svelte';
   import Timeline from '../components/Timeline.svelte';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
   import { statusLabel } from '../lib/app-state.svelte.ts';
   import { isShortcut, isTypingTarget } from '../lib/keys.ts';
-  import { JOB_EVENTS, onLive } from '../lib/live.svelte.ts';
+  import { JOB_EVENTS, onLive, onReconnect } from '../lib/live.svelte.ts';
   import { navigate } from '../lib/router.svelte.ts';
   import { buildTimeline } from '../lib/timeline.ts';
 
@@ -28,7 +29,7 @@
       error = null;
     } catch (err) {
       if (err instanceof ApiError && err.code === 'not_found') missing = true;
-      else error = (err as Error).message;
+      else error = friendlyError(err);
     }
   }
 
@@ -41,8 +42,10 @@
       clearTimeout(timer);
       timer = setTimeout(() => void load(), 150);
     });
+    const offReconnect = onReconnect(() => void load());
     return () => {
       off();
+      offReconnect();
       clearTimeout(timer);
     };
   });
@@ -52,14 +55,18 @@
       await api.changeStatus(id, status);
       await load();
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     }
   }
 
   async function archive() {
     if (!confirm('Archive this job? It will be hidden from your lists and from search.')) return;
-    await api.updateJob(id, { archived: true });
-    navigate('/');
+    try {
+      await api.updateJob(id, { archived: true });
+      navigate('/');
+    } catch (err) {
+      error = friendlyError(err);
+    }
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -86,7 +93,7 @@
     <h1>This job isn't here.</h1>
     <p class="muted">It may have been archived. <a href="/">Go to your jobs</a></p>
   {:else if sheet}
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
     <CallSheet
       {sheet}
       onStatusChange={changeStatus}
@@ -100,11 +107,9 @@
       <AdText postings={sheet.postings} />
     </div>
     <LogCallDialog bind:this={logCall} jobId={id} people={sheet.people} onSaved={load} />
-    {#key sheet.job.updatedAt}
-      <EditJobDialog bind:this={editJob} job={sheet.job} onSaved={load} />
-    {/key}
+    <EditJobDialog bind:this={editJob} job={sheet.job} onSaved={load} />
   {:else if error}
-    <p class="error">{error}</p>
+    <p class="error" role="alert">{error}</p>
   {/if}
 </main>
 

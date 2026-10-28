@@ -3,8 +3,10 @@ import { z } from 'zod';
 export const Id = z.number().int().positive();
 export type Id = z.infer<typeof Id>;
 
-// Stored timestamps are ISO 8601 in UTC, as made by Date#toISOString().
-export const IsoDateTime = z.iso.datetime({ offset: true });
+// Stored timestamps are ISO 8601 in UTC, as made by Date#toISOString(). A time
+// sent with an offset (+11:00) is turned into UTC, so every stored time sorts
+// and compares the same way.
+export const IsoDateTime = z.iso.datetime({ offset: true }).transform((value) => new Date(value).toISOString());
 export type IsoDateTime = z.infer<typeof IsoDateTime>;
 
 // A calendar date with no time, YYYY-MM-DD.

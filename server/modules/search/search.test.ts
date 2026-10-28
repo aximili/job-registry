@@ -162,8 +162,44 @@ describe('search: final review fixes', () => {
   it('finds a phone number copied from Outlook or Teams, with invisible marks or full-width digits', () => {
     const id = job({ company: 'Atlassian' });
     app.services.contacts.logInteraction({ newContact: { name: 'Sam Lee', phone: '0412 345 678' }, jobId: id, kind: 'call', notes: '' });
-    expect(jobIds(search('‪0412 345 678‬'))).toEqual([id]);
-    expect(jobIds(search('‎+61 412 345 678'))).toEqual([id]);
+    expect(jobIds(search('\u202A0412 345 678\u202C'))).toEqual([id]);
+    expect(jobIds(search('\u200E+61 412 345 678'))).toEqual([id]);
     expect(jobIds(search('０４１２３４５'))).toEqual([id]);
+  });
+});
+
+describe('search: Phase 1 close-out', () => {
+  const contactIds = (hits: SearchHit[]) => hits.flatMap((h) => (h.kind === 'contact' ? [h.contactId] : []));
+
+  function personOnArchivedJob(): number {
+    const id = job({ company: 'Atlassian' });
+    const call = app.services.contacts.logInteraction({
+      newContact: { name: 'Priya Shah', phone: '0412 345 678' },
+      jobId: id,
+      kind: 'call',
+      notes: '',
+    });
+    app.services.jobs.update(id, { archived: true });
+    return call.contactId!;
+  }
+
+  it('finds a person by name when all their jobs are archived', () => {
+    const contactId = personOnArchivedJob();
+    expect(contactIds(search('priya'))).toEqual([contactId]);
+  });
+
+  it('finds a person by phone when all their jobs are archived', () => {
+    const contactId = personOnArchivedJob();
+    expect(contactIds(search('345 678'))).toEqual([contactId]);
+  });
+
+  it('still shows the job, not the person, while one of their jobs is open', () => {
+    personOnArchivedJob();
+    const contactId = app.services.contacts.list('priya')[0]!.id;
+    const open = job({ company: 'Canva' });
+    app.services.contacts.linkToJob(open, { contactId, relation: 'recruiter' });
+    const hits = search('priya');
+    expect(jobIds(hits)).toEqual([open]);
+    expect(contactIds(hits)).toEqual([]);
   });
 });

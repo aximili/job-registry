@@ -1,0 +1,11 @@
+{
+  "title": "Senior Data Analyst",
+  "company": "Brightwater Energy",
+  "agency": null,
+  "location": "Melbourne VIC",
+  "workMode": "hybrid",
+  "employmentType": "full-time",
+  "salary": { "min": 120000, "max": 135000, "currency": "AUD", "period": "year", "text": "$120,000 – $135,000 per year + super" },
+  "closingDate": "2026-11-30",
+  "requirements": ["5+ years in a data analyst role", "Strong SQL", "Power BI or Tableau"]
+}

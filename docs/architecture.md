@@ -127,7 +127,7 @@ flowchart TB
 | Files | Plain text and CSS on disk | Settings, secrets, profile, templates, attachments, backups, logs | — |
 | llama-server | PrismML's build of llama.cpp | Runs Bonsai 2 on the GPU. Started on demand, stopped when idle | — |
 
-Content scripts run inside the job site's page, so the browser's cross-site rules (CORS) apply to them. The background script has host permission for `127.0.0.1:4777`, so it can call the server freely. That's why every server call goes through the background.
+Content scripts run inside the job site's page, so the browser's cross-site rules (CORS) apply to them. The background script has host permission for `127.0.0.1` (any port), so it can call the server freely. That's why every server call goes through the background, and why the server sends no CORS headers at all (§13).
 
 ---
 
@@ -141,14 +141,14 @@ The server is split **by feature**. Each module owns its own data. No other modu
 |--------|------|-----------------------------|------------|
 | `system` | backups, health check, shutdown, logs | `health()`, `backupNow()`, `shutdown()` | — |
 | `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `statuses()` | — |
-| `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `write(name, text)`, `hash()` | — |
+| `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `hash()`; `write(name, text)` comes with the Phase 4 editors | — |
 | `capture` | nothing (stateless) | `fromUrl(url)`, `fromText(text)` | — |
-| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `writeDocument()`, `classifyEmail()`, `state()`, `test()` | — |
-| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setRating()`, `listOpen()` | — |
+| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `status()`, `test()`, `stop()`; `writeDocument()` (Phase 4) and `classifyEmail()` (Phase 5) | — |
+| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()` | — |
 | `contacts` | `contacts`, `job_contacts`, `interactions` | `create()`, `update()`, `linkToJob()`, `logInteraction()`, `listForJob()`, `findByPhoneDigits()` | — |
 | `notes` | `notes` | `add()`, `update()`, `remove()`, `listForJob()` | — |
 | `ratings` | `rating_cache` | `rate(input, { signal, key })` | `ai`, `profile` |
-| `enrich` | nothing | listens for new ads, then parses and rates them; `reparse(jobId)` | `jobs`, `ai`, `ratings` |
+| `enrich` | nothing | listens for new ads, then parses and rates them; `reparse(jobId)`, `sweep()` (jobs still waiting) | `jobs`, `ai`, `ratings` |
 | `documents` | `documents`, `attachments`, `data/files/` | `generate()`, `saveVersion()`, `markSent()`, `render()`, `export()`, `copyFrom()`, `attach()` | `ai`, `profile`, `jobs` |
 | `search` | `search_index` | `query(q)`, `reindexJob(id)`, `rebuild()` | `jobs`, `contacts`, `notes` |
 | `callsheet` | nothing (read-only view) | `get(jobId)`: everything for the one-screen view | `jobs`, `contacts`, `notes`, `documents` |
@@ -228,11 +228,11 @@ export function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}) {
   const db = openDb(opts.paths.db);               // runs migrations, WAL mode, foreign keys on
   const bus = createEventBus(logger);
   const settings = createSettingsModule({ paths: opts.paths, bus });
-  const profile = createProfileModule({ dir: opts.paths.profile, bus });
+  const profile = createProfileModule({ dir: opts.paths.profile });  // profile.changed comes with the Phase 4 editors
 
   const ai = createAiModule({
     provider: fakes.ai ?? createOpenAiCompatibleProvider(() => settings.get().ai),
-    runtime: fakes.runtime ?? pickRuntime(() => settings.get().ai),  // LlamaServerRuntime or NoopRuntime
+    runtime: () => fakes.runtime ?? pickRuntime(settings.get().ai),  // LlamaServerRuntime or NoopRuntime, chosen per task
     getConfig: () => settings.get().ai,
     bus,
   });
@@ -283,9 +283,9 @@ Events let modules react to each other without calling each other. All event nam
 | `contact.linked` / `contact.unlinked` | `{ contactId, jobId }` | contacts | search, live |
 | `interaction.logged` | `{ interactionId, contactId, jobId }` | contacts | search, live |
 | `document.saved` / `document.sent` | `{ jobId, documentId }` | documents | live |
-| `profile.changed` | `{ name }` | profile | live (ratings use the profile hash, so stale ratings are skipped) |
-| `settings.changed` | `{ keys }` | settings | ai (reload provider), email (restart timer), live |
-| `ai.stateChanged` | `{ state, detail }` | ai | live |
+| `profile.changed` | `{ name }` | profile (Phase 4, with the editors) | live. Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
+| `settings.changed` | `{ keys }` | settings | ai (switch runtime and stop the old one), email (restart timer), live |
+| `ai.stateChanged` | `{ state, detail }` | ai | live; enrich (on `ready`, reads jobs that were waiting for the AI) |
 | `enrich.done` / `enrich.failed` | `{ jobId, step, error? }` | enrich | live |
 | `email.suggestionsAdded` | `{ count }` | email | live |
 
@@ -318,15 +318,16 @@ type ChatRequest = {
   temperature?: number;
   maxTokens?: number;
   jsonSchema?: { name: string; schema: object };   // constrained JSON output
-  thinking?: boolean;                               // adapter maps this per server type
-  extra?: Record<string, unknown>;                  // passed through as-is, from settings
+  thinking?: boolean;                               // sent as reasoning_effort
+  thinkingEffort?: 'low' | 'medium' | 'xhigh';      // when thinking is on (default medium)
+  extra?: Record<string, unknown>;                  // added to the body last, from settings; null removes a field
 };
 type ChatChunk = { kind: 'text' | 'thinking'; text: string };
 ```
 
 | Adapter | Covers | Notes |
 |---------|--------|-------|
-| `OpenAiCompatibleProvider` | llama-server, Ollama, LM Studio, vLLM, any `/v1/chat/completions` server | `thinking: false` becomes `chat_template_kwargs.enable_thinking=false` for llama-server, and Ollama's own option for Ollama. Chain-of-thought ("thinking") tokens come back as `kind: 'thinking'` and are never put into documents. |
+| `OpenAiCompatibleProvider` | llama-server, Ollama, LM Studio, vLLM, any `/v1/chat/completions` server | `thinking: false` is sent as `reasoning_effort: "none"`, which both PrismML's llama-server (Bonsai 2) and Ollama honour. Bonsai 2's template ignores `chat_template_kwargs` for this, and refuses `"high"`, so thinking on defaults to `"medium"`. A task's `extra: { "reasoning_effort": null }` removes the field for a server that refuses it. Thinking comes back from `reasoning_content` (llama-server), `reasoning` (Ollama) or `<think>…</think>` blocks, as `kind: 'thinking'`, and is never put into a parsed field or a document. Every failure becomes a sentence that names the server's address. |
 | `FakeAiProvider` | tests | Returns scripted replies and can simulate slowness, errors and cancelling. |
 | *(later, optional)* `AnthropicProvider` or another cloud API | — | Only if you ever want it. It goes against the "private" goal, so it would be off by default. |
 
@@ -337,13 +338,16 @@ interface ModelRuntime {
   ensureRunning(signal?: AbortSignal): Promise<void>;  // starts the process if needed, waits for /health
   touch(): void;                                        // resets the idle timer
   stop(): Promise<void>;
-  state(): 'off' | 'starting' | 'ready' | 'busy' | 'error';
+  stopNow(): void;                                      // at once, for a crash or the app exiting
+  state(): 'off' | 'starting' | 'ready' | 'error';     // "busy" is added by the AI service while a task runs
+  detail(): string | null;                              // why it's "error", in a sentence
+  onStateChange(fn: (state) => void): () => void;
 }
 ```
 
 | Adapter | Used when |
 |---------|-----------|
-| `LlamaServerRuntime` | The preset is "Bonsai 2 via llama-server" and `managed: true`. It spawns `llama-server.exe` with no console window and sends its logs to `data/logs/llama.log`. If something is already answering on the port, it uses that and won't kill a process it didn't start. |
+| `LlamaServerRuntime` | The preset is "Bonsai 2 via llama-server" and `managed: true`. It spawns `llama-server.exe` with no console window and sends its logs to `data/logs/llama.log`. If something is already answering on the port, it uses that and won't kill a process it didn't start. On Windows the server can't outlive the app: Node puts child processes in a job object that ends them with it. On macOS and Linux, the app keeps the running server's pid and launch settings in `data/llama-server.pid`, so after a crash the next start knows the server is its own and stops it as usual. Windows ignores that file, so a reused pid can never point it at another program. A stop cancels a start in progress. A change to the program, arguments or address restarts it at the next task. |
 | `NoopRuntime` | Ollama, LM Studio or a custom server you run yourself. `ensureRunning` only checks that the server is there. |
 
 ### 6.3 `MailSource` — reading email (Phase 5)
@@ -379,11 +383,11 @@ interface SiteExtractor {
   id: 'seek' | 'linkedin' | 'indeed' | 'generic' | string;
   matches(url: URL): boolean;
   currentJobId(url: URL, doc: Document): string | null;  // handles split-pane search pages
-  extract(doc: Document, url: URL): Promise<Capture | null>;
+  extract(doc: Document, url: URL, now: Date): Capture | null;  // null until the ad's text is there; the watcher waits
 }
 ```
 
-Adapters: one file each in `extension/src/sites/`. The registry tries them in order, and `generic` comes last. Generic uses the page's schema.org `JobPosting` data first, then Mozilla Readability, then any text you highlighted.
+Adapters: one file each in `extension/src/sites/`. The registry tries them in order, and `generic` comes last. Generic uses the text you selected first (if it's over 200 characters), then the page's schema.org `JobPosting` data, then Mozilla Readability.
 
 ### 6.6 Shared types used by the ports
 
@@ -457,7 +461,10 @@ sequenceDiagram
 
 Notes:
 - **Fields you've edited by hand are never overwritten.** `applyParsed` only fills empty fields, or fields that still hold an earlier AI value. Each field remembers whether it came from you, the ad's structured data or the AI.
-- **If the AI is off or fails**, the job stays saved with `parse_state = failed`. The job page shows a **Parse again** button.
+- **If the AI can't be reached** (not running, not installed, didn't start), the job stays saved and waits: `parse_state = pending`, with the reason in `parse_error`. It's read the next time an AI task works (a task finishing moves the AI from `busy` to `ready`, which starts a sweep), and at the next start. The job page says why and offers **Read again**.
+- **If the server refuses this ad, or doesn't answer it in time** (`AiRefusedError`: an HTTP error or a timeout), the job is `failed` with the server's message, and shows **Read again**. Other jobs carry on.
+- **If the AI's answer never fits** (even after one retry, `AiAnswerError`), the job is `failed` with the reason, and shows **Read again**.
+- **The sweep** reads waiting jobs one at a time at background priority, so a job you save meanwhile goes first. It stops at the first "can't reach the AI", and every job left in that round gets the same reason. A refused ad is marked failed and the round carries on, but two refusals in a row with the same message mean the server refuses everything (a wrong model, say), so the round stops and those jobs wait too.
 
 ### 7.2 Recruiter calls: search, then the call sheet
 
@@ -736,7 +743,7 @@ erDiagram
     text created_at
   }
   RATING_CACHE {
-    text canonical_url PK
+    text ad_key PK "canonical URL + # + 16 hex of the ad text's SHA-256; text: + SHA-256 for a pasted ad"
     text profile_hash PK
     text rating_json
     text created_at
@@ -815,22 +822,22 @@ erDiagram
 | | `POST /jobs/:id/status` `{ status }` | Change status, which logs history |
 | | `POST /jobs/:id/postings` `{ capture }` | Link another ad to this job |
 | | `GET /postings/lookup?url=` | Fast "already saved?" check for the extension badge |
-| | `POST /jobs/:id/reparse` | Run AI parsing again |
+| | `POST /jobs/:id/reparse` | Run AI parsing again (202). Served by `enrich`, so `jobs` never knows about the AI |
 | Call sheet | `GET /jobs/:id/callsheet` | Everything for the one-screen view |
 | Search | `GET /search?q=` | Ranked hits |
 | Notes | `GET /jobs/:id/notes` · `POST /jobs/:id/notes` · `PATCH /notes/:id` · `DELETE /notes/:id` | |
 | Contacts | `GET /contacts?q=` · `POST /contacts` · `PATCH /contacts/:id` | |
 | | `POST /jobs/:id/contacts` · `DELETE /jobs/:id/contacts/:contactId` | Link or unlink a contact |
 | | `POST /interactions` · `GET /jobs/:id/interactions` | Call log |
-| Ratings | `POST /ratings` `{ capture }` | Rating, from cache or the AI |
+| Ratings | `POST /ratings` `{ capture, key? }` · `GET /ratings/status` | Rating, from cache or the AI, as `{ rating, cached, reason }` (`rating` is null with a `reason` when there's no master profile). `key` is "latest wins", one per browser tab. Closing the request cancels the rating · whether ratings can run |
 | Documents | `GET /jobs/:id/documents` · `POST /jobs/:id/documents` `{ kind, markdown }` or `{ fromDocumentId }` | List · save a version or copy one |
 | | `POST /jobs/:id/documents/generate` `{ kind }` | Streamed Markdown |
 | | `POST /documents/:id/sent` · `GET /documents/:id/render` · `GET /documents/:id/export?format=` | Freeze · print view · export |
 | | `GET /documents/exporters` | Which export buttons to show |
 | Attachments | `POST /jobs/:id/attachments` (multipart) · `GET /attachments/:id` | |
 | Profile | `GET /profile/:name` · `PUT /profile/:name` | Master profile, preferences, guides, CSS templates |
-| Settings | `GET /settings` · `PATCH /settings` | Secrets are never returned, only "set" or "not set" |
-| AI | `GET /ai/status` · `POST /ai/test` | |
+| Settings | `GET /settings` · `PATCH /settings` | Secrets are never returned, only "set" or "not set". `PATCH` is accepted from the dashboard only, not from extensions (§13) |
+| AI | `GET /ai/status` · `POST /ai/test` | `{ state, detail, preset, baseUrl }` · `{ ok, detail, models, replyMs }`, sent the way reading an ad is (the parse task's model, thinking and extra fields, and a small JSON schema); never an HTTP error. A failed test also shows in the pill |
 | Email | `POST /email/check` · `GET /email/suggestions` · `POST /email/suggestions/:id/confirm` · `POST /email/suggestions/:id/dismiss` | |
 
 ---
@@ -892,25 +899,23 @@ flowchart LR
   bg -->|shared api-client| srv
 ```
 
-- **Content scripts** run only on Seek, LinkedIn and Indeed (`matches` in the manifest). On any other site, the popup's **Save this page** injects the generic extractor once, using `activeTab` and `scripting`. So the extension doesn't need permission to read every website.
-- **Single-page sites:** Seek, LinkedIn and Indeed change the job without reloading the page. The page watcher checks the URL and the job ID every 500 ms, and uses a `MutationObserver` to wait for the job text to appear. When the job ID changes, the content script extracts again and updates the panel.
-- **The panel** is a Svelte component inside a shadow DOM, so the site's CSS can't break it, and it can't break the site. It has three states:
-  - **already saved:** status and date, with a link to the dashboard
-  - **likely the same as another job:** Same job / Different job
-  - **new:** Save, with a status choice and an optional note.
-
-  The rating shows below.
-- **Messages** between the content script, popup and background are one typed union in `extension/src/messages.ts`.
-- **Badge:** the toolbar icon shows ✓ on pages you've already saved, using `GET /postings/lookup`.
+- **Content scripts** run only on Seek, LinkedIn and Indeed (`matches` in the manifest: `www.seek.com.au`, `www.seek.co.nz`, `*.linkedin.com`, `*.indeed.com`). On any other site, the popup's **Save this page** injects the generic reader (`generic.js`) once, using `activeTab` and `scripting`, so the extension doesn't need permission to read every website.
+- **Readers** (`extension/src/sites/`): each site's selectors first, then the page's own JobPosting data (only when its title matches the title on screen), then nothing. On the three job sites, the ad's header facts (title, company, location, work type, salary) go above the description in the saved ad text, because the salary is often only in the header. A reader returns `null` until the ad's text is there, and when a split pane's own job link names another job. The generic reader uses your selection (over 200 characters), then the JobPosting data, then Readability. `npm run ext:check -- page.html URL` runs a reader on a page you saved.
+- **Single-page sites:** Seek, LinkedIn and Indeed change the job without reloading the page. The page watcher (`watcher.ts`) checks the URL and the job id every 500 ms, and on page changes. When the id changes, it waits up to 5 seconds for that job's details, ignoring a pane that still shows the last job, reports the job, and reports again if more of it arrives in that time. If nothing arrives, the panel says it couldn't read the job and offers **Save selection** and **Save page**.
+- **The panel** is a Svelte component in a shadow root (closed, so the site's scripts can't read your saved status or rating; the test build opens it). The site's CSS can't break it, and it can't break the site. It shows which job it's about, then one of: checking; already saved ("Saved · Applied 12 Oct", **Open in Job Registry**); likely the same as another job (**Same job** / **Different job**); new (**Save**, with Saved or Applied and an optional note); couldn't read; the app isn't running (**Try again**). The rating shows below. **Hide** (or Esc) tucks it away, and it stays tucked away.
+- **Messages** between the content script, popup and background are one typed union in `extension/src/messages.ts`: `check`, `rate`, `save`, `captureActiveTab`, `openJob`, `health`. The background's work is in `handlers.ts`, behind a small `ChromeLike` port, so it's tested without a browser. Replies are `{ ok, data }` or `{ ok: false, error, offline }`.
+- **Ratings:** one per tab at a time. A newer one aborts the older request in the browser, which cancels it on the server too, and the server's "latest wins" key (`tab-<id>`) is a second guard. Replies for a job you've left are dropped.
+- **Badge:** the toolbar icon shows ✓ on pages you've already saved, from the `check` reply's exact match.
 - **Shortcut:** `Alt+Shift+J` opens the popup.
-- **Options:** server address (default `http://127.0.0.1:4777`), auto-rate on or off.
+- **Options:** server address (`http://127.0.0.1` or `http://localhost`, any port; default `:4777`), and rating jobs automatically, on or off. If you've taken away the extension's permission to reach this computer, the options page says so and offers **Allow access**.
 - **Two browsers, one codebase:**
   - `manifest.base.json` holds what both share.
-  - `manifest.firefox.json` adds `background.scripts` and `browser_specific_settings.gecko.id`.
+  - `manifest.firefox.json` adds `background.scripts` and `browser_specific_settings.gecko` (id `job-registry@local`, Firefox 140 or later).
   - `manifest.chrome.json` adds `background.service_worker`.
-  - `build.mjs` merges them into `dist/firefox` and `dist/chrome`.
+  - `build.mjs` (esbuild + esbuild-svelte) merges them into `extension/dist/firefox` and `extension/dist/chrome`; `--e2e` also builds `chrome-e2e` for the browser tests, which reads copies of the sites at `http://127.0.0.1:4798` and talks to the test server on 4799.
   - The code uses the promise-based `chrome.*` API, which works in both browsers.
-- **Permissions:** `storage`, `activeTab`, `scripting`. Host permissions: `http://127.0.0.1:4777/*` and the three job sites.
+- **Permissions:** `storage`, `activeTab`, `scripting`. Host permissions: `http://127.0.0.1/*`, `http://localhost/*` and the three job sites.
+- **Signing:** `npm run ext:sign` signs the Firefox build as an unlisted add-on with your addons.mozilla.org keys (`WEB_EXT_API_KEY`, `WEB_EXT_API_SECRET`), so it stays installed in normal Firefox.
 
 ---
 
@@ -920,12 +925,13 @@ flowchart LR
 
 | Task | Input | Output | Queue priority | Thinking | Streamed |
 |------|-------|--------|----------------|----------|----------|
-| `parseJob` | ad text, plus any `JobPosting` hints | `ParsedJob` (JSON schema) | parse | off | no |
+| `parseJob` | ad text (the page's `JobPosting` fields are already on the job, and the AI never overwrites them) | `ParsedJob` (JSON schema) | parse (background for the start-up sweep) | off | no |
 | `rateJob` | master profile, preferences, ad | `Rating` (JSON schema) | interactive | off | no |
 | `writeDocument` | kind, master profile, guide, job fields, ad | Markdown | interactive | on | yes |
 | `classifyEmail` | trimmed email, list of candidate jobs | `{ event, jobId, suggestedStatus, confidence, summary }` | background | off | no |
 
-- **Settings per task:** each task has its own block in `settings.json`, with model, temperature, thinking and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings.
+- **Settings per task:** each task has its own block in `settings.json` (`ai.tasks.parse`, `ai.tasks.rate`, …), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings.
+- **Thinking off** is `reasoning_effort: "none"` (§6.1). Bonsai 2 thinks at length by default, so tasks that don't need it turn it off.
 - **Prompts are text files** in `server/modules/ai/prompts/*.md`, with `{{placeholders}}`. You can change wording without touching code.
 - **Prompt order helps the cache.** The fixed part comes first: the instructions, then your profile. The ad comes last. llama-server reuses the cached start of the prompt, so repeat ratings are much faster.
 - **Size limits:** ad text over about 12,000 characters is trimmed. The 32K context leaves room for the profile (usually 3–6K tokens), the ad and the answer.
@@ -935,7 +941,7 @@ flowchart LR
 1. The request asks for `response_format: { type: "json_schema", … }`. The schema comes from the zod contract. llama-server, Ollama and LM Studio all support this.
 2. The reply is checked with zod.
 3. If the check fails, the request is retried once, with the error message added.
-4. If it still fails, the task fails with a clear message. For parsing, the job keeps its raw ad and shows **Parse again**.
+4. If it still fails, the task fails with a clear message. For parsing, the job keeps its raw ad and shows **Read again**.
 
 ### 12.3 Queue
 
@@ -947,9 +953,9 @@ flowchart LR
 
 ### 12.4 Runtime management (llama-server)
 
-- **Start:** `spawn(exe, args, { windowsHide: true })`. The arguments come from settings, for example `-m <gguf> -ngl 99 -fa on -c 32768 --jinja --port 8080`, so a new PrismML release never needs a code change.
+- **Start:** `spawn(exe, args, { windowsHide: true })`. The arguments come from settings, by default `-m ai/models/Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99 -fa on -c 32768 --jinja --port 8080`, so a new PrismML release never needs a code change. `download-ai.bat` fetches the pinned build (`prism-b10777-e3de715`, CUDA 12.4) and the model, and checks each file's SHA-256.
 - **Health check:** polls `http://127.0.0.1:8080/health` every 500 ms, for up to 120 seconds.
-- **Stop:** after the idle timer (15 minutes by default), and whenever the app exits. On Windows it uses `taskkill /T /F`, so no orphaned process is left holding GPU memory.
+- **Stop:** after the idle timer (15 minutes by default), and whenever the app exits. On Windows it uses `taskkill /T /F`, so no orphaned process is left holding GPU memory. If taskkill doesn't finish in 10 seconds, the process is forced. A crash ends it synchronously on the way out, and the pid file covers anything that still slips through.
 - **Already running:** if the port already answers when the app starts, the app uses that server and never stops it.
 
 ---
@@ -986,12 +992,14 @@ Each status has these settings:
 - The server listens on `127.0.0.1` only.
 - **Host check:** the `Host` header must be `127.0.0.1:4777` or `localhost:4777`. This blocks DNS-rebinding attacks.
 - **Origin check on writes:** every `POST`, `PATCH`, `PUT` and `DELETE` must carry an Origin that is the dashboard itself, `moz-extension://…` or `chrome-extension://…`. Writes must also be JSON or multipart uploads, so a plain HTML form on another website can't submit to the app.
-- **CORS:** allowed only for extension origins.
+- **CORS:** none, for anyone. Job Registry's extension reaches the server through its host permission, so it doesn't need CORS; with CORS, any other installed extension could read your data. (Changed in Phase 3; the earlier plan allowed CORS for extension origins.)
+- **nosniff:** every reply says `X-Content-Type-Options: nosniff`.
+- **Dashboard-only writes:** a route can declare `config: dashboardOnly(message)`, and then refuses extension origins too. `PATCH /settings` does: settings choose which program the app runs and where your profile and ads are sent, so no installed extension may change them.
 - **Markdown:** escaped and sandboxed (see §10).
 - **Phase 6 phone access** would add a passcode and a session cookie before listening on the home network. It stays off by default.
 
 **Backups**
-- On each start, and every 24 hours while running, the app uses SQLite's online backup (safe while the app runs). Copies go to `backupDir` and the newest 14 are kept.
+- On each start, and every 24 hours while running, the app uses SQLite's online backup (safe while the app runs). Copies go to `backupDir`. The newest copy from each of the last 14 days that have one is kept (`backups.keep`). One backup runs at a time, so a second request joins the one already running.
 - `data/files/` (attachments) is copied to the backup folder in the same pass.
 - Keep the live database out of OneDrive. Pointing the backup folder at OneDrive is fine.
 
@@ -1006,7 +1014,9 @@ Each status has these settings:
 | Pure functions | `shared/canonical-url`, `shared/phone`, `shared/fact-check`, `capture/jsonld`, `jobs/match`, search query builder | Vitest, table-driven cases | none |
 | Services | each module's logic, with its real repo | Vitest, in-memory SQLite (`:memory:`) with real migrations | `FakeAiProvider`, `FakeRuntime`, `FakeMailSource`, fake clock |
 | API | routes, validation, error shape, Host and Origin checks | `fastify.inject` on `buildApp()` with fakes | as above |
-| Site extractors | Seek, LinkedIn, Indeed, generic | Vitest + `linkedom`, on saved HTML fixtures in `tests/fixtures/sites/` | — |
+| Site extractors | Seek, LinkedIn, Indeed, generic; the page watcher | Vitest + `linkedom`, on HTML fixtures in `tests/fixtures/sites/` (hand-made from each site's structure, plus a trimmed real LinkedIn page), fake timers for the watcher | — |
+| Extension background | check, save, rate (latest wins), badge, offline, no permission, time limits | Vitest, `handlers.ts` against a real listening test app | `FakeChrome`, fake AI |
+| Extension end to end | the panel on copies of the sites, saving, five quick clicks with one finished rating, the popup | Playwright, the real extension (test build) in Chromium; Firefox has no way to load an extension in Playwright, so it's covered by `web-ext lint` and the Windows checklist | fake AI |
 | Dashboard | paste, search, status, call log, document edit and preview, print view | Playwright against the built app, started with `JR_FAKE_AI=1` | fake AI wired by `app.ts` |
 | AI quality | parsing accuracy per field on 8–10 real ads | `npm run eval:parse` against the real model. A report, not a pass/fail test | none |
 | Architecture | the dependency rules in §15 | `npm run check:deps` | — |
@@ -1027,8 +1037,13 @@ Each status has these settings:
 | R5 | Only `repo.ts` files and `core/db` import `better-sqlite3`. | dependency-cruiser |
 | R6 | `shared/` imports nothing from `server/`, `web/` or `extension/`. Only `zod` and `marked` are allowed. | dependency-cruiser |
 | R7 | `web/` and `extension/` never import from `server/`. | dependency-cruiser |
-| R8 | Only `server/app.ts` imports module factories, adapters and the settings module. | dependency-cruiser |
+| R8 | Only `server/app.ts` imports module factories, adapters and the settings module. Another module may import a module's `index.ts` for its types only; the service itself arrives as an argument. `main.ts` reaches modules only through `app.ts`. | dependency-cruiser `only-app-wires-modules` (runtime imports between modules) and `main-uses-app` |
 | R9 | TypeScript uses erasable syntax only, so Node can run it directly. That means no `enum` and no constructor parameter properties. | `tsconfig` `erasableSyntaxOnly` + `tsc --noEmit` |
+| R10 | `core` never imports from a module. | dependency-cruiser `core-not-modules` |
+| R11 | `service.ts` files never use database code from `core/db` (types are fine). SQL helpers such as constraint checks live in `repo.ts`. | dependency-cruiser `no-sql-in-services` |
+| R12 | In the extension, only the background script (`background.ts`, `handlers.ts`) uses `shared/api-client.ts`. Content scripts, the panel and the popup ask the background. | dependency-cruiser `only-background-calls-server` |
+
+`adapters-only-from-index` also covers `server/modules/<name>/runtime/`: module code uses the ports (`ai/provider.ts`, `ai/runtime.ts`), and only `index.ts` exposes the adapters and runtimes, for `app.ts` to wire.
 
 `npm test` runs `tsc --noEmit`, then `check:deps`, then Vitest. One test file deliberately breaks a rule, inside a temporary folder, and confirms the check fails, so the rules can't quietly stop working.
 
@@ -1069,7 +1084,10 @@ Each status has these settings:
 | `better-sqlite3` has no prebuilt binary for a very new Node version | `npm ci` fails on Windows | Setup checks for a supported Node LTS version, and `.nvmrc` and `engines` pin it |
 | Firefox signing needs an addons.mozilla.org account | Extension disappears after a restart | One-time setup, documented. Temporary loading still works for testing |
 | Gmail app passwords might get restricted | Email reading stops | Recheck this at the start of Phase 5. `MailSource` lets us switch to the Gmail API adapter |
-| Thinking tokens leaking into documents | Garbage in the resume | The adapter separates `thinking` chunks. A test covers this |
+| Thinking tokens leaking into documents | Garbage in the resume | The adapter separates `thinking` chunks, including `<think>` tags split across stream chunks. Tests cover this |
+| Firefox doesn't grant (or you take away) the extension's permission to reach `127.0.0.1` | The extension can't save or rate | It says so in plain words, and its options page has **Allow access**. If Firefox proves unreliable here, CORS can come back for the extension's own routes only |
+| A Chrome service worker may be stopped while a fetch waits more than about 30 seconds | A first rating while the AI loads could be lost | The panel then asks you to reload the page; the Windows checklist checks a first rating with Bonsai in Chrome. If it happens, ratings can move to a long-lived port (`runtime.connect`) |
+| A server refuses a request field (for example `reasoning_effort`) | Every AI task fails | The error names the server and shows its message. A task's `extra` can remove the field, and Test connection sends what reading an ad sends |
 
 ---
 

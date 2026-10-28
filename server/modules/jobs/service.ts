@@ -11,8 +11,11 @@ import type {
   JobSummary,
   ExactMatch,
   ListJobsQuery,
+  ParsedJob,
+  ParseState,
   Posting,
   PostingLookupResponse,
+  Rating,
   SaveJobRequest,
   SaveJobResponse,
   Status,
@@ -41,6 +44,12 @@ export interface JobsService {
   lookupByUrl(url: string): PostingLookupResponse;
   listPostings(jobId: number): Posting[];
   listHistory(jobId: number): StatusChange[];
+  // For the enrich module, after the AI has read an ad or rated it.
+  applyParsed(jobId: number, parsed: ParsedJob): Job;
+  // "pending" with an error: waiting for the AI to be reachable again.
+  setParseState(jobId: number, state: 'pending' | 'failed', error?: string): Job;
+  setRating(jobId: number, rating: Rating): Job;
+  listIdsByParseState(state: ParseState): number[];
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -54,6 +63,37 @@ export type JobsOptions = {
 };
 
 const NULLABLE_TEXT = ['title', 'company', 'agency', 'location', 'summary'] as const;
+
+// The fields the AI may fill in from an ad.
+const PARSED_FIELDS = [
+  'title',
+  'company',
+  'agency',
+  'location',
+  'workMode',
+  'employmentType',
+  'salary',
+  'closingDate',
+  'summary',
+  'requirements',
+  'niceToHave',
+  'responsibilities',
+] as const;
+
+// "No value": nothing typed, nothing read, or a choice left at "unknown".
+function isEmpty(key: string, value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim() === '' || ((key === 'workMode' || key === 'employmentType') && value === 'unknown');
+  if (Array.isArray(value)) return value.length === 0;
+  if (key === 'salary') {
+    const s = value as EditableJobFields['salary'];
+    return s.min === null && s.max === null && !s.text?.trim();
+  }
+  return false;
+}
+
+// A text value worth using: not missing and not blank.
+const filled = (value: string | null | undefined): string | undefined => (value?.trim() ? value : undefined);
 
 function emptyFields(): EditableJobFields {
   return {
@@ -133,8 +173,9 @@ export function createJobsService(opts: JobsOptions): JobsService {
   // What to match on when saving: what you typed, else what the ad says.
   function checkRequestFor(req: SaveJobRequest): JobCheckRequest {
     const { capture } = req;
+    // A blank you typed doesn't hide what the ad says, for matching only.
     const pick = (key: 'title' | 'company' | 'location') =>
-      req.fields?.[key] ?? capture.structured?.[key] ?? capture[key] ?? undefined;
+      filled(req.fields?.[key]) ?? filled(capture.structured?.[key]) ?? filled(capture[key]);
     const title = pick('title');
     const company = pick('company');
     const location = pick('location');
@@ -244,19 +285,23 @@ export function createJobsService(opts: JobsOptions): JobsService {
     return get(jobId);
   }
 
+  // Saving onto a job you already have ("Same job", or an ad that's already
+  // saved): if you chose a status that's further along (say, Applied for a job
+  // that was only Saved), move the job forward. Never move it back.
+  function moveForward(job: Job, req: SaveJobRequest): Job {
+    const target = req.status ? statusOrThrow(req.status) : null;
+    const now = opts.statuses().find((s) => s.id === job.status);
+    if (target && (!now || target.order > now.order)) return changeStatus(job.id, target.id, req.source ?? 'manual');
+    return job;
+  }
+
   return {
     save(req) {
       const exact = findExact(req.capture);
-      if (exact) return { result: 'exists', job: get(exact.jobId) };
+      if (exact) return { result: 'exists', job: moveForward(get(exact.jobId), req) };
       if (typeof req.decision === 'object') {
-        // "Same job": add this ad to it. If you also chose a status that's further
-        // along (say, Applied for a job that was only Saved), move the job forward.
-        // Never move it back.
-        const target = req.status ? statusOrThrow(req.status) : null;
-        let job = addPosting(req.decision.linkTo, req.capture);
-        const now = opts.statuses().find((s) => s.id === job.status);
-        if (target && (!now || target.order > now.order)) job = changeStatus(job.id, target.id, req.source ?? 'manual');
-        return { result: 'linked', job };
+        if (req.status) statusOrThrow(req.status);
+        return { result: 'linked', job: moveForward(addPosting(req.decision.linkTo, req.capture), req) };
       }
       if (req.decision === undefined) {
         const { candidates } = check(checkRequestFor(req));
@@ -322,13 +367,58 @@ export function createJobsService(opts: JobsOptions): JobsService {
 
     listPostings: (jobId) => repo.listPostings(jobId),
     listHistory: (jobId) => repo.listHistory(jobId),
+
+    // Fills in what the AI read, without ever overwriting your data: a field
+    // you edited is never touched, and the AI only fills fields that are empty
+    // or still hold an earlier AI value. An empty answer never clears a value.
+    applyParsed(jobId, parsed) {
+      const job = get(jobId);
+      const current = job as unknown as Record<string, unknown>;
+      const sources = { ...job.fieldSources };
+      const changes: Record<string, unknown> = {};
+      for (const key of PARSED_FIELDS) {
+        const next = key === 'summary' ? parsed.summary.trim() || null : parsed[key];
+        if (sources[key] === 'user' || isEmpty(key, next)) continue;
+        if (!isEmpty(key, current[key]) && sources[key] !== 'ai') continue;
+        if (stableJson(next) === stableJson(current[key])) continue;
+        changes[key] = next;
+        sources[key] = 'ai';
+      }
+      const contact = parsed.adContact;
+      const adContact = !job.adContact && contact && (contact.name || contact.email || contact.phone) ? contact : null;
+      repo.updateJob(
+        jobId,
+        { ...(changes as JobChanges), ...(adContact ? { adContact } : {}), fieldSources: sources, parseState: 'done', parseError: null },
+        opts.now().toISOString(),
+      );
+      bus.emit('job.updated', { jobId, fields: [...Object.keys(changes), ...(adContact ? ['adContact'] : []), 'parseState'] });
+      return get(jobId);
+    },
+
+    setParseState(jobId, state, error) {
+      get(jobId);
+      repo.updateJob(jobId, { parseState: state, parseError: error ?? null }, opts.now().toISOString());
+      bus.emit('job.updated', { jobId, fields: ['parseState'] });
+      return get(jobId);
+    },
+
+    setRating(jobId, rating) {
+      get(jobId);
+      repo.updateJob(jobId, { matchVerdict: rating.verdict, matchScore: rating.score, match: rating }, opts.now().toISOString());
+      bus.emit('job.updated', { jobId, fields: ['match'] });
+      return get(jobId);
+    },
+
+    listIdsByParseState: (state) => repo.listIdsByParseState(state),
   };
 }
 
+// The ad's structured fields, leaving out any that are empty, so a null in the
+// page's data can't hide the title or company the capture found itself.
 function stripAdContact(structured: Capture['structured']): Partial<EditableJobFields> {
   if (!structured) return {};
   const { adContact: _contact, ...fields } = structured;
-  return fields;
+  return Object.fromEntries(Object.entries(fields).filter(([key, value]) => !isEmpty(key, value))) as Partial<EditableJobFields>;
 }
 
 // JSON with object keys sorted, so two equal values always compare equal.

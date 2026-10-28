@@ -7,7 +7,8 @@ import {
   type InteractionKind,
   type Relation,
 } from '../../../shared/contracts/index.ts';
-import type { Db } from '../../core/db/db.ts';
+import { isConstraintError, type Db } from '../../core/db/db.ts';
+import { NotFoundError } from '../../core/errors.ts';
 
 export type ContactFields = {
   name: string;
@@ -68,6 +69,17 @@ export function createContactsRepo(db: Db) {
   return {
     transaction<T>(fn: () => T): T {
       return db.transaction(fn)();
+    },
+
+    // Runs a write that names a job. Once the contact is known, the job is the
+    // only foreign key left to fail, so a failure means the job doesn't exist.
+    forJob<T>(jobId: number, fn: () => T): T {
+      try {
+        return fn();
+      } catch (err) {
+        if (isConstraintError(err, 'FOREIGNKEY')) throw new NotFoundError(`Job ${jobId} not found`);
+        throw err;
+      }
     },
 
     insertContact(fields: ContactFields, at: string): number {

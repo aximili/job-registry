@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Job page whose ad grows (test page)</title></head>
+<body>
+<!-- A Seek job page whose ad gets longer a moment after it appears, as some
+     sites load the rest of an ad later. -->
+<main data-automation="jobDetailsPage">
+  <h1 data-automation="job-detail-title">Growing Role</h1>
+  <span data-automation="advertiser-name">Grow Co</span>
+  <div data-automation="jobAdDetails"><p>Grow Co is hiring a developer.</p></div>
+</main>
+<script>
+  setTimeout(() => {
+    const more = document.createElement('p');
+    more.textContent = 'The rest of the ad: TypeScript, SQL and a love of tests.';
+    document.querySelector('[data-automation="jobAdDetails"]').append(more);
+  }, 1500);
+</script>
+</body>
+</html>

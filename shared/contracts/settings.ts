@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiSettings } from './ai.ts';
 
 export const Status = z.strictObject({
   id: z.string().regex(/^[a-z0-9_]+$/, 'A status id may only use a–z, 0–9 and _.'),
@@ -48,6 +49,8 @@ const ServerSettings = z.strictObject({
 
 const BackupSettings = z.strictObject({
   dir: z.string().min(1).default('data/backups'),
+  // Days of backups to keep: the newest backup from each of the last `keep`
+  // days the app made one.
   keep: z.number().int().min(1).default(14),
 });
 
@@ -58,6 +61,7 @@ export const Settings = z.strictObject({
   server: ServerSettings.prefault({}),
   backups: BackupSettings.prefault({}),
   statuses: StatusList.default(() => DEFAULT_STATUSES.map((s) => ({ ...s }))),
+  ai: AiSettings.prefault({}),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -68,5 +72,6 @@ export const UpdateSettingsRequest = z.strictObject({
   server: ServerSettings.optional(),
   backups: BackupSettings.optional(),
   statuses: StatusList.optional(),
+  ai: AiSettings.optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;

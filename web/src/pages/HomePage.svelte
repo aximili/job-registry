@@ -4,9 +4,10 @@
   import JobList from '../components/JobList.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
   import { statuses } from '../lib/app-state.svelte.ts';
   import { displayCompany, displayTitle, formatDate, snippetParts } from '../lib/format.ts';
-  import { JOB_EVENTS, onLive } from '../lib/live.svelte.ts';
+  import { JOB_EVENTS, onLive, onReconnect } from '../lib/live.svelte.ts';
   import { search } from '../lib/search.svelte.ts';
 
   type Group = 'open' | 'closed' | 'all';
@@ -26,13 +27,22 @@
 
   const searching = $derived(search.query.trim() !== '');
 
+  // Only the newest request may fill the list. A slow answer for a filter
+  // you've already left is dropped.
+  let latest = 0;
+
   async function load() {
+    const mine = ++latest;
     try {
-      jobs = await api.listJobs({ status: statusId || group, sort });
-      anyJobs = jobs.length > 0 || (await api.listJobs({ status: 'all' })).length > 0;
+      const list = await api.listJobs({ status: statusId || group, sort });
+      const any = list.length > 0 || (await api.listJobs({ status: 'all' })).length > 0;
+      if (mine !== latest) return;
+      jobs = list;
+      anyJobs = any;
       error = null;
     } catch (err) {
-      error = (err as Error).message;
+      if (mine !== latest) return;
+      error = friendlyError(err);
     }
     loaded = true;
   }
@@ -49,8 +59,10 @@
       clearTimeout(timer);
       timer = setTimeout(() => void load(), 300);
     });
+    const offReconnect = onReconnect(() => void load());
     return () => {
       off();
+      offReconnect();
       clearTimeout(timer);
     };
   });
@@ -80,7 +92,7 @@
             <div class="hit">
               <span class="who"><strong>{hit.name}</strong>{#if hit.organisation}<span class="muted">{hit.organisation}</span>{/if}</span>
               <span class="role numeric">{hit.phone ?? ''}</span>
-              <span class="muted">Not linked to a job yet</span>
+              <span class="muted">No current job</span>
             </div>
           {/if}
           {#if hit.snippet}
@@ -94,7 +106,7 @@
     {#if search.searched && search.hits.length === 0}
       <p class="empty">No jobs match "{search.searched}".</p>
     {/if}
-    {#if search.error}<p class="error">{search.error}</p>{/if}
+    {#if search.error}<p class="error" role="alert">{search.error}</p>{/if}
   {:else}
     <div class="toolbar">
       <div class="groups">
@@ -124,7 +136,7 @@
     </div>
 
     {#if error}
-      <p class="error">{error}</p>
+      <p class="error" role="alert">{error}</p>
     {:else if jobs.length > 0}
       <JobList {jobs} />
     {:else if loaded}

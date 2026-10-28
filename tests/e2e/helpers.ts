@@ -58,3 +58,10 @@ export async function patchJob(request: APIRequestContext, id: number, patch: Re
   if (!res.ok()) throw new Error(`patchJob failed: ${res.status()} ${await res.text()}`);
   return (await res.json()) as Job;
 }
+
+// How the fake AI behaves: "smart" reads the ad, "fail" can't be reached,
+// "slow" takes 1.5 s, "bad" answers with something that never fits.
+export async function setAiMode(request: APIRequestContext, mode: 'smart' | 'fail' | 'slow' | 'bad'): Promise<void> {
+  const res = await request.post('/__test/ai', { headers, data: { mode } });
+  if (!res.ok()) throw new Error(`setAiMode failed: ${res.status()}`);
+}

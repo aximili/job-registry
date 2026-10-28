@@ -13,7 +13,8 @@ export async function loadSettings(): Promise<void> {
 }
 
 export function watchSettings(): () => void {
-  return onLive(['settings.changed'], () => void loadSettings());
+  // A failed reload keeps the settings it has; the next change loads them again.
+  return onLive(['settings.changed'], () => void loadSettings().catch(() => undefined));
 }
 
 export function statuses(): Status[] {

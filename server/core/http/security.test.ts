@@ -75,4 +75,25 @@ describe('HTTP foundation', () => {
     expect(res.status).toBe(503);
     expect(res.body).toBe("The dashboard isn't built yet. Run setup.bat, or npm run build.");
   });
+
+  it('every response says not to guess its content type (nosniff)', async () => {
+    const res = await app.request('GET', '/api/v1/health');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it("sends no CORS headers, so an extension without permission to reach this computer can't read your data", async () => {
+    // Job Registry's own extension has that permission, and needs no CORS.
+    const other = 'chrome-extension://someotherextension';
+    const get = await app.request('GET', '/api/v1/jobs', undefined, { origin: other });
+    expect(get.headers['access-control-allow-origin']).toBeUndefined();
+    const preflight = await app.request('OPTIONS', '/api/v1/jobs', undefined, { origin: other, 'access-control-request-method': 'POST' });
+    expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+    expect(preflight.status).not.toBe(204);
+  });
+
+  it('a refused address still says not to guess the reply type', async () => {
+    const res = await app.request('GET', '/api/v1/health', undefined, { host: 'evil.example' });
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
 });
+

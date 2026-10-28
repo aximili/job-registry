@@ -35,6 +35,7 @@ const job = {
   parseError: null,
   matchVerdict: null,
   matchScore: null,
+  match: null,
   archived: false,
   createdAt: '2026-10-28T03:15:00.000Z',
   updatedAt: '2026-10-28T03:15:00.000Z',

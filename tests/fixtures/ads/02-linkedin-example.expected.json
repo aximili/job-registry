@@ -1,0 +1,11 @@
+{
+  "title": "Platform Engineer",
+  "company": "Kestrel Software",
+  "agency": null,
+  "workMode": "remote",
+  "employmentType": "full-time",
+  "salary": { "min": null, "max": null, "currency": null, "period": null, "text": null },
+  "closingDate": null,
+  "requirements": ["3+ years running production systems on AWS", "Kubernetes and Terraform", "A scripting language such as Go or Python"],
+  "niceToHave": ["Experience in healthcare", "AWS certification"]
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Engineer Jobs in Sydney NSW - SEEK (test page)</title></head>
+<body>
+<!-- A copy of a Seek search page for the extension's browser tests. Clicking a
+     card changes ?jobId= without a reload, and 300 ms later opens that job in
+     the right-hand pane, as Seek does. -->
+<section data-automation="searchResults">
+  <ul id="cards"></ul>
+</section>
+<aside data-automation="splitViewJobDetailsWrapper"><div data-automation="jobDetailsPage" id="pane"></div></aside>
+<script>
+  const JOBS = [
+    { id: '82000001', title: 'Backend Engineer', company: 'Atlassian' },
+    { id: '82000002', title: 'Frontend Engineer', company: 'Canva' },
+    { id: '82000003', title: 'Data Engineer', company: 'Xero' },
+    { id: '82000004', title: 'Platform Engineer', company: 'SafetyCulture' },
+    { id: '82000005', title: 'Mobile Engineer', company: 'Airwallex' },
+  ];
+  const cards = document.getElementById('cards');
+  for (const job of JOBS) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = '?jobId=' + job.id;
+    a.dataset.automation = 'jobTitle';
+    a.textContent = job.title + ' at ' + job.company;
+    a.addEventListener('click', (event) => {
+      event.preventDefault();
+      // Like Seek: the address changes first, and the pane fills a moment later.
+      history.pushState({}, '', '?jobId=' + job.id);
+      setTimeout(() => show(job), 300);
+    });
+    li.append(a);
+    cards.append(li);
+  }
+  function show(job) {
+    const pane = document.getElementById('pane');
+    pane.innerHTML = '';
+    const h1 = document.createElement('h1');
+    h1.dataset.automation = 'job-detail-title';
+    h1.textContent = job.title;
+    const company = document.createElement('span');
+    company.dataset.automation = 'advertiser-name';
+    company.textContent = job.company;
+    const details = document.createElement('div');
+    details.dataset.automation = 'jobAdDetails';
+    details.textContent = job.company + ' is hiring a ' + job.title + '. You will build things in TypeScript.';
+    pane.append(h1, company, details);
+  }
+  const open = new URLSearchParams(location.search).get('jobId');
+  const first = JOBS.find((j) => j.id === open);
+  if (first) show(first);
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 // calling it. Payloads are small (ids plus what changed). Listeners read
 // fresh data through services. See docs/architecture.md §5.
 
-import type { StatusSource } from '../../shared/contracts/index.ts';
+import type { AiState, StatusSource } from '../../shared/contracts/index.ts';
 import type { Logger } from './logger.ts';
 
 export type AppEvents = {
@@ -19,6 +19,9 @@ export type AppEvents = {
   'contact.unlinked': { contactId: number; jobId: number };
   'interaction.logged': { interactionId: number; contactId: number | null; jobId: number | null };
   'settings.changed': { keys: string[] };
+  'ai.stateChanged': { state: AiState; detail: string | null };
+  'enrich.done': { jobId: number; step: 'parse' | 'rate' };
+  'enrich.failed': { jobId: number; step: 'parse' | 'rate'; error: string };
 };
 
 export type EventName = keyof AppEvents;

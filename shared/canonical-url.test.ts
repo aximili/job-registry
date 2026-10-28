@@ -24,6 +24,8 @@ describe('canonicalJobUrl', () => {
     ],
     ['https://www.linkedin.com/jobs/view/4012345678/?trk=abc', linkedin],
     ['https://au.linkedin.com/jobs/view/senior-engineer-at-atlassian-4012345678', linkedin],
+    // Job-alert emails link through /comm/.
+    ['https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc%3D%3D&refId=x', linkedin],
     ['https://www.linkedin.com/jobs/search/?currentJobId=4012345678&keywords=engineer', linkedin],
     ['https://au.indeed.com/viewjob?jk=a1b2c3d4e5f60718&from=serp', indeed],
     ['https://au.indeed.com/jobs?q=engineer&l=Sydney&vjk=a1b2c3d4e5f60718', indeed],

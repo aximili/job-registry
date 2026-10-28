@@ -13,11 +13,21 @@ If the code and these documents disagree, stop and ask. Don't quietly follow one
 ## Current status
 
 - **Phase 0** (architecture document): approved 28 Oct 2026.
-- **Phase 1** (core registry): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-1-core-registry.md)). Waiting for the Windows checklist in [docs/checklists/phase-1-windows.md](docs/checklists/phase-1-windows.md).
-- **Phases 2–6:** not started.
-- **Notes for Phase 2:**
-  - The `enrich` module needs a start-up sweep for jobs whose `parseState` is `pending`. Phase 1 marks every job that has ad text as pending, and no AI has run yet.
-  - The known minor follow-ups from the Phase 1 review are listed at the end of the Phase 1 plan's ledger. Ask the user before acting on them.
+- **Phase 1** (core registry): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-1-core-registry.md)).
+  - **Windows checklist** ([docs/checklists/phase-1-windows.md](docs/checklists/phase-1-windows.md)): Setup and "Starting and stopping" pass on Windows. The user will run the rest later, together with the later phases' checklists, and fix anything then.
+  - **Closed out** on 28 Oct 2026: the user's pick of the deferred minors (group A) is fixed. See "Phase 1 close-out" in the ledger, `.superpowers/sdd/2026-10-28-phase-1-core-registry/progress.md`.
+- **Phase 2** (local AI): built and tested on macOS on 28 Oct 2026, against a fake AI server ([plan](docs/superpowers/plans/2026-10-28-phase-2-local-ai.md), ledger `.superpowers/sdd/2026-10-28-phase-2-local-ai/progress.md`).
+  - **Windows checklist:** [docs/checklists/phase-2-windows.md](docs/checklists/phase-2-windows.md). Not run yet: the real Bonsai 2 model, `download-ai.bat`, llama-server start/stop with taskkill, Ollama.
+  - The user hasn't added real ads for `npm run eval:parse` yet. `tests/fixtures/ads/` has three made-up examples.
+- **Phase 3** (browser extension): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-3-browser-extension.md), ledger `.superpowers/sdd/2026-10-28-phase-3-browser-extension/progress.md`).
+  - **Windows checklist:** [docs/checklists/phase-3-windows.md](docs/checklists/phase-3-windows.md). Not run yet: real Firefox, signing (the user needs addons.mozilla.org keys), real signed-in Seek, LinkedIn and Indeed pages.
+  - The site fixtures are hand-made (plus one real LinkedIn guest page). When the user saves real pages, check them with `npm run ext:check` and add them to `tests/fixtures/sites/`.
+- **Phase 4** (resume and cover letter): plan drafted, not built ([plan](docs/superpowers/plans/2026-10-28-phase-4-resume-cover-letter.md)). Check it against the spec before building.
+- **Phases 5–6:** not started.
+- **How the user wants to work** (28 Oct 2026): "I just want the app finished the best you can." Build phase after phase without stopping for plan reviews or Windows tests. The user tests each phase's Windows checklist later and fixes things then. Don't ask about details; make the call and record it in the phase's ledger.
+- **Deferred minors from Phase 3** (in its ledger): the popup's save doesn't set the badge; the panel is last in the tab order; a rating keeps running after you leave a job for an unreadable page; the badge can lag when replies arrive out of order.
+- **Notes for Phase 4:** `profile/` is git-ignored (it holds the user's work history). Starter files go in a tracked folder (the plan says `starters/`), copied by setup.
+- **Notes for Phase 5** (checked 28 Oct 2026): Google still offers app passwords for personal accounts with 2-Step Verification, with no end date (support.google.com/accounts/answer/185833; "not recommended", and revoked when the Google password changes). IMAP is always on for personal Gmail since January 2025. Work or school (Workspace) accounts no longer allow app-password IMAP.
 
 Update this section when a phase starts or finishes.
 
@@ -26,12 +36,15 @@ Update this section when a phase starts or finishes.
 | Command | What it does |
 |---------|--------------|
 | `npm test` | Typecheck (tsc and svelte-check), then the architecture check (`check:deps`), then the unit and API tests (Vitest). |
-| `npm run test:e2e` | Build the dashboard, then run the browser tests (Playwright, in Firefox and Chromium). It starts its own server on port 4799. |
+| `npm run test:e2e` | Build the dashboard and the extension's test build, then run the browser tests: the dashboard in Firefox and Chromium, and the real extension in Chromium. It starts its own server on 4799 and copies of the job sites on 4798. |
 | `npm run dev:server` + `npm run dev:web` | Development mode. The server runs on 4777, and the dashboard on 5173 with live reload. |
 | `npm run build` | Build the dashboard into `web/dist` (the server serves it). |
 | `npm start` | Run the server (`node server/main.ts`). |
+| `npm run ext:build` | Build the browser extension into `extension/dist/{firefox,chrome}` (`--e2e` also builds `chrome-e2e` for the browser tests). |
+| `npm run ext:lint` / `ext:sign` / `ext:check -- page.html URL` | Mozilla's checks; sign the Firefox build (needs `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`); run a site reader on a saved page. |
+| `npm run eval:parse` | How well the AI in your settings reads job ads (a report, not a test). Uses `tests/fixtures/ads/`. `-- --settings FILE` uses another settings file. |
 
-**Windows scripts:** `setup.bat`, `start.bat` and `stop.bat`, plus `scripts/setup.ps1`, must stay plain ASCII with CRLF line endings (`.gitattributes` enforces CRLF). Windows PowerShell 5.1 misreads UTF-8 that has no byte-order mark.
+**Windows scripts:** `setup.bat`, `start.bat`, `stop.bat` and `download-ai.bat`, plus `scripts/setup.ps1` and `scripts/download-ai.ps1`, must stay plain ASCII with CRLF line endings (`.gitattributes` enforces CRLF). Windows PowerShell 5.1 misreads UTF-8 that has no byte-order mark.
 
 ## Architecture rules (summary; full detail in architecture.md §4 and §15)
 

@@ -1,0 +1,9 @@
+{
+  "title": "Business Analyst",
+  "company": null,
+  "agency": "Harbour Talent",
+  "location": "Brisbane QLD",
+  "employmentType": "contract",
+  "salary": { "min": 850, "max": 950, "currency": "AUD", "period": "day", "text": "$850 – $950 a day" },
+  "requirements": ["5 years as a Business Analyst", "Agile delivery experience", "Australian citizenship"]
+}

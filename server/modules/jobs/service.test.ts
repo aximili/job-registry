@@ -1,6 +1,6 @@
 import { pino } from 'pino';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_STATUSES } from '../../../shared/contracts/index.ts';
+import { DEFAULT_STATUSES, type ParsedJob, type Rating } from '../../../shared/contracts/index.ts';
 import { pastedCapture, seekCapture } from '../../../tests/helpers/jobs.ts';
 import { openDb } from '../../core/db/db.ts';
 import { NotFoundError, ValidationError } from '../../core/errors.ts';
@@ -228,7 +228,7 @@ describe('jobs service: review fixes', () => {
     const job = create({ capture: pastedCapture('ad', { structured: { company: 'Canva' } }), fields: { title: 'Designer' } });
     clock = new Date('2026-10-30T00:00:00.000Z');
     events = [];
-    const { id, status, adContact, fieldSources, parseState, parseError, matchVerdict, matchScore, archived, createdAt, updatedAt, ...fields } = job;
+    const { id, status, adContact, fieldSources, parseState, parseError, matchVerdict, matchScore, match, archived, createdAt, updatedAt, ...fields } = job;
     const same = jobs.update(job.id, fields);
     expect(same.updatedAt).toBe(job.updatedAt);
     expect(same.fieldSources).toEqual(job.fieldSources);
@@ -248,5 +248,131 @@ describe('jobs service: review fixes', () => {
     const further = create({ capture: seekCapture('3'), fields: { title: 'Other' }, status: 'interview_1' });
     const kept = jobs.save({ capture: seekCapture('4'), status: 'applied', decision: { linkTo: further.id } });
     expect(kept).toMatchObject({ result: 'linked', job: { status: 'interview_1' } });
+  });
+});
+
+describe('jobs: Phase 1 close-out', () => {
+  it('saving an ad that is already saved moves its job forward to a later chosen status, never back', () => {
+    const saved = create({ capture: seekCapture('1'), fields: { title: 'Senior Engineer', company: 'Atlassian' } });
+    const again = jobs.save({ capture: seekCapture('1'), status: 'applied' });
+    expect(again).toMatchObject({ result: 'exists', job: { id: saved.id, status: 'applied', dateApplied: '2026-10-28' } });
+    expect(jobs.listHistory(saved.id).map((h) => h.toStatus)).toEqual(['applied', 'saved']); // newest first
+
+    const back = jobs.save({ capture: seekCapture('1'), status: 'saved' });
+    expect(back).toMatchObject({ result: 'exists', job: { status: 'applied' } });
+    expect(jobs.listHistory(saved.id)).toHaveLength(2);
+  });
+});
+
+describe('jobs: day boundary', () => {
+  it('the applied date is the local day in Sydney, not the UTC day', () => {
+    const late = create({ capture: seekCapture('1'), fields: { title: 'A' } });
+    const early = create({ capture: seekCapture('2'), fields: { title: 'B' } });
+    clock = new Date('2026-10-28T12:59:00.000Z'); // 11:59 pm on 28 Oct in Sydney
+    expect(jobs.changeStatus(late.id, 'applied', 'manual').dateApplied).toBe('2026-10-28');
+    clock = new Date('2026-10-28T13:01:00.000Z'); // 12:01 am on 29 Oct in Sydney, still the 28th in UTC
+    expect(jobs.changeStatus(early.id, 'applied', 'manual').dateApplied).toBe('2026-10-29');
+  });
+});
+
+describe('jobs: what the AI read', () => {
+  const parsed = (over: Partial<ParsedJob> = {}): ParsedJob => ({
+    title: 'Senior Engineer',
+    company: 'Atlassian',
+    agency: null,
+    location: 'Sydney NSW',
+    workMode: 'hybrid',
+    employmentType: 'full-time',
+    salary: { min: 150000, max: 170000, currency: 'AUD', period: 'year', text: '$150k - $170k' },
+    closingDate: '2026-11-30',
+    summary: 'Build developer tools.',
+    requirements: ['TypeScript'],
+    niceToHave: ['Go'],
+    responsibilities: ['Ship features'],
+    adContact: { name: 'Priya Shah', email: null, phone: '0412 345 678' },
+    ...over,
+  });
+
+  it('applyParsed fills empty fields and marks them as from the AI', () => {
+    const job = create({ capture: pastedCapture('An ad.') });
+    events = [];
+    const after = jobs.applyParsed(job.id, parsed());
+    expect(after).toMatchObject({ title: 'Senior Engineer', company: 'Atlassian', workMode: 'hybrid', requirements: ['TypeScript'], parseState: 'done', parseError: null });
+    expect(after.salary).toEqual(parsed().salary);
+    expect(after.adContact).toEqual(parsed().adContact);
+    expect(after.fieldSources).toMatchObject({ title: 'ai', company: 'ai', salary: 'ai', requirements: 'ai' });
+  });
+
+  it('applyParsed never changes a field you typed, even one you cleared', () => {
+    const job = create({ capture: pastedCapture('An ad.'), fields: { title: 'My title' } });
+    jobs.update(job.id, { company: 'Something' });
+    jobs.update(job.id, { company: null });
+    const after = jobs.applyParsed(job.id, parsed());
+    expect(after.title).toBe('My title');
+    expect(after.company).toBeNull();
+    expect(after.fieldSources).toMatchObject({ title: 'user', company: 'user', location: 'ai' });
+  });
+
+  it("the ad's own data beats the AI, but the AI fills what the ad left empty", () => {
+    const job = create({ capture: pastedCapture('An ad.', { structured: { title: 'Engineer (from the page)', location: '' } }) });
+    const after = jobs.applyParsed(job.id, parsed());
+    expect(after.title).toBe('Engineer (from the page)');
+    expect(after.fieldSources.title).toBe('ad');
+    expect(after.location).toBe('Sydney NSW');
+  });
+
+  it('an empty AI answer never clears a value, and a new AI value replaces an older AI value', () => {
+    const job = create({ capture: pastedCapture('An ad.') });
+    jobs.applyParsed(job.id, parsed());
+    const after = jobs.applyParsed(job.id, parsed({ title: 'Staff Engineer', company: null, requirements: [], workMode: 'unknown', salary: { min: null, max: null, currency: null, period: null, text: null } }));
+    expect(after).toMatchObject({ title: 'Staff Engineer', company: 'Atlassian', requirements: ['TypeScript'], workMode: 'hybrid' });
+    expect(after.salary.min).toBe(150000);
+  });
+
+  it('applyParsed sets parseState done and sends job.updated with what changed', () => {
+    const job = create({ capture: pastedCapture('An ad.'), fields: { title: 'Mine' } });
+    expect(job.parseState).toBe('pending');
+    events = [];
+    jobs.applyParsed(job.id, parsed({ title: 'Theirs' }));
+    const updated = events.filter(([name]) => name === 'job.updated');
+    expect(updated).toHaveLength(1);
+    const fields = (updated[0]![1] as { fields: string[] }).fields;
+    expect(fields).toContain('company');
+    expect(fields).toContain('parseState');
+    expect(fields).not.toContain('title');
+  });
+
+  it('setParseState failed keeps the reason; setRating stores the whole rating on the job', () => {
+    const job = create({ capture: pastedCapture('An ad.') });
+    expect(jobs.setParseState(job.id, 'failed', "Can't reach the AI.")).toMatchObject({ parseState: 'failed', parseError: "Can't reach the AI." });
+    expect(jobs.setParseState(job.id, 'pending')).toMatchObject({ parseState: 'pending', parseError: null });
+    expect(jobs.setParseState(job.id, 'pending', 'Waiting for the AI.')).toMatchObject({ parseState: 'pending', parseError: 'Waiting for the AI.' });
+    const rating: Rating = { verdict: 'good', score: 72, why: ['TypeScript'], whyNot: [], dealBreakers: [], salaryNote: null };
+    events = [];
+    expect(jobs.setRating(job.id, rating)).toMatchObject({ matchVerdict: 'good', matchScore: 72, match: rating });
+    expect(events).toEqual([['job.updated', { jobId: job.id, fields: ['match'] }]]);
+  });
+
+  it('listIdsByParseState lists unarchived pending jobs, oldest first', () => {
+    const a = create({ capture: pastedCapture('Ad A.') });
+    clock = new Date('2026-10-28T04:00:00.000Z');
+    const b = create({ capture: pastedCapture('Ad B.') });
+    const c = create({ capture: pastedCapture('Ad C.') });
+    jobs.update(c.id, { archived: true });
+    const none = create({ capture: pastedCapture('   ') });
+    jobs.applyParsed(b.id, parsed());
+    expect(jobs.listIdsByParseState('pending')).toEqual([a.id]);
+    expect(jobs.listIdsByParseState('none')).toEqual([none.id]);
+  });
+
+  it("a null in the ad's structured data doesn't hide its own title", () => {
+    const job = create({ capture: pastedCapture('An ad.', { title: 'From the page', structured: { title: null, company: '  ' } as never, company: 'Canva' }) });
+    expect(job).toMatchObject({ title: 'From the page', company: 'Canva' });
+  });
+
+  it("a blank typed company falls back to the ad's company when checking for duplicates", () => {
+    create({ capture: seekCapture('1'), fields: { title: 'Senior Engineer', company: 'Atlassian' } });
+    const res = jobs.save({ capture: seekCapture('2', { company: 'Atlassian', title: 'Senior Engineer' }), fields: { company: '', title: '' } });
+    expect(res.result).toBe('needs_decision');
   });
 });

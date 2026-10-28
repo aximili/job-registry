@@ -51,6 +51,35 @@ module.exports = {
       to: { path: '^server/modules/', pathNot: `^server/modules/(${[name, ...allowed].join('|')})/` },
     })),
     {
+      name: 'core-not-modules',
+      severity: 'error',
+      comment: 'core is the base that every module builds on. It never reaches up into a module.',
+      from: { path: '^server/core/' },
+      to: { path: '^server/modules/' },
+    },
+    {
+      name: 'only-app-wires-modules',
+      severity: 'error',
+      comment:
+        'Only server/app.ts builds modules and adapters (R8). Another module may be imported for its types only; its service arrives as an argument.',
+      from: { path: '^server/modules/([^/]+)/', pathNot: TEST_FILE },
+      to: { path: '^server/modules/', pathNot: '^server/modules/$1/', dependencyTypesNot: ['type-only'] },
+    },
+    {
+      name: 'main-uses-app',
+      severity: 'error',
+      comment: 'main.ts starts the app through app.ts, the one place that wires modules together.',
+      from: { path: '^server/main\\.ts$' },
+      to: { path: '^server/modules/' },
+    },
+    {
+      name: 'no-sql-in-services',
+      severity: 'error',
+      comment: 'Services know nothing about SQL. Database helpers belong in repo.ts.',
+      from: { path: '^server/modules/[^/]+/service\\.ts$' },
+      to: { path: '^server/core/db/', dependencyTypesNot: ['type-only'] },
+    },
+    {
       name: 'no-fastify-in-logic',
       severity: 'error',
       comment: 'Services and repos know nothing about HTTP. Fastify stays in routes.ts.',
@@ -86,6 +115,14 @@ module.exports = {
       to: { dependencyTypes: ['core'] },
     },
     {
+      name: 'only-background-calls-server',
+      severity: 'error',
+      comment:
+        "In the extension, only the background script talks to the app (architecture §11). Content scripts run inside job sites, where the browser's cross-site rules apply.",
+      from: { path: '^extension/src/', pathNot: ['^extension/src/(background|handlers)\\.ts$', TEST_FILE] },
+      to: { path: '^shared/api-client\\.ts$', dependencyTypesNot: ['type-only'] },
+    },
+    {
       name: 'clients-not-server',
       severity: 'error',
       comment: 'The dashboard and extension talk to the server over HTTP only.',
@@ -95,12 +132,12 @@ module.exports = {
     {
       name: 'adapters-only-from-index',
       severity: 'error',
-      comment: 'Module logic uses the port. Only index.ts exposes adapters, for app.ts to wire.',
+      comment: 'Module logic uses the port. Only index.ts exposes adapters and runtimes, for app.ts to wire.',
       from: {
         path: '^server/modules/([^/]+)/',
-        pathNot: ['^server/modules/[^/]+/index\\.ts$', '/adapters/', TEST_FILE],
+        pathNot: ['^server/modules/[^/]+/index\\.ts$', '/(adapters|runtime)/', TEST_FILE],
       },
-      to: { path: '^server/modules/$1/adapters/' },
+      to: { path: '^server/modules/$1/(adapters|runtime)/' },
     },
   ],
   options: {

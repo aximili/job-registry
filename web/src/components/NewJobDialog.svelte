@@ -4,6 +4,7 @@
   import { tick } from 'svelte';
   import type { Candidate, Capture, EditableJobFields, SaveDecision } from '../../../shared/contracts/index.ts';
   import { api } from '../lib/api.ts';
+  import { friendlyError } from '../lib/errors.ts';
   import { statuses } from '../lib/app-state.svelte.ts';
   import { navigate } from '../lib/router.svelte.ts';
   import { showToast } from '../lib/toast.svelte.ts';
@@ -14,6 +15,8 @@
 
   let dialog: HTMLDialogElement;
   let pasteBox = $state<HTMLTextAreaElement>();
+  let body = $state<HTMLDivElement>();
+  let roleInput = $state<HTMLInputElement>();
   let step = $state<Step>('paste');
   let pasted = $state('');
   let capture = $state<Capture | null>(null);
@@ -64,8 +67,10 @@
       };
       details = { ...prefill };
       step = 'details';
+      await tick();
+      roleInput?.focus();
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       busy = false;
     }
@@ -92,21 +97,27 @@
         step = 'same';
         return;
       }
-      if (note.trim() && res.result !== 'exists') await api.addNote(res.job.id, note);
+      // Even for a job you'd already saved, the note you typed is kept.
+      if (note.trim()) await api.addNote(res.job.id, note);
       if (res.result === 'linked') showToast('Added this ad to the existing job.');
       if (res.result === 'exists') showToast("You've already saved this job.");
       dialog.close();
       navigate(`/jobs/${res.job.id}`);
     } catch (err) {
-      error = (err as Error).message;
+      error = friendlyError(err);
     } finally {
       busy = false;
+      // The "Same job" buttons are disabled while saving, so they can take focus only now.
+      if (step === 'same' && dialog.open) {
+        await tick();
+        body?.querySelector<HTMLButtonElement>('.candidate button')?.focus();
+      }
     }
   }
 </script>
 
 <dialog bind:this={dialog} aria-labelledby="new-job-title">
-  <div class="dialog-body">
+  <div class="dialog-body" bind:this={body}>
     <h2 id="new-job-title">New job</h2>
 
     {#if step === 'paste'}
@@ -121,7 +132,7 @@
           <span>Paste a job link or the ad text</span>
           <textarea bind:this={pasteBox} bind:value={pasted} rows="8"></textarea>
         </label>
-        {#if error}<p class="error">{error}</p>{/if}
+        {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div class="dialog-actions">
           <button type="button" class="button" onclick={() => dialog.close()}>Cancel</button>
           <button type="submit" class="button primary" disabled={busy || !pasted.trim()}>
@@ -139,7 +150,7 @@
       >
         {#if warning}<p class="warning" role="alert">{warning}</p>{/if}
         <div class="grid">
-          <label class="field wide"><span>Role</span><input bind:value={details.title} /></label>
+          <label class="field wide"><span>Role</span><input bind:this={roleInput} bind:value={details.title} /></label>
           <label class="field"><span>Company</span><input bind:value={details.company} /></label>
           <label class="field"><span>Agency</span><input bind:value={details.agency} placeholder="If a recruiter posted it" /></label>
           <label class="field"><span>Location</span><input bind:value={details.location} /></label>
@@ -155,7 +166,7 @@
             <textarea bind:value={adText} rows="5" placeholder="Paste the ad text here to keep a copy"></textarea>
           </label>
         </div>
-        {#if error}<p class="error">{error}</p>{/if}
+        {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div class="dialog-actions">
           <button type="button" class="button" onclick={() => (step = 'paste')}>Back</button>
           <button type="submit" class="button primary" disabled={busy}>Save job</button>
@@ -168,7 +179,7 @@
         onSame={(jobId) => void save({ linkTo: jobId })}
         onDifferent={() => void save('new')}
       />
-      {#if error}<p class="error">{error}</p>{/if}
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
     {/if}
   </div>
 </dialog>

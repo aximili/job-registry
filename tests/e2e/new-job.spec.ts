@@ -121,3 +121,22 @@ test('double-clicking Save creates only one job', async ({ page, request }) => {
   const jobs = (await res.json()) as { title: string }[];
   expect(jobs.filter((j) => j.title === 'Once Only Role')).toHaveLength(1);
 });
+
+test('saving a link you already saved keeps your note and moves the status forward', async ({ page }) => {
+  const saveLink = async (status: string, note: string) => {
+    await openNewJob(page);
+    await pasteBox(page).fill('http://127.0.0.1:4798/job.html');
+    await dialog(page).getByRole('button', { name: 'Continue' }).click();
+    await dialog(page).getByLabel('Status').selectOption(status);
+    if (note) await dialog(page).getByLabel('Note').fill(note);
+    await dialog(page).getByRole('button', { name: 'Save job' }).click();
+    await expect(page).toHaveURL(/\/jobs\/\d+$/);
+  };
+  await saveLink('saved', '');
+  const first = page.url();
+  await saveLink('applied', 'Applied through their careers page.');
+  expect(page.url()).toBe(first);
+  await expect(page.getByText("You've already saved this job.")).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Status' })).toHaveValue('applied');
+  await expect(page.getByRole('region', { name: 'Notes' })).toContainText('Applied through their careers page.');
+});

@@ -15,7 +15,7 @@ const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG']);
 export function normaliseText(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
-    .replace(/[  ]/g, ' ')
+    .replace(/[\u00A0\u202F]/g, ' ')
     .split('\n')
     .map((line) => line.replace(/[ \t]+$/, ''))
     .join('\n')
@@ -26,7 +26,7 @@ export function normaliseText(text: string): string {
 // HTML (such as a JobPosting description) to plain text with paragraphs and bullets.
 export function htmlFragmentToText(html: string): string {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
-  return normaliseText(nodeText(document.body as unknown as Node));
+  return normaliseText(nodeText(document.body as unknown as HtmlNode));
 }
 
 // The main readable text of a whole page, using Mozilla's Readability.
@@ -34,7 +34,7 @@ export function readableText(html: string): { title: string | null; text: string
   const { document } = parseHTML(html);
   const pageTitle = document.title?.trim() || null;
   try {
-    const article = new Readability(document as unknown as Document).parse();
+    const article = new Readability(document as unknown as ConstructorParameters<typeof Readability>[0]).parse();
     if (article?.content) {
       return { title: article.title?.trim() || pageTitle, text: htmlFragmentToText(article.content) };
     }
@@ -44,11 +44,15 @@ export function readableText(html: string): { title: string | null; text: string
   return { title: pageTitle, text: htmlFragmentToText(document.body?.innerHTML ?? '') };
 }
 
-function nodeText(node: Node): string {
+// The little of a parsed HTML node this needs. The server has no browser DOM
+// types on purpose, so a browser-only global can't slip into server code.
+type HtmlNode = { nodeType: number; textContent: string | null; tagName?: string; childNodes: ArrayLike<HtmlNode> };
+
+function nodeText(node: HtmlNode): string {
   if (node.nodeType === 3) return (node.textContent ?? '').replace(/\s+/g, ' ');
   if (node.nodeType !== 1) return '';
-  const el = node as Element;
-  const tag = el.tagName.toUpperCase();
+  const el = node;
+  const tag = (el.tagName ?? '').toUpperCase();
   if (SKIP_TAGS.has(tag)) return '';
   if (tag === 'BR') return '\n';
   const inner = Array.from(el.childNodes, nodeText).join('');

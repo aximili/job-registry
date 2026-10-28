@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayCompany, displayTitle, formatDate, formatRelative, formatSalary, snippetParts } from './format.ts';
+import { displayCompany, displayTitle, formatDate, formatRelative, formatSalary, joinList, plural, snippetParts, verdictLabel } from './format.ts';
 
 describe('formatDate', () => {
   it('shows dates the Australian way', () => {
@@ -55,3 +55,30 @@ describe('formatSalary', () => {
     expect(formatSalary(none)).toBe('');
   });
 });
+
+describe('plural', () => {
+  it('says "1 job" and "2 jobs"', () => {
+    expect(plural(1, 'job')).toBe('1 job');
+    expect(plural(0, 'job')).toBe('0 jobs');
+    expect(plural(2, 'contact')).toBe('2 contacts');
+  });
+});
+
+describe('joinList', () => {
+  it('joins with commas and a final "and"', () => {
+    expect(joinList(['Seek'])).toBe('Seek');
+    expect(joinList(['Seek', 'LinkedIn'])).toBe('Seek and LinkedIn');
+    expect(joinList(['Seek', 'LinkedIn', 'pasted text'])).toBe('Seek, LinkedIn and pasted text');
+    expect(joinList([])).toBe('');
+  });
+});
+
+describe('verdictLabel', () => {
+  it('says how good a match is in words', () => {
+    expect(verdictLabel('strong')).toBe('Strong match');
+    expect(verdictLabel('good')).toBe('Good match');
+    expect(verdictLabel('stretch')).toBe('Stretch');
+    expect(verdictLabel('weak')).toBe('Weak match');
+  });
+});
+
