@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Header from './components/Header.svelte';
   import NewJobDialog from './components/NewJobDialog.svelte';
+  import DocEditorPage from './pages/DocEditorPage.svelte';
   import HomePage from './pages/HomePage.svelte';
   import JobPage from './pages/JobPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
@@ -62,6 +63,10 @@
 {:else if router.route.name === 'job'}
   {#key router.route.id}
     <JobPage id={router.route.id} />
+  {/key}
+{:else if router.route.name === 'document'}
+  {#key `${router.route.jobId}/${router.route.docId}/${router.route.kind}`}
+    <DocEditorPage jobId={router.route.jobId} docId={router.route.docId} kind={router.route.kind} />
   {/key}
 {:else if router.route.name === 'settings'}
   <SettingsPage />

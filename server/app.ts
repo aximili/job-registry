@@ -4,6 +4,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import { localDate } from '../shared/dates.ts';
 import type { AppPaths, Clock } from './core/config.ts';
@@ -25,11 +26,17 @@ import {
 import { createCallsheetModule, type CallsheetService } from './modules/callsheet/index.ts';
 import { createCaptureModule, type CaptureService } from './modules/capture/index.ts';
 import { createContactsModule, type ContactsService } from './modules/contacts/index.ts';
+import {
+  createDocumentsModule,
+  createDocxExporter,
+  createPrintHtmlExporter,
+  type DocumentsService,
+} from './modules/documents/index.ts';
 import { createEnrichModule, type EnrichService } from './modules/enrich/index.ts';
 import { createJobsModule, type JobsService } from './modules/jobs/index.ts';
 import { createLiveModule, type LiveService } from './modules/live/index.ts';
 import { createNotesModule, type NotesService } from './modules/notes/index.ts';
-import { createProfileModule } from './modules/profile/index.ts';
+import { createProfileModule, type ProfileService } from './modules/profile/index.ts';
 import { createRatingsModule, type RatingsService } from './modules/ratings/index.ts';
 import { createSearchModule, type SearchService } from './modules/search/index.ts';
 import { createSettingsModule, type SettingsService } from './modules/settings/index.ts';
@@ -45,11 +52,16 @@ export type AppOptions = {
   version?: string;
 };
 
+// The starter guides and templates that come with the app, copied in when one is missing.
+const STARTERS_DIR = fileURLToPath(new URL('../starters/', import.meta.url));
+
 // Stand-ins for the outside world, for tests.
 export type Fakes = { ai: AiProvider; runtime: ModelRuntime };
 
 export type AppServices = {
   settings: SettingsService;
+  profile: ProfileService;
+  documents: DocumentsService;
   ai: AiService;
   ratings: RatingsService;
   enrich: EnrichService;
@@ -98,6 +110,9 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   const system = createSystemModule({
     db,
     backupDir,
+    filesDir: opts.paths.files,
+    profileDir: opts.paths.profile,
+    templatesDir: opts.paths.templates,
     keepBackups: () => settings.service.get().backups.keep,
     now,
     version: opts.version ?? '0.0.0',
@@ -123,12 +138,24 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     return c.preset === 'llama-server' && c.managed.enabled ? managedRuntime : externalRuntime;
   };
   const ai = createAiModule({ provider, runtime, getConfig: aiConfig, bus, logger, now });
-  const profile = createProfileModule({ dir: opts.paths.profile });
+  const profile = createProfileModule({ dir: opts.paths.profile, templatesDir: opts.paths.templates, startersDir: STARTERS_DIR, bus, now });
+  const installed = profile.service.installStarters();
+  if (installed.length > 0) logger.info(`Added starter files: ${installed.join(', ')}`);
   const ratings = createRatingsModule({ db, ai: ai.service, profile: profile.service, now });
   const jobs = createJobsModule({ db, bus, statuses: () => settings.service.statuses(), now });
   const notes = createNotesModule({ db, bus, now });
   const contacts = createContactsModule({ db, bus, now });
   const enrich = createEnrichModule({ bus, jobs: jobs.service, ai: ai.service, ratings: ratings.service, logger });
+  const documents = createDocumentsModule({
+    db,
+    bus,
+    now,
+    ai: ai.service,
+    profile: profile.service,
+    jobs: jobs.service,
+    exporters: [createPrintHtmlExporter(), createDocxExporter()],
+    filesDir: opts.paths.files,
+  });
   const search = createSearchModule({
     db,
     bus,
@@ -137,7 +164,12 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     notes: notes.service,
     statuses: () => settings.service.statuses(),
   });
-  const callsheet = createCallsheetModule({ jobs: jobs.service, contacts: contacts.service, notes: notes.service });
+  const callsheet = createCallsheetModule({
+    jobs: jobs.service,
+    contacts: contacts.service,
+    notes: notes.service,
+    documents: documents.service,
+  });
   const live = createLiveModule({ bus });
 
   const http: FastifyInstance = Fastify({
@@ -148,7 +180,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   });
   registerSecurity(http, { port });
   registerErrorHandler(http, logger);
-  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, search, callsheet, live]) {
+  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, documents, search, callsheet, live]) {
     await http.register(module.routes, { prefix: '/api/v1' });
   }
   await serveDashboard(http, opts.paths.webDist);
@@ -160,6 +192,8 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     port,
     services: {
       settings: settings.service,
+      profile: profile.service,
+      documents: documents.service,
       ai: ai.service,
       ratings: ratings.service,
       enrich: enrich.service,

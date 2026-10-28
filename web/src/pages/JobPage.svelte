@@ -4,6 +4,7 @@
   import { ApiError } from '../../../shared/api-client.ts';
   import AdText from '../components/AdText.svelte';
   import CallSheet from '../components/CallSheet.svelte';
+  import DocumentsPanel from '../components/DocumentsPanel.svelte';
   import EditJobDialog from '../components/EditJobDialog.svelte';
   import LogCallDialog from '../components/LogCallDialog.svelte';
   import Timeline from '../components/Timeline.svelte';
@@ -102,6 +103,7 @@
       onArchive={archive}
       onChanged={load}
     />
+    <DocumentsPanel jobId={id} documents={sheet.documents} attachments={sheet.attachments} onChanged={load} />
     <div class="below">
       <Timeline items={buildTimeline(sheet, statusLabel)} />
       <AdText postings={sheet.postings} />

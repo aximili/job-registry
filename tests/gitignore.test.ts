@@ -23,6 +23,8 @@ describe('.gitignore', () => {
       .filter((p) => !p.startsWith('tests/e2e/test-results'));
     expect(hidden).toEqual([]);
     expect(ignored('server/modules/ai/service.ts')).toBe(false);
+    expect(ignored('starters/templates/resume.css')).toBe(false);
+    expect(ignored('starters/profile/resume-guide.md')).toBe(false);
   });
 
   it('still hides your data, settings and the AI downloads', () => {
@@ -35,6 +37,7 @@ describe('.gitignore', () => {
       'ai/llama.cpp/llama-server.exe',
       'profile/master-profile.md',
       'profile/preferences.md',
+      'templates/resume.css',
       'extension/dist/firefox/manifest.json',
     ]) {
       expect(ignored(path), path).toBe(true);

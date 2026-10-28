@@ -21,12 +21,16 @@ import { createAiQueue, type Priority } from './queue.ts';
 import type { ModelRuntime } from './runtime.ts';
 import { parseJobTask } from './tasks/parse-job.ts';
 import { rateJobTask, type RateInput } from './tasks/rate-job.ts';
+import { writeDocumentTask, type WriteInput } from './tasks/write-document.ts';
 
-export type { Priority, RateInput };
+export type { Priority, RateInput, WriteInput };
 
 export interface AiService {
   parseJob(adText: string, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<ParsedJob>;
   rateJob(input: RateInput, opts?: { signal?: AbortSignal; key?: string; priority?: Priority }): Promise<Rating>;
+  // A resume or cover letter, as it's written. It holds the AI until the
+  // stream ends, is cancelled, or the reader stops early.
+  writeDocument(input: WriteInput, opts?: { signal?: AbortSignal; key?: string }): AsyncIterable<string>;
   status(): AiStatus;
   test(): Promise<AiTestResult>;
   stop(): Promise<void>;
@@ -50,7 +54,12 @@ const isAbort = (err: unknown): boolean => (err as Error)?.name === 'AbortError'
 export function createAiService(opts: AiOptions): AiService {
   const queue = createAiQueue();
   const dir = opts.promptsDir ?? PROMPTS_DIR;
-  const prompts = { parse: loadPrompt(dir, 'parse-job'), rate: loadPrompt(dir, 'rate-job') };
+  const prompts = {
+    parse: loadPrompt(dir, 'parse-job'),
+    rate: loadPrompt(dir, 'rate-job'),
+    resume: loadPrompt(dir, 'write-resume'),
+    cover_letter: loadPrompt(dir, 'write-cover-letter'),
+  };
 
   let busy = 0;
   // Set when the server failed during a task, cleared by the next good one.
@@ -136,6 +145,56 @@ export function createAiService(opts: AiOptions): AiService {
       return run(o.priority ?? 'interactive', o.key, o.signal, (signal) =>
         rateJobTask({ provider: opts.provider, prompt: prompts.rate, config: opts.getConfig(), input, signal }),
       );
+    },
+
+    async *writeDocument(input, o = {}) {
+      // The queue task writes chunks into a buffer; this generator hands them on.
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      if (o.signal?.aborted) cancel();
+      o.signal?.addEventListener('abort', cancel, { once: true });
+      const buffer: string[] = [];
+      let wake: (() => void) | null = null;
+      // Set by the queue task's callbacks, so it's an object TypeScript can't narrow away.
+      const state = { ended: false, failed: null as { error: unknown } | null };
+      const notify = () => {
+        wake?.();
+        wake = null;
+      };
+      const work = run('interactive', o.key, controller.signal, async (signal) => {
+        const prompt = prompts[input.kind];
+        for await (const text of writeDocumentTask({ provider: opts.provider, prompt, config: opts.getConfig(), input, signal })) {
+          buffer.push(text);
+          notify();
+        }
+      }).then(
+        () => {
+          state.ended = true;
+          notify();
+        },
+        (error: unknown) => {
+          state.failed = { error };
+          state.ended = true;
+          notify();
+        },
+      );
+      try {
+        for (;;) {
+          if (controller.signal.aborted) {
+            await work;
+            throw state.failed?.error ?? new DOMException('The AI task was cancelled.', 'AbortError');
+          }
+          if (buffer.length > 0) yield buffer.shift()!;
+          else if (state.ended) {
+            if (state.failed) throw state.failed.error;
+            return;
+          } else await new Promise<void>((resolve) => (wake = resolve));
+        }
+      } finally {
+        o.signal?.removeEventListener('abort', cancel);
+        if (!state.ended) cancel();
+        await work;
+      }
     },
 
     status() {

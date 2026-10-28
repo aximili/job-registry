@@ -12,6 +12,8 @@ export type FakeReply = {
   status?: number;
   error?: string;
   delayMs?: number;
+  // Why the answer ended: 'length' when max_tokens cut it off.
+  finishReason?: 'stop' | 'length';
 };
 
 export type FakeOpenAiServer = {
@@ -60,6 +62,7 @@ export async function startFakeOpenAiServer(
           res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
         if (reply.reasoning) send({ [field]: reply.reasoning });
         for (const piece of chunks(reply.content ?? '')) send({ content: piece });
+        res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: reply.finishReason ?? 'stop' }] })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
         return;

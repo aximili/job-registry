@@ -218,7 +218,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 - **`setup.bat`** is run once. It calls `scripts/setup.ps1`, which:
   1. Checks that a supported Node LTS is installed. If not, it prints `winget install OpenJS.NodeJS.LTS`.
   2. Runs `npm ci` and builds the dashboard and the extension.
-  3. Creates `data/`, `config/settings.json` and the starter profile and template files.
+  3. Creates `data/` and `config/settings.json`. The app copies in the starter writing guides and templates the first time it starts (changed in Phase 4).
   4. Offers to download PrismML's Windows CUDA llama.cpp release and the Bonsai 2 27B GGUF into `ai/`.
   5. Offers to create a Desktop shortcut, and optionally a login auto-start, so the app is already running when a recruiter rings.
 - **`start.bat`** starts the server minimised and opens the dashboard. If the server is already running, it just opens the dashboard.

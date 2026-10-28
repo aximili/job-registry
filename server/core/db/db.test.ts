@@ -30,7 +30,7 @@ function v1Migrations(): string {
   return dir;
 }
 
-const LATEST = 2;
+const LATEST = 3;
 
 describe('database', () => {
   it('migrates an empty database to the latest version with all tables', () => {
@@ -38,7 +38,7 @@ describe('database', () => {
     expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
     const names = tableNames(db);
-    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache']) {
+    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache', 'documents', 'attachments']) {
       expect(names).toContain(t);
     }
   });
@@ -90,5 +90,37 @@ describe('database', () => {
     db.prepare("INSERT INTO rating_cache (ad_key, profile_hash, rating_json, created_at) VALUES ('k', 'h', '{}', 'now')").run();
     expect(db.prepare('SELECT ad_key FROM rating_cache').all()).toEqual([{ ad_key: 'k' }]);
     db.close();
+  });
+
+  it('upgrades a version 2 database with a job to version 3, keeps the job, and adds the document tables', () => {
+    const dir = tempDir();
+    copyFileSync(join(realMigrations, '001_init.sql'), join(dir, '001_init.sql'));
+    copyFileSync(join(realMigrations, '002_rating_cache.sql'), join(dir, '002_rating_cache.sql'));
+    const file = join(tempDir(), 'jobs.db');
+    const old = openDb(file, { migrationsDir: dir });
+    old
+      .prepare("INSERT INTO jobs (title, status, created_at, updated_at) VALUES ('Engineer', 'saved', '2026-10-28T00:00:00Z', '2026-10-28T00:00:00Z')")
+      .run();
+    expect(old.pragma('user_version', { simple: true })).toBe(2);
+    old.close();
+
+    const db = openDb(file);
+    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.prepare('SELECT title FROM jobs').all()).toEqual([{ title: 'Engineer' }]);
+    db.prepare(
+      "INSERT INTO documents (job_id, kind, version, markdown, origin, created_at) VALUES (1, 'resume', 1, '# Me', 'edited', 'now')",
+    ).run();
+    expect(db.prepare('SELECT version FROM documents').all()).toEqual([{ version: 1 }]);
+    db.close();
+  });
+
+  it('never lets a saved document version change, nor a sent one be sent again', () => {
+    const db = openDb(':memory:');
+    db.prepare("INSERT INTO jobs (title, status, created_at, updated_at) VALUES ('Engineer', 'saved', 'now', 'now')").run();
+    db.prepare("INSERT INTO documents (job_id, kind, version, markdown, origin, created_at) VALUES (1, 'resume', 1, '# Me', 'edited', 'now')").run();
+    expect(() => db.prepare("UPDATE documents SET markdown = 'changed'").run()).toThrow(/never changed/);
+    db.prepare("UPDATE documents SET is_sent = 1, sent_at = 'now', sent_css = 'h1{}'").run();
+    expect(() => db.prepare("UPDATE documents SET sent_css = 'h1{color:red}'").run()).toThrow(/sent/);
+    expect(db.prepare('SELECT markdown, sent_css FROM documents').get()).toEqual({ markdown: '# Me', sent_css: 'h1{}' });
   });
 });

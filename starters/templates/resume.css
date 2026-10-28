@@ -1,0 +1,87 @@
+/* Resume template. It styles the page the dashboard shows and prints.
+   Sizes are for A4 paper. When you print, untick "Headers and footers". */
+
+@page {
+  size: A4;
+  margin: 16mm 18mm;
+}
+
+html {
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.4;
+  color: #1d1d24;
+}
+
+body {
+  margin: 0;
+}
+
+.document h1 {
+  font-size: 22pt;
+  font-weight: 700;
+  margin: 0 0 2pt;
+  color: #1d1d24;
+}
+
+/* The contact line straight under your name. */
+.document h1 + p {
+  margin-top: 0;
+  color: #4a4a55;
+}
+
+.document h2 {
+  font-size: 11.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #2b3a8c;
+  border-bottom: 1px solid #c9cbe0;
+  padding-bottom: 2pt;
+  margin: 14pt 0 6pt;
+}
+
+.document h3 {
+  font-size: 10.5pt;
+  margin: 10pt 0 2pt;
+}
+
+.document p {
+  margin: 0 0 6pt;
+}
+
+.document ul,
+.document ol {
+  margin: 0 0 6pt;
+  padding-left: 14pt;
+}
+
+.document li {
+  margin: 0 0 2pt;
+}
+
+.document a {
+  color: inherit;
+}
+
+/* Keep a job's heading with its first bullet point. */
+.document h2,
+.document h3 {
+  break-after: avoid;
+}
+
+/* On screen: a white A4 sheet on grey. */
+@media screen {
+  html {
+    background: #e6e7ec;
+  }
+
+  .document {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 12px auto;
+    padding: 16mm 18mm;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+}

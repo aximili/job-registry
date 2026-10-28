@@ -82,13 +82,17 @@ export function createOpenAiCompatibleProvider(
       const config = getConfig();
       const res = await post(req, true, o.signal);
       const splitter = thinkSplitter();
+      let cutOff = false;
       try {
         for await (const delta of sseDeltas(res)) {
+          if (delta.finish_reason === 'length') cutOff = true;
           const reasoning = delta.reasoning_content ?? delta.reasoning;
           if (typeof reasoning === 'string' && reasoning) yield { kind: 'thinking', text: reasoning };
           if (typeof delta.content === 'string' && delta.content) yield* splitter.push(delta.content);
         }
         yield* splitter.end();
+        // max_tokens ran out (thinking counts towards it): what came is kept, but it isn't finished.
+        if (cutOff) throw new AiRefusedError(CUT_OFF);
       } catch (err) {
         throw describe(err, config);
       }
@@ -196,7 +200,10 @@ function partialTagLength(text: string, tag: string): number {
   return 0;
 }
 
-type Delta = { content?: unknown; reasoning_content?: unknown; reasoning?: unknown };
+type Delta = { content?: unknown; reasoning_content?: unknown; reasoning?: unknown; finish_reason?: unknown };
+
+const CUT_OFF =
+  'The AI ran out of room before it finished. Raise maxTokens in config\\settings.json (ai.tasks.write for resumes and cover letters), then try again.';
 
 async function* sseDeltas(res: Response): AsyncIterable<Delta> {
   if (!res.body) return;
@@ -212,9 +219,9 @@ async function* sseDeltas(res: Response): AsyncIterable<Delta> {
       const data = line.slice(5).trim();
       if (data === '[DONE]') return;
       try {
-        const parsed = JSON.parse(data) as { choices?: { delta?: Delta }[] };
-        const delta = parsed.choices?.[0]?.delta;
-        if (delta) yield delta;
+        const parsed = JSON.parse(data) as { choices?: { delta?: Delta; finish_reason?: unknown }[] };
+        const choice = parsed.choices?.[0];
+        if (choice?.delta || choice?.finish_reason) yield { ...choice.delta, finish_reason: choice.finish_reason };
       } catch {
         // A line that isn't JSON (a comment or keep-alive) is skipped.
       }

@@ -35,4 +35,7 @@ export const JOB_EVENTS = [
   'contact.linked',
   'contact.unlinked',
   'interaction.logged',
+  'document.saved',
+  'document.sent',
+  'attachment.added',
 ];

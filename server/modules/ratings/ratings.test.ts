@@ -80,12 +80,12 @@ describe('ratings', () => {
     expect(await app.services.ratings.rate(seekAd)).toEqual({
       rating: null,
       cached: false,
-      reason: 'Add your master profile as profile/master-profile.md to get match ratings.',
+      reason: 'Add your master profile in Settings → Profile to get match ratings.',
     });
     expect(provider.calls).toHaveLength(0);
     expect((await app.request('GET', '/api/v1/ratings/status')).body).toEqual({
       ready: false,
-      detail: 'Add your master profile as profile/master-profile.md to get match ratings.',
+      detail: 'Add your master profile in Settings → Profile to get match ratings.',
     });
     writeProfile('Me');
     expect(app.services.ratings.status()).toEqual({ ready: true, detail: 'Ratings use profile/master-profile.md.' });

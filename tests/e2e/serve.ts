@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
 import { buildApp } from '../../server/app.ts';
 import { resolvePaths } from '../../server/core/config.ts';
 import { FakeRuntime } from '../fakes/fake-runtime.ts';
-import { createSmartFake, type SmartMode } from '../fakes/smart-fake-ai.ts';
+import { createSmartFake, E2E_PROFILE, type SmartMode } from '../fakes/smart-fake-ai.ts';
 
 export const E2E_PORT = 4799;
 export const FIXTURE_PORT = 4798;
@@ -24,7 +24,14 @@ const paths = resolvePaths(root, { webDist: join(projectRoot, 'web', 'dist') });
 
 // A master profile, so saved jobs get a match rating from the fake AI.
 mkdirSync(paths.profile, { recursive: true });
-writeFileSync(join(paths.profile, 'master-profile.md'), '# Sam Taylor\nSenior engineer. Eight years of TypeScript.\n');
+writeFileSync(join(paths.profile, 'master-profile.md'), E2E_PROFILE);
+
+const STARTER_FILES = [
+  ['resume-guide', 'profile/resume-guide.md'],
+  ['cover-letter-guide', 'profile/cover-letter-guide.md'],
+  ['resume', 'templates/resume.css'],
+  ['cover-letter', 'templates/cover-letter.css'],
+] as const;
 
 const smart = createSmartFake();
 const runtime = new FakeRuntime();
@@ -43,9 +50,14 @@ app.http.post('/__test/reset', async () => {
   await app.services.ai.stop();
   await app.services.enrich.onIdle();
   app.db.exec(`
+    DELETE FROM documents; DELETE FROM attachments;
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
     DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;`);
   app.services.settings.update(DEFAULT_SETTINGS);
+  // Your profile and templates as a fresh install has them.
+  app.services.profile.write('master-profile', E2E_PROFILE);
+  app.services.profile.write('preferences', '');
+  for (const [name, file] of STARTER_FILES) app.services.profile.write(name, readFileSync(join(projectRoot, 'starters', file), 'utf8'));
   return { ok: true };
 });
 

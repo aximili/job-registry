@@ -45,6 +45,10 @@ export class FakeAiProvider implements AiProvider {
   finished: ChatRequest[] = [];
   down = false;
   delayMs: number;
+  // The model's thinking, kept apart from the answer like a real server's.
+  thinking = '';
+  // A pause between streamed chunks, for cancelling part-way.
+  chunkDelayMs = 0;
   reply: FakeReplyFn;
 
   constructor(reply: FakeReplyFn = defaultReply, opts: { delayMs?: number } = {}) {
@@ -58,12 +62,21 @@ export class FakeAiProvider implements AiProvider {
     const answer = await this.reply(req);
     if (answer instanceof Error) throw answer;
     this.finished.push(req);
-    return { text: answer, thinking: '' };
+    return { text: answer, thinking: this.thinking };
   }
 
+  // A stream counts as finished only when its last chunk has gone.
   async *chatStream(req: ChatRequest, opts: { signal?: AbortSignal } = {}): AsyncIterable<ChatChunk> {
-    const { text } = await this.chat(req, opts);
-    for (const word of text.split(/(?<= )/)) yield { kind: 'text', text: word };
+    this.calls.push(req);
+    await wait(this.delayMs, opts.signal);
+    const answer = await this.reply(req);
+    if (answer instanceof Error) throw answer;
+    if (this.thinking) yield { kind: 'thinking', text: this.thinking };
+    for (const word of answer.split(/(?<= )/)) {
+      await wait(this.chunkDelayMs, opts.signal);
+      yield { kind: 'text', text: word };
+    }
+    this.finished.push(req);
   }
 
   async health(): Promise<ProviderHealth> {
@@ -72,9 +85,9 @@ export class FakeAiProvider implements AiProvider {
       : { ok: true, models: ['fake-model'], detail: null };
   }
 
-  // Calls for one task only, by its schema name.
-  callsFor(name: 'parsed_job' | 'rating'): ChatRequest[] {
-    return this.calls.filter((c) => c.jsonSchema?.name === name);
+  // Calls for one task only, by its schema name. Writing a document has no schema.
+  callsFor(name: 'parsed_job' | 'rating' | 'write'): ChatRequest[] {
+    return this.calls.filter((c) => (c.jsonSchema?.name ?? 'write') === name);
   }
 }
 

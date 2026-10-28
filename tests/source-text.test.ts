@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const FOLDERS = ['server', 'shared', 'web/src', 'tests', 'scripts', 'extension'];
-const CODE = /\.(ts|svelte|mjs|cjs|js|css|html|json|ps1|bat)$/;
+const FOLDERS = ['server', 'shared', 'web/src', 'tests', 'scripts', 'extension', 'starters'];
+const CODE = /\.(ts|svelte|mjs|cjs|js|css|html|json|ps1|bat|md)$/;
 const INVISIBLE = /[\p{Cf}\u00A0\u2000-\u200A\u202F\u205F\u3000]/gu;
 
 function* files(dir: string): Generator<string> {

@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Health } from '../../../shared/contracts/index.ts';
 import type { Clock } from '../../core/config.ts';
@@ -15,6 +15,11 @@ export interface SystemService {
 export type SystemOptions = {
   db: Db;
   backupDir: () => string;
+  // Folders copied into the backup folder too: your attached files (data/files),
+  // and your profile and templates, which git never keeps.
+  filesDir: string;
+  profileDir: string;
+  templatesDir: string;
   keepBackups: () => number;
   now: Clock;
   version: string;
@@ -49,6 +54,11 @@ export function createSystemService(opts: SystemOptions): SystemService {
     await opts.db.backup(partial);
     replaceFile(partial, file);
     pruneBackups(dir, opts.keepBackups());
+    // The database is backed up already: a file that can't be copied is logged and skipped.
+    const failed = (err: unknown, file: string) => opts.logger.error({ err, file }, 'Copying a file to the backup folder failed');
+    mirrorFiles(opts.filesDir, join(dir, 'files'), failed);
+    mirrorFiles(opts.profileDir, join(dir, 'profile'), failed);
+    mirrorFiles(opts.templatesDir, join(dir, 'templates'), failed);
     return file;
   }
 
@@ -84,6 +94,35 @@ function pruneBackups(dir: string, keep: number): void {
     const day = name.slice('jobs-'.length, 'jobs-YYYY-MM-DD'.length);
     if (days.has(day) || days.size >= keep) rmSync(join(dir, name));
     days.add(day);
+  }
+}
+
+// Copies new and changed files into the backup, keeping the folders. Nothing
+// in the backup is ever deleted, so a file removed by mistake is still there.
+function mirrorFiles(from: string, to: string, failed: (err: unknown, file: string) => void): void {
+  if (!existsSync(from)) return;
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const source = join(from, entry.name);
+    const target = join(to, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        mirrorFiles(source, target, failed);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const s = statSync(source);
+      if (existsSync(target)) {
+        const t = statSync(target);
+        // File systems keep times to different precision (FAT and OneDrive to 2 seconds).
+        if (t.isFile() && t.size === s.size && Math.abs(t.mtimeMs - s.mtimeMs) < 2000) continue;
+      }
+      mkdirSync(to, { recursive: true });
+      copyFileSync(source, target);
+      // The original's time, to the fraction, so the next backup can tell it's unchanged.
+      utimesSync(target, s.atimeMs / 1000, s.mtimeMs / 1000);
+    } catch (err) {
+      failed(err, source);
+    }
   }
 }
 

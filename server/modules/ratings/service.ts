@@ -16,7 +16,7 @@ export interface RatingsService {
   status(): RatingsStatus;
 }
 
-export const NO_PROFILE = 'Add your master profile as profile/master-profile.md to get match ratings.';
+export const NO_PROFILE = 'Add your master profile in Settings → Profile to get match ratings.';
 
 // The ad's link and a short hash of its text: the same ad read again gets
 // the cached rating, but a fuller or changed read of it is rated afresh. A

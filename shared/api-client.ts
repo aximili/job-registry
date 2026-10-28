@@ -17,6 +17,8 @@ export class ApiError extends Error {
   }
 }
 
+const CUT_OFF = 'The AI stopped before the draft was finished. The text so far is still here. Try again.';
+
 export type ApiClientOptions = {
   baseUrl: string;
   fetch?: typeof fetch;
@@ -37,11 +39,13 @@ export function createApiClient(opts: ApiClientOptions) {
 
   async function send(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = { ...opts.headers };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    // A file upload sets its own content type, with the form's boundary.
+    const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+    if (body !== undefined && !isForm) headers['content-type'] = 'application/json';
     const res = await doFetch(`${opts.baseUrl}/api/v1${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       signal,
     });
     if (!res.ok) throw await toApiError(res);
@@ -59,6 +63,45 @@ export function createApiClient(opts: ApiClientOptions) {
     const parsed = schema.safeParse(await readJson(res));
     if (!parsed.success) throw new ApiError('internal', res.status, 'Unexpected response from the server.');
     return parsed.data;
+  }
+
+  // A reply of one JSON value per line, read as the lines arrive.
+  async function* lines<S extends z.ZodType>(schema: S, res: Response): AsyncGenerator<z.infer<S>> {
+    if (!res.body) return;
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let pending = '';
+    let done = false;
+    const parse = (text: string): z.infer<S> => {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // checked below
+      }
+      const parsed = schema.safeParse(data);
+      if (!parsed.success) throw new ApiError('internal', res.status, 'Unexpected response from the server.');
+      return parsed.data;
+    };
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) {
+          done = true;
+          break;
+        }
+        const value = next.value;
+        pending += value;
+        const parts = pending.split('\n');
+        pending = parts.pop() ?? '';
+        for (const part of parts) if (part.trim()) yield parse(part);
+      }
+      if (pending.trim()) yield parse(pending);
+    } finally {
+      // A reader that leaves early (or a bad line) ends the request, so the
+      // server stops the AI instead of writing on to nobody.
+      if (!done) await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 
   async function callVoid(method: string, path: string): Promise<void> {
@@ -112,6 +155,32 @@ export function createApiClient(opts: ApiClientOptions) {
       call(C.RateResponse, 'POST', '/ratings', req, o.signal),
     ratingsStatus: () => call(C.RatingsStatus, 'GET', '/ratings/status'),
     reparseJob: (id: number) => call(C.Job, 'POST', `/jobs/${id}/reparse`, {}),
+
+    getProfileFile: (name: C.ProfileFileName) => call(C.ProfileFile, 'GET', `/profile/${name}`),
+    putProfileFile: (name: C.ProfileFileName, text: string) => call(C.ProfileFile, 'PUT', `/profile/${name}`, { text }),
+
+    listDocuments: (jobId: number) => call(z.array(C.DocumentSummary), 'GET', `/jobs/${jobId}/documents`),
+    listAllDocuments: (kind?: C.DocumentKind) => call(z.array(C.DocumentListItem), 'GET', `/documents${queryString({ kind })}`),
+    getDocument: (id: number) => call(C.Document, 'GET', `/documents/${id}`),
+    saveDocument: (jobId: number, req: z.input<typeof C.SaveDocumentRequest>) =>
+      call(C.Document, 'POST', `/jobs/${jobId}/documents`, req),
+    markSent: (id: number) => call(C.Document, 'POST', `/documents/${id}/sent`, {}),
+    exporters: () => call(z.array(C.ExporterInfo), 'GET', '/documents/exporters'),
+    attachFile(jobId: number, kind: C.AttachmentKind, file: Blob, name: string) {
+      const form = new FormData();
+      form.append('file', file, name);
+      return call(C.Attachment, 'POST', `/jobs/${jobId}/attachments${queryString({ kind })}`, form);
+    },
+    async *generateDocument(jobId: number, kind: C.DocumentKind, o: { signal?: AbortSignal } = {}): AsyncGenerator<C.GenerateChunk> {
+      const res = await send('POST', `/jobs/${jobId}/documents/generate`, { kind }, o.signal);
+      let last: C.GenerateChunk | null = null;
+      for await (const chunk of lines(C.GenerateChunk, res)) {
+        last = chunk;
+        yield chunk;
+      }
+      // The server always ends with done or error. Without one, the draft was cut off.
+      if (last?.kind !== 'done' && last?.kind !== 'error') throw new ApiError('internal', res.status, CUT_OFF);
+    },
   };
 }
 

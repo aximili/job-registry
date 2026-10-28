@@ -1,0 +1,65 @@
+/* Cover letter template. It styles the page the dashboard shows and prints.
+   Sizes are for A4 paper. When you print, untick "Headers and footers". */
+
+@page {
+  size: A4;
+  margin: 22mm 24mm;
+}
+
+html {
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.55;
+  color: #1d1d24;
+}
+
+body {
+  margin: 0;
+}
+
+.document h1 {
+  font-size: 18pt;
+  font-weight: 700;
+  margin: 0 0 2pt;
+  color: #1d1d24;
+}
+
+.document h1 + p {
+  margin-top: 0;
+  color: #4a4a55;
+}
+
+.document h2 {
+  font-size: 12pt;
+  margin: 14pt 0 6pt;
+}
+
+.document p {
+  margin: 0 0 10pt;
+}
+
+.document ul,
+.document ol {
+  margin: 0 0 10pt;
+  padding-left: 16pt;
+}
+
+.document a {
+  color: inherit;
+}
+
+@media screen {
+  html {
+    background: #e6e7ec;
+  }
+
+  .document {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 12px auto;
+    padding: 22mm 24mm;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+}

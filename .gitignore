@@ -5,6 +5,8 @@ node_modules/
 config/settings.json
 # Your master profile and preferences: personal, so never committed.
 /profile/
+# Your document templates (the app copies starters/ in when one is missing).
+/templates/
 config/secrets.json
 /ai/
 web/dist/

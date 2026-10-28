@@ -65,3 +65,26 @@ export async function setAiMode(request: APIRequestContext, mode: 'smart' | 'fai
   const res = await request.post('/__test/ai', { headers, data: { mode } });
   if (!res.ok()) throw new Error(`setAiMode failed: ${res.status()}`);
 }
+
+export async function seedDocument(
+  request: APIRequestContext,
+  jobId: number,
+  d: { kind?: 'resume' | 'cover_letter'; markdown: string; sent?: boolean },
+): Promise<{ id: number; version: number }> {
+  const res = await request.post(`/api/v1/jobs/${jobId}/documents`, {
+    headers,
+    data: { kind: d.kind ?? 'resume', markdown: d.markdown, origin: 'edited' },
+  });
+  if (!res.ok()) throw new Error(`seedDocument failed: ${res.status()} ${await res.text()}`);
+  const doc = (await res.json()) as { id: number; version: number };
+  if (d.sent) {
+    const sent = await request.post(`/api/v1/documents/${doc.id}/sent`, { headers, data: {} });
+    if (!sent.ok()) throw new Error(`markSent failed: ${sent.status()}`);
+  }
+  return doc;
+}
+
+export async function putProfileFile(request: APIRequestContext, name: string, text: string): Promise<void> {
+  const res = await request.put(`/api/v1/profile/${name}`, { headers, data: { text } });
+  if (!res.ok()) throw new Error(`putProfileFile failed: ${res.status()} ${await res.text()}`);
+}

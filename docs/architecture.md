@@ -141,15 +141,15 @@ The server is split **by feature**. Each module owns its own data. No other modu
 |--------|------|-----------------------------|------------|
 | `system` | backups, health check, shutdown, logs | `health()`, `backupNow()`, `shutdown()` | — |
 | `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `statuses()` | — |
-| `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `hash()`; `write(name, text)` comes with the Phase 4 editors | — |
+| `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `file(name)`, `write(name, text)`, `hash()`, `installStarters()` | — |
 | `capture` | nothing (stateless) | `fromUrl(url)`, `fromText(text)` | — |
-| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `status()`, `test()`, `stop()`; `writeDocument()` (Phase 4) and `classifyEmail()` (Phase 5) | — |
+| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `writeDocument()` (streamed), `status()`, `test()`, `stop()`; `classifyEmail()` (Phase 5) | — |
 | `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()` | — |
 | `contacts` | `contacts`, `job_contacts`, `interactions` | `create()`, `update()`, `linkToJob()`, `logInteraction()`, `listForJob()`, `findByPhoneDigits()` | — |
 | `notes` | `notes` | `add()`, `update()`, `remove()`, `listForJob()` | — |
 | `ratings` | `rating_cache` | `rate(input, { signal, key })` | `ai`, `profile` |
 | `enrich` | nothing | listens for new ads, then parses and rates them; `reparse(jobId)`, `sweep()` (jobs still waiting) | `jobs`, `ai`, `ratings` |
-| `documents` | `documents`, `attachments`, `data/files/` | `generate()`, `saveVersion()`, `markSent()`, `render()`, `export()`, `copyFrom()`, `attach()` | `ai`, `profile`, `jobs` |
+| `documents` | `documents`, `attachments`, `data/files/` | `list()`, `listAll()`, `get()`, `saveVersion()`, `copyFrom()`, `markSent()`, `latestSent()`, `render()`, `exporters()`, `export()`, `generate()`, `attach()`, `listAttachments()`, `attachmentFile()` | `ai`, `profile`, `jobs` |
 | `search` | `search_index` | `query(q)`, `reindexJob(id)`, `rebuild()` | `jobs`, `contacts`, `notes` |
 | `callsheet` | nothing (read-only view) | `get(jobId)`: everything for the one-screen view | `jobs`, `contacts`, `notes`, `documents` |
 | `email` | `email_suggestions`, `email_state` | `checkNow()`, `listSuggestions()`, `confirm()`, `dismiss()` | `ai`, `jobs`, `contacts`, `notes` |
@@ -283,7 +283,8 @@ Events let modules react to each other without calling each other. All event nam
 | `contact.linked` / `contact.unlinked` | `{ contactId, jobId }` | contacts | search, live |
 | `interaction.logged` | `{ interactionId, contactId, jobId }` | contacts | search, live |
 | `document.saved` / `document.sent` | `{ jobId, documentId }` | documents | live |
-| `profile.changed` | `{ name }` | profile (Phase 4, with the editors) | live. Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
+| `attachment.added` | `{ jobId, attachmentId }` | documents | live |
+| `profile.changed` | `{ name }` | profile, when a file is saved in Settings | live. Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
 | `settings.changed` | `{ keys }` | settings | ai (switch runtime and stop the old one), email (restart timer), live |
 | `ai.stateChanged` | `{ state, detail }` | ai | live; enrich (on `ready`, reads jobs that were waiting for the AI) |
 | `enrich.done` / `enrich.failed` | `{ jobId, step, error? }` | enrich | live |
@@ -374,7 +375,11 @@ interface DocumentExporter {
 }
 ```
 
-Adapters: `PrintHtmlExporter` (an A4 HTML page you print to PDF) and `DocxExporter` (the `docx` library). The dashboard asks the server which exporters exist, and shows one button per exporter.
+Adapters, in `server/modules/documents/exporters/` (the port is `documents/exporter.ts`, and `app.ts` wires the list):
+- `PrintHtmlExporter`, "Save as HTML": the same A4 page as the print view (`shared/document-page.ts`), as a file.
+- `DocxExporter`, "Export .docx": built with the `docx` library from `lexMarkdown`'s tokens. Word can't read CSS, so it gets a fixed, plain layout (Calibri 11, A4, real Word bullets and numbering). Raw HTML becomes plain text.
+
+The dashboard asks the server which exporters exist (`GET /documents/exporters`), and shows one button per exporter. Printing to PDF isn't an exporter: **Print / PDF** opens the print view (`GET /documents/:id/render`) and you use the browser's Save to PDF.
 
 ### 6.5 `SiteExtractor` — reading a job site (in the extension)
 
@@ -568,7 +573,20 @@ sequenceDiagram
   API-->>UI: A4 print page, then use the browser's Save to PDF
 ```
 
-The fact-check is plain code in `shared/fact-check.ts`. The browser runs it on every edit, after a short pause. It needs the master profile text, which the editor loads once.
+The fact-check is plain code in `shared/fact-check.ts`. The browser runs it 300 ms after you stop typing. It needs the master profile text, which the editor loads once.
+- **What it looks for:** numbers, percentages, money, years, date ranges and capitalised names (runs of capitalised words, or words like `AWS` and `ISO27001`). It flags the ones the profile doesn't have.
+- **What counts as the same fact:** numbers compare by value ($150k is $150,000, "30 %" is 30%, and the profile's "eight" counts as 8). Phone numbers compare as digits.
+- **Numbers written as words** ("ten years", from two to twenty) are checked like digits.
+- **What it ignores:** resume headings and letter words ("Professional Summary", "Referees", "Dear Hiring Manager"), months, days and states, a letter's own date, and the job's title, company and agency.
+- **A capitalised word that just starts a sentence** is ignored when it reads as an ordinary word: a common verb or small word ("Led", "The"), or a word the draft or profile also has in lower case.
+- **Words it never ignores, even at a sentence start:**
+  - words on a heading line
+  - seniority words ("Lead", "Principal")
+  - acronyms
+  - a label ("Deloitte:", "Telstra |"), one of a list ("Python, Go") or a line of its own ("- Kubernetes").
+- **Flags are the draft's own text**, so the preview can highlight them. Only whole words and numbers are highlighted.
+
+Generating streams NDJSON: one `GenerateChunk` per line (`text`, then `done`, or `error` with a sentence to show). So the editor can tell a finished draft from a cut-off one. Pressing **Stop** or closing the tab ends the request, which cancels the AI task. Nothing is saved until you press **Save version**. Text you haven't saved is kept in the browser's `localStorage` (`jr-draft:<jobId>:<kind>`) until you save or discard it.
 
 ### 7.5 Email suggestion, then you confirm (Phase 5)
 
@@ -781,7 +799,8 @@ erDiagram
 - **Time:** timestamps are ISO 8601 in UTC (`2026-10-28T03:15:00Z`). Plain dates like `closing_date` and `date_applied` are local dates (`YYYY-MM-DD`). The dashboard shows dates in Australian format ("28 Oct 2026").
 - **JSON columns:** the module's repo checks them with zod on every read and write.
 - **Statuses** are stored by a stable **id**, such as `interview_1`, not by label. Renaming "Interview 1" to "First interview" in settings doesn't break history.
-- **Documents are append-only.** Each save adds a version. A sent version can't be changed, and the repo refuses the update.
+- **Documents are append-only.** Each save adds a version. A sent version can't be changed. The repo has no update except marking a version as sent, once. Two triggers in `003_documents.sql` also make the database itself refuse to change a version's text, or a sent version at all.
+- **Attachments** are stored as `data/files/<jobId>/<8 hex>-<clean name>`, with `stored_path` relative to `data/files/`, so a moved data folder still works.
 - **Jobs are archived, never deleted**, so history and links stay whole. Deleting for real is a separate, deliberate action in settings.
 - **Unique keys:**
   - `postings.canonical_url` is unique.
@@ -830,12 +849,13 @@ erDiagram
 | | `POST /jobs/:id/contacts` · `DELETE /jobs/:id/contacts/:contactId` | Link or unlink a contact |
 | | `POST /interactions` · `GET /jobs/:id/interactions` | Call log |
 | Ratings | `POST /ratings` `{ capture, key? }` · `GET /ratings/status` | Rating, from cache or the AI, as `{ rating, cached, reason }` (`rating` is null with a `reason` when there's no master profile). `key` is "latest wins", one per browser tab. Closing the request cancels the rating · whether ratings can run |
-| Documents | `GET /jobs/:id/documents` · `POST /jobs/:id/documents` `{ kind, markdown }` or `{ fromDocumentId }` | List · save a version or copy one |
-| | `POST /jobs/:id/documents/generate` `{ kind }` | Streamed Markdown |
-| | `POST /documents/:id/sent` · `GET /documents/:id/render` · `GET /documents/:id/export?format=` | Freeze · print view · export |
+| Documents | `GET /jobs/:id/documents` · `POST /jobs/:id/documents` `{ kind, markdown, origin }` or `{ fromDocumentId }` | List · save a version (201) or copy one |
+| | `GET /documents?kind=` · `GET /documents/:id` | Every job's versions of one kind, with the job's title and company, for "Start from another job's version" · one version, with its Markdown |
+| | `POST /jobs/:id/documents/generate` `{ kind }` | Streamed Markdown as NDJSON (`application/x-ndjson`): `{kind:"text",text}` lines, then `{kind:"done"}` or `{kind:"error",message}`. A missing job (404) or master profile (400) is refused before the stream starts. Nothing is saved |
+| | `POST /documents/:id/sent` · `GET /documents/:id/render` · `GET /documents/:id/export?format=` | Freeze · print view, with a strict Content Security Policy · download (`Content-Disposition: attachment`) |
 | | `GET /documents/exporters` | Which export buttons to show |
-| Attachments | `POST /jobs/:id/attachments` (multipart) · `GET /attachments/:id` | |
-| Profile | `GET /profile/:name` · `PUT /profile/:name` | Master profile, preferences, guides, CSS templates |
+| Attachments | `POST /jobs/:id/attachments?kind=resume\|cover_letter\|other` (multipart, one `file`) · `GET /attachments/:id` | Attach (201): up to 15 MB, PDF, Word, RTF, text or OpenDocument only · download |
+| Profile | `GET /profile/:name` · `PUT /profile/:name` `{ text }` | `master-profile`, `preferences`, `resume-guide`, `cover-letter-guide` (Markdown in `profile/`) and `resume`, `cover-letter` (CSS in `templates/`), as `{ name, text, updatedAt }`. `PUT` is dashboard-only |
 | Settings | `GET /settings` · `PATCH /settings` | Secrets are never returned, only "set" or "not set". `PATCH` is accepted from the dashboard only, not from extensions (§13) |
 | AI | `GET /ai/status` · `POST /ai/test` | `{ state, detail, preset, baseUrl }` · `{ ok, detail, models, replyMs }`, sent the way reading an ad is (the parse task's model, thinking and extra fields, and a small JSON schema); never an HTTP error. A failed test also shows in the pill |
 | Email | `POST /email/check` · `GET /email/suggestions` · `POST /email/suggestions/:id/confirm` · `POST /email/suggestions/:id/dismiss` | |
@@ -850,15 +870,16 @@ erDiagram
 |------|------|
 | `/` | Search box (focused on load) + job list with status filter chips |
 | `/jobs/:id` | Call sheet at the top. Then the full ad, documents, attachments and a timeline |
-| `/jobs/:id/documents/:docId` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker |
-| `/settings` | AI (preset, test), statuses, profile and template files, backups, extension tips |
+| `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker, Generate and Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
+| `/settings` | Statuses, AI (preset, test), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
 | `/inbox` | Email suggestions (Phase 5) |
 
 **Structure**
-- **Folders:** `web/src/pages/` holds one component per page. `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocEditor`, `FactCheckList`, `AiPill`.
+- **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiPill`.
+- **The preview** is an iframe with `sandbox=""` whose `srcdoc` is `documentPage(...)` from `shared/document-page.ts`, the same page the print view serves. It's redrawn 300 ms after you stop typing. A sent version uses its frozen CSS. Fact-check flags are `<mark>`ed in the preview only, never in print.
 - **API calls:** `web/src/lib/api.ts` creates the shared typed API client. Pages load data when they open.
 - **Live updates:** `web/src/lib/live.svelte.ts` listens to `GET /events`. A page reloads its data only when an event is about what's on screen, such as `job.updated` for the open job. There's no global state library.
-- **Markdown:** rendered by `shared/markdown.ts` (`marked`), which escapes any raw HTML. The preview sits in a sandboxed iframe with scripts blocked. The print view is served with a strict Content Security Policy (`script-src 'none'`).
+- **Markdown:** rendered by `shared/markdown.ts` (`marked`, GFM, line breaks kept). It escapes any raw HTML, turns links other than `http:`, `https:` and `mailto:` into plain text, and shows images as their alt text. The page shell carries a Content Security Policy (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'`) as a meta tag, and the print view sends it as a header too. Every `<` in template CSS becomes the CSS escape `\3c`, so a template can't end its own `<style>`.
 
 **Keyboard**
 
@@ -927,7 +948,7 @@ flowchart LR
 |------|-------|--------|----------------|----------|----------|
 | `parseJob` | ad text (the page's `JobPosting` fields are already on the job, and the AI never overwrites them) | `ParsedJob` (JSON schema) | parse (background for the start-up sweep) | off | no |
 | `rateJob` | master profile, preferences, ad | `Rating` (JSON schema) | interactive | off | no |
-| `writeDocument` | kind, master profile, guide, job fields, ad | Markdown | interactive | on | yes |
+| `writeDocument` | kind, master profile, guide, the job's fields as plain text, its newest ad, today's date (cover letters) | Markdown | interactive, key `doc-<jobId>-<kind>` | on (`ai.tasks.write`: temperature 0.6, 8192 tokens, effort medium) | yes: it holds the queue until the stream ends, is cancelled, or the reader stops |
 | `classifyEmail` | trimmed email, list of candidate jobs | `{ event, jobId, suggestedStatus, confidence, summary }` | background | off | no |
 
 - **Settings per task:** each task has its own block in `settings.json` (`ai.tasks.parse`, `ai.tasks.rate`, …), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings.
@@ -1000,7 +1021,13 @@ Each status has these settings:
 
 **Backups**
 - On each start, and every 24 hours while running, the app uses SQLite's online backup (safe while the app runs). Copies go to `backupDir`. The newest copy from each of the last 14 days that have one is kept (`backups.keep`). One backup runs at a time, so a second request joins the one already running.
-- `data/files/` (attachments) is copied to the backup folder in the same pass.
+- In the same pass, three folders are copied into the backup folder: `data/files/` (attachments) to `<backupDir>/files/`, plus `profile/` and `templates/` under their own names. Git never keeps the last two, so this is their only copy outside the app folder.
+  - Only new and changed files are copied, by size and by time within 2 seconds (FAT and OneDrive keep times to 2 seconds). Nothing in the backup is deleted, so a file removed by mistake is still there.
+  - A file that can't be copied is logged and skipped. The rest are still copied, and the database backup still counts.
+
+**Profile, templates and attachments**
+- `profile/` (your Markdown files) and `templates/` (the CSS) are git-ignored. The starters in `starters/profile/` and `starters/templates/` (the two guides and the two templates) are copied in at start-up wherever a file is missing, and never over one. There's no starter master profile or preferences file, because one would be rated as if it were yours.
+- Attachments: 15 MB at most, and only `.pdf .docx .doc .rtf .txt .odt` files (by extension). The name is cleaned: no path, no characters Windows refuses, no device names like `CON`, and 100 characters at most. Downloads are always `Content-Disposition: attachment`, with `nosniff`.
 - Keep the live database out of OneDrive. Pointing the backup folder at OneDrive is fine.
 
 **Locale:** Australian English in the UI, dates shown as "28 Oct 2026", AUD as the default currency for salary display, local timezone for display.
@@ -1043,7 +1070,7 @@ Each status has these settings:
 | R11 | `service.ts` files never use database code from `core/db` (types are fine). SQL helpers such as constraint checks live in `repo.ts`. | dependency-cruiser `no-sql-in-services` |
 | R12 | In the extension, only the background script (`background.ts`, `handlers.ts`) uses `shared/api-client.ts`. Content scripts, the panel and the popup ask the background. | dependency-cruiser `only-background-calls-server` |
 
-`adapters-only-from-index` also covers `server/modules/<name>/runtime/`: module code uses the ports (`ai/provider.ts`, `ai/runtime.ts`), and only `index.ts` exposes the adapters and runtimes, for `app.ts` to wire.
+`adapters-only-from-index` also covers `server/modules/<name>/runtime/` and `exporters/`. Module code uses the ports (`ai/provider.ts`, `ai/runtime.ts`, `documents/exporter.ts`), and only `index.ts` exposes the adapters, runtimes and exporters, for `app.ts` to wire.
 
 `npm test` runs `tsc --noEmit`, then `check:deps`, then Vitest. One test file deliberately breaks a rule, inside a temporary folder, and confirms the check fails, so the rules can't quietly stop working.
 

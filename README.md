@@ -47,7 +47,7 @@ When you save a job, the app saves it straight away. Then the AI reads the ad in
 - **The pill in the header** shows what the AI is doing: off, starting, ready, working, or a problem. Click it to go to the AI settings.
 - **The AI starts when it's needed** and stops after 15 idle minutes, to free your graphics card's memory for other apps.
 - **If the AI can't be reached**, your job is still saved. It says why, and it's read the next time the AI works (when another job is read, or you press **Test connection**), or at the next start. **Read again** on the job tries straight away.
-- **Match ratings** need your master profile: put it in `profile\master-profile.md`. Optional: `profile\preferences.md`, with the roles you want, your salary floor, locations, work mode and deal-breakers.
+- **Match ratings** need your master profile: paste it in **Settings → Profile**. Your preferences are optional: the roles you want, your salary floor, locations, work mode and deal-breakers.
 
 ### Choosing the AI
 
@@ -58,6 +58,29 @@ Go to **Settings → AI**, pick the AI server, then press **Test connection**.
 - **Another OpenAI-style server:** pick "Another OpenAI-style server" and enter its address, which usually ends in `/v1`.
 
 Advanced settings, such as the model for each task or extra request fields, are in `config\settings.json` under `"ai"`. If a server refuses a field, for example `reasoning_effort`, remove it for a task with `"extra": { "reasoning_effort": null }`.
+
+## Resumes and cover letters
+
+On a job's page, under **Documents**, press **New resume** or **New cover letter**. The editor shows your text on the left and the A4 page on the right.
+
+- **Generate** writes a draft from your master profile, aimed at this job. The text arrives as the AI writes it, and **Stop** keeps what's there so far.
+- **The fact-check** looks for numbers, dates, money, percentages and names in the draft. Any your master profile doesn't have are listed ("Not in your profile: 40%") and highlighted in the preview. It never stops you saving or sending, and it can't catch every invented claim, so read each draft yourself.
+- **Save version** keeps a new version every time. Nothing is ever overwritten.
+- **Mark as sent** freezes that version with the template as it was then. Later template changes never change what you sent, so you can always see it and print it again. The call sheet shows what you sent.
+- **Print / PDF** opens the page in a new tab. Press Ctrl+P there, choose **Save to PDF** and A4, and untick **Headers and footers** (under More settings).
+- **Export .docx** makes a Word file for agencies that ask for one. Open it in Word for the web, ONLYOFFICE or LibreOffice, which are all free.
+- **Start from another job's version** copies a resume or letter you made before.
+- **Attach file** keeps a PDF or Word file you made elsewhere with the job, up to 15 MB.
+- Text you haven't saved is kept in the browser, so closing the tab doesn't lose it. The editor offers to restore it.
+
+### Your profile
+
+Go to **Settings → Profile**:
+- **Master profile:** everything you've done. Paste your full resume, with every job, result and qualification. The AI writes only from this.
+- **Preferences:** the roles you want, your salary floor, locations and deal-breakers. They're used for match ratings.
+- **Resume guide** and **Cover letter guide:** how you want them written. The app comes with starter guides, which you can change.
+
+**Settings → Templates** holds the CSS that styles the page: `resume.css` and `cover-letter.css`. The files live in the `profile` and `templates` folders, so you can edit them in any text editor too.
 
 ## The browser extension
 
@@ -77,9 +100,12 @@ The toolbar button (or `Alt+Shift+J`) saves a job ad from any other website. To 
 | Backups | `data\backups\` |
 | Logs | `data\logs\` |
 | Settings | `config\settings.json` |
+| Your profile and writing guides | `profile\` |
+| Resume and cover letter templates | `templates\` |
+| Attached files | `data\files\` |
 
 **Backups:**
-- The app makes a backup each time it starts, and once a day while it runs. It keeps the newest backup from each of the last 14 days it made one.
+- The app makes a backup each time it starts, and once a day while it runs. Your attached files, profile and templates are copied into the backup folder too, in `files`, `profile` and `templates`. Only new and changed files are copied, and nothing there is deleted. It keeps the newest backup from each of the last 14 days it made one.
 - You can make one any time: **Settings → Back up now**.
 - To keep copies off this PC, point the backup folder at OneDrive. In `config\settings.json`, set `"backups": { "dir": "C:/Users/you/OneDrive/Job Registry backups", "keep": 14 }`.
 - Keep `data\jobs.db` itself out of OneDrive, because syncing a live database can damage it.

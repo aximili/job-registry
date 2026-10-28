@@ -59,3 +59,21 @@ it('works for a job with no title yet, as pasted ads have until the AI reads the
   expect(search.status).toBe(200);
   expect(search.body.hits).toEqual([expect.objectContaining({ kind: 'job', jobId: saved.job.id, title: null })]);
 });
+
+it("shows the job's documents, its attachments and the newest sent version of each kind", async () => {
+  const saved = app.services.jobs.save({ capture: seekCapture('1'), fields: { title: 'Senior Engineer', company: 'Atlassian' } });
+  if (saved.result !== 'created') throw new Error('setup failed');
+  const id = saved.job.id;
+  const docs = app.services.documents;
+  const v1 = docs.saveVersion(id, { kind: 'resume', markdown: '# Sam\nv1', origin: 'edited' });
+  clock = later(1);
+  const v2 = docs.saveVersion(id, { kind: 'resume', markdown: '# Sam\nv2', origin: 'edited' });
+  const file = docs.attach(id, { kind: 'other', fileName: 'old-cv.pdf', data: Buffer.from('%PDF') });
+  docs.markSent(v1.id);
+
+  const res = await app.request('GET', `/api/v1/jobs/${id}/callsheet`);
+  expect(res.body.documents.map((d: { id: number }) => d.id)).toEqual([v2.id, v1.id]);
+  expect(res.body.documents[0]).not.toHaveProperty('markdown');
+  expect(res.body.attachments).toEqual([expect.objectContaining({ id: file.id, fileName: 'old-cv.pdf' })]);
+  expect(res.body.sent).toEqual({ resume: expect.objectContaining({ id: v1.id, version: 1, isSent: true }), coverLetter: null });
+});

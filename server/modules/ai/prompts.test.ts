@@ -9,6 +9,8 @@ const dir = fileURLToPath(new URL('./prompts/', import.meta.url));
 const VALUES: Record<string, string[]> = {
   'parse-job': ['today', 'ad'],
   'rate-job': ['profile', 'preferences', 'ad'],
+  'write-resume': ['profile', 'guide', 'job', 'ad'],
+  'write-cover-letter': ['profile', 'guide', 'today', 'job', 'ad'],
 };
 
 describe('prompts', () => {
@@ -25,7 +27,7 @@ describe('prompts', () => {
     }
   });
 
-  it('the ad comes last in both prompts', () => {
+  it('the ad comes last in every prompt', () => {
     for (const name of Object.keys(VALUES)) {
       const { user } = loadPrompt(dir, name);
       expect(user.trim().endsWith('{{ad}}')).toBe(true);

@@ -105,6 +105,18 @@ describe('OpenAI-compatible provider', () => {
     expect(parts.filter((p) => p.kind === 'thinking').map((p) => p.text).join('')).toBe('a private thought');
   });
 
+  it('a streamed answer cut off by max_tokens ends with an error, after the text so far', async () => {
+    const { provider } = await setup(() => ({ content: 'Half a resume', finishReason: 'length' }));
+    const parts: string[] = [];
+    const run = async () => {
+      for await (const chunk of provider.chatStream(ask())) if (chunk.kind === 'text') parts.push(chunk.text);
+    };
+    await expect(run()).rejects.toThrow(
+      new AiRefusedError('The AI ran out of room before it finished. Raise maxTokens in config\\settings.json (ai.tasks.write for resumes and cover letters), then try again.'),
+    );
+    expect(parts.join('')).toBe('Half a resume');
+  });
+
   it('a wrong address (no /v1) names the address in the error', async () => {
     server = await startFakeOpenAiServer();
     const provider = createOpenAiCompatibleProvider(() => ({ baseUrl: server!.origin, model: 'm', timeoutSec: 5 }));

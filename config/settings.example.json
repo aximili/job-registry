@@ -125,6 +125,14 @@
         "thinking": false,
         "thinkingEffort": "medium",
         "extra": {}
+      },
+      "write": {
+        "model": null,
+        "temperature": 0.6,
+        "maxTokens": 8192,
+        "thinking": true,
+        "thinkingEffort": "medium",
+        "extra": {}
       }
     }
   }

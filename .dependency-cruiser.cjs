@@ -132,12 +132,12 @@ module.exports = {
     {
       name: 'adapters-only-from-index',
       severity: 'error',
-      comment: 'Module logic uses the port. Only index.ts exposes adapters and runtimes, for app.ts to wire.',
+      comment: 'Module logic uses the port. Only index.ts exposes adapters, runtimes and exporters, for app.ts to wire.',
       from: {
         path: '^server/modules/([^/]+)/',
-        pathNot: ['^server/modules/[^/]+/index\\.ts$', '/(adapters|runtime)/', TEST_FILE],
+        pathNot: ['^server/modules/[^/]+/index\\.ts$', '/(adapters|runtime|exporters)/', TEST_FILE],
       },
-      to: { path: '^server/modules/$1/(adapters|runtime)/' },
+      to: { path: '^server/modules/$1/(adapters|runtime|exporters)/' },
     },
   ],
   options: {

@@ -130,6 +130,14 @@ describe('architecture rules', () => {
     expect(await violations(dir, ['server'])).toContain('adapters-only-from-index');
   });
 
+  it('flags module code importing an exporter directly', async () => {
+    const dir = tree({
+      'server/modules/documents/exporters/docx.ts': 'export const docx = 1;\n',
+      'server/modules/documents/service.ts': "import { docx } from './exporters/docx.ts';\nexport const documents = docx;\n",
+    });
+    expect(await violations(dir, ['server'])).toContain('adapters-only-from-index');
+  });
+
   it("flags extension code other than the background script calling the server's API", async () => {
     const dir = tree({
       'shared/api-client.ts': 'export const createApiClient = () => 1;\n',

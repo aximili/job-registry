@@ -1,9 +1,10 @@
 import type { HttpModule } from '../../core/http/module.ts';
-import { createProfileService, type ProfileName, type ProfileService } from './service.ts';
+import { profileRoutes } from './routes.ts';
+import { createProfileService, type ProfileFileName, type ProfileOptions, type ProfileService } from './service.ts';
 
-export type { ProfileName, ProfileService };
+export type { ProfileFileName, ProfileService };
 
-export function createProfileModule(opts: { dir: string }): HttpModule<ProfileService> {
-  // No routes yet: Phase 4 adds the profile and template editors.
-  return { service: createProfileService(opts), routes: async () => {} };
+export function createProfileModule(opts: ProfileOptions): HttpModule<ProfileService> {
+  const service = createProfileService(opts);
+  return { service, routes: profileRoutes(service) };
 }

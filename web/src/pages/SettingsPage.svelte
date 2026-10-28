@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import type { Status } from '../../../shared/contracts/index.ts';
   import AiSettingsSection from '../components/AiSettingsSection.svelte';
+  import ProfileFilesSection from '../components/ProfileFilesSection.svelte';
   import { api } from '../lib/api.ts';
   import { friendlyError } from '../lib/errors.ts';
   import { focusAiSettings } from '../lib/ai-state.svelte.ts';
@@ -144,6 +145,8 @@
   </section>
 
   {#if loaded}<AiSettingsSection />{/if}
+
+  <ProfileFilesSection />
 
   <section aria-labelledby="data-heading">
     <h2 id="data-heading">Your data</h2>

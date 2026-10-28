@@ -96,3 +96,75 @@ describe('api client', () => {
     });
   });
 });
+
+describe('generateDocument', () => {
+  function streamingFetch(parts: string[], status = 200) {
+    const fn = async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+          controller.close();
+        },
+      });
+      return new Response(body, { status, headers: { 'content-type': 'application/x-ndjson' } });
+    };
+    return fn as unknown as typeof fetch;
+  }
+
+  it('reads each line as it arrives, even when a line is split across chunks', async () => {
+    const api = createApiClient({
+      baseUrl: 'http://x',
+      fetch: streamingFetch(['{"kind":"text","te', 'xt":"# Sam"}\n{"kind":"text","text":" Taylor"}\n', '{"kind":"done"}\n']),
+    });
+    const chunks = [];
+    for await (const chunk of api.generateDocument(1, 'resume')) chunks.push(chunk);
+    expect(chunks).toEqual([
+      { kind: 'text', text: '# Sam' },
+      { kind: 'text', text: ' Taylor' },
+      { kind: 'done' },
+    ]);
+  });
+
+  it("an error before the stream starts is an ApiError with the server's message", async () => {
+    const { fetch } = fakeFetch(400, { error: { code: 'validation', message: 'Add your master profile first: Settings → Profile.' } });
+    const api = createApiClient({ baseUrl: 'http://x', fetch });
+    const run = async () => {
+      for await (const _chunk of api.generateDocument(1, 'resume')) {
+        // nothing arrives
+      }
+    };
+    await expect(run()).rejects.toEqual(new ApiError('validation', 400, 'Add your master profile first: Settings → Profile.'));
+  });
+
+  it('a line that is not a chunk is an error, not silently skipped', async () => {
+    const api = createApiClient({ baseUrl: 'http://x', fetch: streamingFetch(['{"kind":"poem"}\n']) });
+    const run = async () => {
+      for await (const _chunk of api.generateDocument(1, 'resume')) {
+        // nothing valid arrives
+      }
+    };
+    await expect(run()).rejects.toThrow('Unexpected response from the server.');
+  });
+});
+
+describe('generateDocument: a stream that just stops', () => {
+  it('is an error, so a cut-off draft never looks finished', async () => {
+    const fetch = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('{"kind":"text","text":"# Sam"}\n'));
+            c.close();
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof globalThis.fetch;
+    const api = createApiClient({ baseUrl: 'http://x', fetch });
+    const chunks: unknown[] = [];
+    const run = async () => {
+      for await (const chunk of api.generateDocument(1, 'resume')) chunks.push(chunk);
+    };
+    await expect(run()).rejects.toThrow('The AI stopped before the draft was finished. The text so far is still here. Try again.');
+    expect(chunks).toEqual([{ kind: 'text', text: '# Sam' }]);
+  });
+});

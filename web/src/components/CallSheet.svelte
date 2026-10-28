@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CallSheet } from '../../../shared/contracts/index.ts';
+  import { sentParts } from '../lib/documents.ts';
   import { displayCompany, displayTitle, EMPLOYMENT_LABEL, formatDate, formatSalary, WORK_MODE_LABEL } from '../lib/format.ts';
   import MatchPanel from './MatchPanel.svelte';
   import NotesPanel from './NotesPanel.svelte';
@@ -27,6 +28,8 @@
   const work = $derived([WORK_MODE_LABEL[job.workMode], EMPLOYMENT_LABEL[job.employmentType]].filter(Boolean).join(', '));
   const salary = $derived(formatSalary(job.salary));
   const fromAi = $derived(Object.values(job.fieldSources).includes('ai'));
+  // "What did I send them?", answered during the call.
+  const sent = $derived(sentParts(sheet.sent));
 
   // Only facts we know are shown. An empty row helps no one mid-call.
   const facts = $derived(
@@ -64,6 +67,12 @@
       {/each}
     </dl>
   {/if}
+  {#if sent.length > 0}
+    <p class="sent">
+      <strong>Sent:</strong>
+      {#each sent as part, i (part.id)}{#if i > 0}<span aria-hidden="true"> · </span>{/if}<a href="/jobs/{job.id}/documents/{part.id}">{part.label}</a>{/each}
+    </p>
+  {/if}
   {#if fromAi}
     <p class="muted ai-note">Some details were filled in by the AI. Press <kbd>E</kbd> to check them.</p>
   {/if}
@@ -98,6 +107,10 @@
 </section>
 
 <style>
+  .sent {
+    margin: calc(-1 * var(--space-3)) 0 0;
+  }
+
   .ai-note {
     font-size: var(--step--1);
     margin: calc(-1 * var(--space-3)) 0 0;

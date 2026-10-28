@@ -22,12 +22,17 @@ If the code and these documents disagree, stop and ask. Don't quietly follow one
 - **Phase 3** (browser extension): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-3-browser-extension.md), ledger `.superpowers/sdd/2026-10-28-phase-3-browser-extension/progress.md`).
   - **Windows checklist:** [docs/checklists/phase-3-windows.md](docs/checklists/phase-3-windows.md). Not run yet: real Firefox, signing (the user needs addons.mozilla.org keys), real signed-in Seek, LinkedIn and Indeed pages.
   - The site fixtures are hand-made (plus one real LinkedIn guest page). When the user saves real pages, check them with `npm run ext:check` and add them to `tests/fixtures/sites/`.
-- **Phase 4** (resume and cover letter): plan drafted, not built ([plan](docs/superpowers/plans/2026-10-28-phase-4-resume-cover-letter.md)). Check it against the spec before building.
-- **Phases 5–6:** not started.
+- **Phase 4** (resume and cover letter): built and tested on macOS on 28–29 Oct 2026, against a fake AI ([plan](docs/superpowers/plans/2026-10-28-phase-4-resume-cover-letter.md), ledger `.superpowers/sdd/2026-10-28-phase-4-resume-cover-letter/progress.md`). Both reviews (checkpoint and final) are closed, and their deferred minors are in the ledger.
+  - **Windows checklist:** [docs/checklists/phase-4-windows.md](docs/checklists/phase-4-windows.md). Not run yet: Bonsai writing real drafts (timing, invented facts), Firefox's Save to PDF, a .docx in Word for the web or ONLYOFFICE, Windows file names.
+  - The starter guides and templates live in `starters/` (tracked). The app copies them into `profile/` and `templates/` (both git-ignored) at start-up, wherever a file is missing. There's no starter master profile or preferences file.
+- **Phase 5** (Gmail): not started. Write its plan first; nothing is drafted.
+- **Phase 6** (nice-to-haves): not started. At its start, ask the user one question: which of them they still want.
 - **How the user wants to work** (28 Oct 2026): "I just want the app finished the best you can." Build phase after phase without stopping for plan reviews or Windows tests. The user tests each phase's Windows checklist later and fixes things then. Don't ask about details; make the call and record it in the phase's ledger.
 - **Deferred minors from Phase 3** (in its ledger): the popup's save doesn't set the badge; the panel is last in the tab order; a rating keeps running after you leave a job for an unreadable page; the badge can lag when replies arrive out of order.
-- **Notes for Phase 4:** `profile/` is git-ignored (it holds the user's work history). Starter files go in a tracked folder (the plan says `starters/`), copied by setup.
-- **Notes for Phase 5** (checked 28 Oct 2026): Google still offers app passwords for personal accounts with 2-Step Verification, with no end date (support.google.com/accounts/answer/185833; "not recommended", and revoked when the Google password changes). IMAP is always on for personal Gmail since January 2025. Work or school (Workspace) accounts no longer allow app-password IMAP.
+- **Notes for Phase 5** (rechecked 28 Oct 2026, unchanged):
+  - Google still offers app passwords for accounts with 2-Step Verification, with no end date (support.google.com/accounts/answer/185833). They're "not recommended", they're revoked when the Google password changes, and work or school accounts may not offer them. IMAP is always on for personal Gmail since January 2025.
+  - New, but not relevant to this app: Gmail is retiring Gmailify and its own POP fetching of other accounts (no new users after early 2026; existing ones until January 2027; support.google.com/mail/answer/16604719). Reading Gmail over IMAP isn't affected.
+  - Already in place for Phase 5: `MailSource` in architecture §6.3, the `email` module in §4.1 and §4.2 (`ai`, `jobs`, `contacts`, `notes`; already in `.dependency-cruiser.cjs`), `EMAIL_SUGGESTIONS` and `EMAIL_STATE` in §8, and `classifyEmail` in §12.1. Migration 004 comes next. The AI queue already has a `background` priority. A streamed task holds the queue until it ends, so email work waits behind a draft being written.
 
 Update this section when a phase starts or finishes.
 

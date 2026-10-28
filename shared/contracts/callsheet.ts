@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Interaction, JobContact } from './contacts.ts';
+import { Attachment, DocumentSummary, SentDocuments } from './documents.ts';
 import { Job, Posting, StatusChange } from './jobs.ts';
 import { Note } from './notes.ts';
 
@@ -11,5 +12,9 @@ export const CallSheet = z.object({
   people: z.array(JobContact),
   notes: z.array(Note),
   interactions: z.array(Interaction),
+  // Resumes and cover letters, newest first, and what was sent ("what did I send them?").
+  documents: z.array(DocumentSummary),
+  attachments: z.array(Attachment),
+  sent: SentDocuments,
 });
 export type CallSheet = z.infer<typeof CallSheet>;

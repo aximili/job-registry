@@ -10,7 +10,7 @@ export interface LiveService {
   clientCount(): number;
 }
 
-const FORWARDED = /^(job\.|note\.|contact\.|posting\.added$|interaction\.logged$|settings\.changed$|ai\.|enrich\.)/;
+const FORWARDED = /^(job\.|note\.|contact\.|profile\.|document\.|attachment\.|posting\.added$|interaction\.logged$|settings\.changed$|ai\.|enrich\.)/;
 const HEARTBEAT_MS = 25_000;
 
 export function createLiveModule(opts: { bus: EventBus; heartbeatMs?: number }): HttpModule<LiveService> {
