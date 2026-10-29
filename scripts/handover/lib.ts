@@ -12,7 +12,7 @@ import { request } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_SETTINGS, Settings, type AiSettings } from '../../shared/contracts/index.ts';
+import { DEFAULT_SETTINGS, opensWindow, Settings, type AiSettings } from '../../shared/contracts/index.ts';
 
 export const REAL_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 export const IS_WINDOWS = process.platform === 'win32';
@@ -42,7 +42,8 @@ export function readRealSettings(): { exists: boolean; settings: Settings | null
 export type AppAi = { kind: 'external'; baseUrl: string } | { kind: 'managed'; exe: string; model: string | null };
 
 export function appAi(ai: AiSettings, root = REAL_ROOT): AppAi {
-  if (ai.preset !== 'llama-server' || !ai.managed.enabled) return { kind: 'external', baseUrl: ai.baseUrl };
+  // A .bat file is only opened when nothing answers, so the checks need it running already, as yours.
+  if (ai.preset !== 'llama-server' || !ai.managed.enabled || opensWindow(ai.managed.exe)) return { kind: 'external', baseUrl: ai.baseUrl };
   const at = (p: string) => (isAbsolute(p) ? p : resolve(root, p));
   const flag = ai.managed.args.findIndex((a) => a === '-m' || a === '--model');
   const model = flag >= 0 ? ai.managed.args[flag + 1] : undefined;
@@ -177,6 +178,7 @@ export function testSettings(o: { port: number; llama?: { exe: string; model: st
     ? {
         preset: 'llama-server',
         baseUrl: `http://127.0.0.1:${o.llama.port}/v1`,
+        stopWhenIdle: true,
         idleMinutes: 1,
         managed: {
           enabled: true,

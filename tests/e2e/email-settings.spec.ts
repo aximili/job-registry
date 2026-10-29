@@ -10,7 +10,7 @@ async function failMail(request: import('@playwright/test').APIRequestContext, f
 }
 
 test('saves the Gmail address and the app password, and never shows the password again', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await expect(section.getByRole('link', { name: 'myaccount.google.com/apppasswords' })).toHaveAttribute('rel', 'noreferrer');
   await section.getByLabel('Check Gmail for emails about your jobs').check();
@@ -34,7 +34,7 @@ test('saves the Gmail address and the app password, and never shows the password
 });
 
 test('Test connection says whether Gmail answered', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('Gmail address').fill('me@gmail.com');
   await section.getByLabel('App password').fill('abcdefghijklmnop');
@@ -49,7 +49,7 @@ test('Test connection says whether Gmail answered', async ({ page, request }) =>
 });
 
 test('Remove takes the app password away', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('App password').fill('abcdefghijklmnop');
   await section.getByRole('button', { name: 'Save password' }).click();
@@ -59,7 +59,7 @@ test('Remove takes the app password away', async ({ page, request }) => {
 });
 
 test('Replace lets you paste a new app password, or keep the old one', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('App password').fill('abcdefghijklmnop');
   await section.getByRole('button', { name: 'Save password' }).click();
@@ -70,7 +70,7 @@ test('Replace lets you paste a new app password, or keep the old one', async ({ 
 });
 
 test('a typed app password counts for Test connection, so setup takes one press', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('Gmail address').fill('me@gmail.com');
   await section.getByLabel('App password').fill('abcd efgh ijkl mnop');
@@ -81,7 +81,7 @@ test('a typed app password counts for Test connection, so setup takes one press'
 });
 
 test('Save email settings also saves a typed app password', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('Check Gmail for emails about your jobs').check();
   await section.getByLabel('Gmail address').fill('me@gmail.com');
@@ -94,7 +94,7 @@ test('Save email settings also saves a typed app password', async ({ page, reque
 });
 
 test('the focus stays with you when the app password is saved, removed or kept', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#email');
   const section = page.getByRole('region', { name: 'Email' });
   await section.getByLabel('App password').fill('abcdefghijklmnop');
   await section.getByRole('button', { name: 'Save password' }).click();

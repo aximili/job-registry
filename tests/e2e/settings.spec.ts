@@ -6,7 +6,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('renames a status and the list shows the new label', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#statuses');
   await page.getByLabel('Label for interview_1').fill('First interview');
   await page.getByRole('button', { name: 'Save statuses' }).click();
   await expect(page.getByRole('status')).toContainText('Statuses saved.');
@@ -16,7 +16,7 @@ test('renames a status and the list shows the new label', async ({ page, request
 });
 
 test('adds a status and it appears in the status picker', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#statuses');
   await page.getByLabel('New status').fill('Phone screen');
   await page.getByRole('button', { name: 'Add status' }).click();
   await page.getByRole('button', { name: 'Save statuses' }).click();
@@ -27,14 +27,14 @@ test('adds a status and it appears in the status picker', async ({ page, request
 });
 
 test('Back up now shows the backup file name', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#data');
   await page.getByRole('button', { name: 'Back up now' }).click();
   await expect(page.getByText(/Backed up to .*jobs-\d{4}-\d{2}-\d{2}-\d{6}\.db/)).toBeVisible();
 });
 
 test('Rebuild search index reports what it indexed', async ({ page, request }) => {
   await seedJob(request, { company: 'Xero', title: 'Analyst' });
-  await page.goto('/settings');
+  await page.goto('/settings#data');
   await page.getByRole('button', { name: 'Rebuild search index' }).click();
   await expect(page.getByText('Search index rebuilt: 1 job, 0 contacts.')).toBeVisible();
 });
@@ -52,24 +52,26 @@ test.describe('AI settings', () => {
     await page.goto('/settings#ai');
     const ai = section(page);
     await expect(ai.getByLabel('AI server')).toHaveValue('llama-server');
-    await expect(ai.getByLabel('Start and stop llama-server for me')).toBeChecked();
+    await expect(ai.getByLabel("Start it for me when it isn't running")).toBeChecked();
+    await expect(ai.getByLabel('Model')).toHaveCount(0);
     await ai.getByLabel('AI server').selectOption('ollama');
     await expect(ai.getByLabel('Server address')).toHaveValue('http://127.0.0.1:11434/v1');
-    await expect(ai.getByLabel('Start and stop llama-server for me')).toHaveCount(0);
+    await expect(ai.getByLabel("Start it for me when it isn't running")).toHaveCount(0);
+    // The app never stops Ollama, so there's no idle stop to set.
+    await expect(ai.getByLabel("Stop it when it's idle")).toHaveCount(0);
+    await expect(ai).toContainText('Start this server yourself.');
     await ai.getByLabel('Model').fill('qwen3:8b');
-    await ai.getByLabel('Stop the AI after this many idle minutes').fill('30');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
     await page.reload();
     await expect(section(page).getByLabel('AI server')).toHaveValue('ollama');
     await expect(section(page).getByLabel('Model')).toHaveValue('qwen3:8b');
-    await expect(section(page).getByLabel('Stop the AI after this many idle minutes')).toHaveValue('30');
   });
 
   test('Test connection shows how the AI answered', async ({ page }) => {
     await page.goto('/settings#ai');
     await section(page).getByRole('button', { name: 'Test connection' }).click();
-    await expect(section(page).getByRole('status')).toContainText(/Connected to Bonsai 2 \(llama-server, started by the app\)\. It replied in \d+ ms\./);
+    await expect(section(page).getByRole('status')).toContainText(/Connected to Bonsai 2 \(llama-server\)\. It replied in \d+ ms\./);
   });
 
   test('Test connection asks for a model when Ollama has none, testing what is on screen', async ({ page }) => {
@@ -84,14 +86,91 @@ test.describe('AI settings', () => {
     await expect(section(page)).toContainText('Ratings use profile/master-profile.md.');
   });
 
-  test('the llama-server program and arguments can be edited, one argument per line', async ({ page }) => {
+  test('the llama-server program and options can be edited, one option per line', async ({ page }) => {
     await page.goto('/settings#ai');
     const ai = section(page);
-    await expect(ai.getByLabel('Program')).toHaveValue('ai/llama.cpp/llama-server.exe');
-    await ai.getByLabel('Arguments (one per line)').fill('-m\nai/models/other.gguf\n\n--port\n8080');
+    await expect(ai.getByLabel('Program or .bat file')).toHaveValue('ai/llama.cpp/llama-server.exe');
+    await ai.getByLabel('Options (one per line)').fill('-m\nai/models/other.gguf\n\n--port\n8080');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
     const settings = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { managed: { args: string[] } } };
     expect(settings.ai.managed.args).toEqual(['-m', 'ai/models/other.gguf', '--port', '8080']);
+  });
+
+  test('stopping the AI when idle is off until you tick it, then you pick the minutes', async ({ page }) => {
+    await page.goto('/settings#ai');
+    const ai = section(page);
+    const stop = ai.getByLabel("Stop it when it's idle");
+    await expect(stop).not.toBeChecked();
+    await expect(ai.getByLabel('Stop it after this many idle minutes')).toHaveCount(0);
+    await expect(ai).toContainText('It keeps running until Job Registry stops.');
+    await stop.check();
+    await ai.getByLabel('Stop it after this many idle minutes').fill('30');
+    await ai.getByRole('button', { name: 'Save AI settings' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+    const saved = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { stopWhenIdle: boolean; idleMinutes: number } };
+    expect(saved.ai).toMatchObject({ stopWhenIdle: true, idleMinutes: 30 });
+    await page.reload();
+    await expect(section(page).getByLabel("Stop it when it's idle")).toBeChecked();
+    await expect(section(page).getByLabel('Stop it after this many idle minutes')).toHaveValue('30');
+  });
+
+  test('your own start_bonsai.bat: no options or idle time, and it says the app opens it in its own window', async ({ page }) => {
+    await page.goto('/settings#ai');
+    const ai = section(page);
+    await ai.getByLabel('Program or .bat file').fill('D:\\aitest\\Bonsai-demo\\start_bonsai.bat');
+    await expect(ai.getByLabel('Options (one per line)')).toHaveCount(0);
+    await expect(ai.getByLabel("Stop it when it's idle")).toHaveCount(0);
+    await expect(ai).toContainText('The app opens this file in its own window');
+    await expect(ai).toContainText('The app never closes that window');
+    await ai.getByRole('button', { name: 'Save AI settings' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+    const settings = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { managed: { exe: string; args: string[] } } };
+    expect(settings.ai.managed.exe).toBe('D:\\aitest\\Bonsai-demo\\start_bonsai.bat');
+    // The options stay saved, for when you go back to llama-server.exe.
+    expect(settings.ai.managed.args).toContain('-ngl');
+  });
+});
+
+test.describe('the Settings menu', () => {
+  const menu = (page: import('@playwright/test').Page) => page.getByRole('navigation', { name: 'Settings sections' });
+
+  test('shows one section at a time, each at its own address, and Back returns', async ({ page }) => {
+    await page.goto('/settings');
+    await expect(menu(page).getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('region', { name: 'Profile' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'AI', exact: true })).toHaveCount(0);
+
+    await menu(page).getByRole('link', { name: /^AI/ }).click();
+    await expect(page).toHaveURL(/\/settings#ai$/);
+    await expect(page.getByRole('region', { name: 'AI', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Profile' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'AI', exact: true })).toBeFocused();
+
+    await page.goBack();
+    await expect(page.getByRole('region', { name: 'Profile' })).toBeVisible();
+    await page.goto('/settings#data');
+    await expect(page.getByRole('button', { name: 'Back up now' })).toBeVisible();
+    await expect(menu(page).getByRole('link', { name: 'Your data' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('moving between sections keeps what you typed, and the menu says what is not saved', async ({ page }) => {
+    await page.goto('/settings');
+    await page.getByRole('textbox', { name: 'Master profile' }).fill('# Jo Citizen\nPasted, not saved yet.');
+    let asked = false;
+    page.on('dialog', (d) => {
+      asked = true;
+      void d.dismiss();
+    });
+    await menu(page).getByRole('link', { name: /^Email/ }).click();
+    await expect(page.getByRole('region', { name: 'Email' })).toBeVisible();
+    expect(asked).toBe(false);
+    await expect(menu(page).getByRole('link', { name: 'Profile, Not saved' })).toBeVisible();
+    await expect(menu(page).getByRole('link', { name: 'Email, Off' })).toBeVisible();
+
+    await menu(page).getByRole('link', { name: /^Profile/ }).click();
+    await expect(page.getByRole('textbox', { name: 'Master profile' })).toHaveValue('# Jo Citizen\nPasted, not saved yet.');
+    await page.getByRole('button', { name: 'Save master profile' }).click();
+    await expect(menu(page).getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
   });
 });

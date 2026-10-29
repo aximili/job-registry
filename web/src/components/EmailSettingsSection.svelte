@@ -11,8 +11,11 @@
 
   type Form = { enabled: boolean; address: string; pollMinutes: number };
 
+  // True while the form has changes you haven't saved, for the Settings menu.
+  let { dirty = $bindable(false) }: { dirty?: boolean } = $props();
+
   let base: EmailSettings | null = null;
-  let saved = '';
+  let saved = $state('');
   let form = $state<Form>({ enabled: false, address: '', pollMinutes: 10 });
   let ready = $state(false);
   let busy = $state(false);
@@ -30,6 +33,10 @@
 
   // A password typed into the field but not saved yet.
   const typedPassword = () => (!passwordSet || replacing) && password.trim() !== '';
+
+  $effect(() => {
+    dirty = ready && (JSON.stringify(form) !== saved || typedPassword());
+  });
 
   function take(email: EmailSettings) {
     base = email;
@@ -188,11 +195,6 @@
 </section>
 
 <style>
-  h2:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-
   .email-form {
     display: grid;
     grid-template-columns: 1fr 1fr;

@@ -9,6 +9,13 @@
   import { setLeaveGuard } from '../lib/router.svelte.ts';
 
   type Entry = { name: ProfileFileName; label: string; hint: string; rows: number; placeholder?: string };
+
+  // Which of the two parts Settings shows, and which have changes you haven't saved.
+  let {
+    show,
+    unsavedProfile = $bindable(false),
+    unsavedTemplates = $bindable(false),
+  }: { show: 'profile' | 'templates' | null; unsavedProfile?: boolean; unsavedTemplates?: boolean } = $props();
   type FileState = { text: string; saved: string; busy: boolean; message: string | null; error: string | null };
 
   const EXAMPLE = [
@@ -54,12 +61,19 @@
   let loadError = $state<string | null>(null);
 
   // Files with changes you haven't saved, by label.
-  function unsaved(): string[] {
-    return [...PROFILE, ...TEMPLATES].filter((e) => {
-      const state = files[e.name];
-      return state !== undefined && state.text !== state.saved;
-    }).map((e) => e.label);
+  function unsaved(entries: Entry[] = [...PROFILE, ...TEMPLATES]): string[] {
+    return entries
+      .filter((e) => {
+        const state = files[e.name];
+        return state !== undefined && state.text !== state.saved;
+      })
+      .map((e) => e.label);
   }
+
+  $effect(() => {
+    unsavedProfile = unsaved(PROFILE).length > 0;
+    unsavedTemplates = unsaved(TEMPLATES).length > 0;
+  });
 
   onMount(() => {
     setLeaveGuard(() => {
@@ -136,8 +150,8 @@
   {/if}
 {/snippet}
 
-<section id="profile" aria-labelledby="profile-heading">
-  <h2 id="profile-heading">Profile</h2>
+<section id="profile" aria-labelledby="profile-heading" hidden={show !== 'profile'}>
+  <h2 id="profile-heading" tabindex="-1">Profile</h2>
   <p class="muted intro">
     These files stay on this computer, in the <code>profile</code> folder. You can also edit them in any text editor.
   </p>
@@ -145,8 +159,8 @@
   {#each PROFILE as entry (entry.name)}{@render editor(entry)}{/each}
 </section>
 
-<section id="templates" aria-labelledby="templates-heading">
-  <h2 id="templates-heading">Templates</h2>
+<section id="templates" aria-labelledby="templates-heading" hidden={show !== 'templates'}>
+  <h2 id="templates-heading" tabindex="-1">Templates</h2>
   <p class="muted intro">
     The page style for resumes and cover letters, in CSS. They live in the <code>templates</code> folder.
   </p>

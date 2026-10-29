@@ -8,9 +8,12 @@ export class FakeRuntime implements ModelRuntime {
   touches = 0;
   stops = 0;
   starts = 0;
+  // Whether each call was background work, in order.
+  background: boolean[] = [];
   private readonly s = runtimeState();
 
-  async ensureRunning(): Promise<void> {
+  async ensureRunning(_signal?: AbortSignal, opts: { background?: boolean } = {}): Promise<void> {
+    this.background.push(opts.background ?? false);
     if (this.failWith) {
       this.s.set('error', this.failWith);
       throw new AiUnavailableError(this.failWith);

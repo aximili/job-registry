@@ -62,6 +62,12 @@ describe('contracts: AI', () => {
     expect(DEFAULT_SETTINGS.ai.managed.args).toContain('-ngl');
   });
 
+  it('the app never stops the AI when idle unless you turn it on', () => {
+    expect(DEFAULT_SETTINGS.ai.stopWhenIdle).toBe(false);
+    expect(DEFAULT_SETTINGS.ai.idleMinutes).toBe(15);
+    expect(Settings.parse({ ai: { stopWhenIdle: true, idleMinutes: 30 } }).ai).toMatchObject({ stopWhenIdle: true, idleMinutes: 30 });
+  });
+
   it('a partial ai section keeps the other defaults', () => {
     const s = Settings.parse({ ai: { preset: 'ollama', model: 'qwen3:8b', tasks: { parse: { model: 'small' } } } });
     expect(s.ai.tasks.rate.maxTokens).toBe(2048);

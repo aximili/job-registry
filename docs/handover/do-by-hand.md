@@ -31,11 +31,16 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
 
 7. **Start the app** with the Desktop shortcut. In **Settings → Profile**, paste your master profile (your full resume) and press **Save**. Add your preferences if you like.
 8. **Point the app at your Bonsai 2** (skip this if you answered Y to the download in step 3). In **Settings → AI**, set:
-   - **AI server:** Another OpenAI-style server
+   - **AI server:** Bonsai 2 (llama-server)
    - **Server address:** `http://127.0.0.1:8080/v1`
-   - **Model:** `bonsai-2` (any name works; llama-server uses the model it loaded)
+   - Tick **Start it for me when it isn't running**.
+   - **Program or .bat file:** `D:\aitest\Bonsai-demo\start_bonsai.bat`
 
-   Press **Test connection**. It should say "Connected to Another OpenAI-style server". The app now sends its AI work to your Bonsai 2, and never starts or stops it. To switch later (to Ollama, LM Studio or the app's own Bonsai 2), pick another AI server here.
+   Press **Save AI settings**, then **Test connection**. It should say "Connected to Bonsai 2 (llama-server)". The app now sends its AI work to your Bonsai 2, and never stops it.
+   - If Bonsai 2 isn't running, the app opens `start_bonsai.bat` in its own window (minimised) the next time you save an ad or press Test connection. Checking Gmail never opens it.
+   - Close that window yourself when you want Bonsai 2 to stop. It stays open after Job Registry stops.
+   - Already set to "Another OpenAI-style server" from run 1? That still works, but it never starts Bonsai 2 for you.
+   - To switch later (to Ollama, LM Studio or the app's own Bonsai 2), pick another AI server here.
 9. **Gmail (optional):**
    1. Make an app password at myaccount.google.com/apppasswords (it needs 2-Step Verification).
    2. In **Settings → Email**, tick "Check Gmail…", enter your Gmail address, paste the app password, and press **Test connection**.
@@ -63,7 +68,7 @@ After Claude has fixed the bugs from a run:
 
 ## How the app and the agent share Bonsai 2
 
-- **Your own Bonsai 2** (Settings → AI → Another OpenAI-style server): the app only sends it requests, and never starts or stops it. So the agent is never cut off.
+- **Your own Bonsai 2** (Settings → AI with your `start_bonsai.bat`, or Another OpenAI-style server): the app sends it requests and never stops it, so the agent is never cut off. With `start_bonsai.bat`, the app only opens it when nothing answers on port 8080.
   - While a check script runs, the agent tool waits for it, so the two don't compete.
   - Your server's own settings decide how long a request can be (llama-server's `-c`, shared between its `-np` slots). If writing a resume fails with a message about the context size, give it a bigger `-c`. `start-bonsai-server.bat` uses `-c 65536 -np 2`: two requests at once, each up to 32,768 tokens.
 - **The app's own Bonsai 2** (Settings → AI → Bonsai 2, started by the app): if a server already answers on port 8080, the app uses it and never stops it, even after 15 idle minutes.
@@ -80,4 +85,5 @@ These need a person, a signed-in browser or Word. Skip any you don't care about.
 - **Gmail:** after the app has run for 15 minutes with email on, open the Inbox. Do the cards make sense? Were the emails still unread in Gmail?
 - **The board:** drag a card with your touchpad in Firefox.
 - **Follow-ups:** set one for tomorrow late in the evening, and check it says "Today" next morning. The date field opens Firefox's date picker, in day-month-year order.
+- **Bonsai 2 opening by itself** (if you set up step 8): close Bonsai 2's window. In the app, save an ad. `start_bonsai.bat` opens, minimised in the taskbar, and the ad is read once Bonsai 2 is ready. Then close Job Registry's server window: Bonsai 2 keeps running.
 - **Bonsai's resume:** read the resume that step 6 wrote (in the test copy, `%USERPROFILE%\JobRegistryTest`, on the job "Senior Data Analyst"). Is everything in it from the sample profile?

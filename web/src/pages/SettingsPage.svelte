@@ -1,4 +1,8 @@
 <script lang="ts">
+  // Settings: a menu down the side, and one section at a time beside it.
+  // Every section stays on the page while it's hidden, so moving between
+  // them never loses what you typed. Each has its own address
+  // (/settings#ai), so links, reload and Back land on the right one.
   import { onMount, tick } from 'svelte';
   import type { Status } from '../../../shared/contracts/index.ts';
   import AiSettingsSection from '../components/AiSettingsSection.svelte';
@@ -6,48 +10,83 @@
   import ProfileFilesSection from '../components/ProfileFilesSection.svelte';
   import { api } from '../lib/api.ts';
   import { friendlyError } from '../lib/errors.ts';
-  import { focusAiSettings } from '../lib/ai-state.svelte.ts';
+  import { ai } from '../lib/ai-state.svelte.ts';
   import { app, loadSettings } from '../lib/app-state.svelte.ts';
   import { plural } from '../lib/format.ts';
+  import { router } from '../lib/router.svelte.ts';
   import { moveStatus, slugifyStatusId } from '../lib/statuses.ts';
   import { showToast } from '../lib/toast.svelte.ts';
 
+  const SECTIONS = [
+    { id: 'profile', label: 'Profile' },
+    { id: 'ai', label: 'AI' },
+    { id: 'email', label: 'Email' },
+    { id: 'statuses', label: 'Statuses' },
+    { id: 'templates', label: 'Templates' },
+    { id: 'data', label: 'Your data' },
+  ] as const;
+  type SectionId = (typeof SECTIONS)[number]['id'];
+
+  const active = $derived<SectionId>(SECTIONS.find((s) => `#${s.id}` === router.hash)?.id ?? 'profile');
+
   let list = $state<Status[]>([]);
   let saved = $state<string[]>([]);
+  let savedList = $state('');
   let newLabel = $state('');
   let saving = $state(false);
   let error = $state<string | null>(null);
+  let loadError = $state<string | null>(null);
   let backupMessage = $state<string | null>(null);
   let rebuildMessage = $state<string | null>(null);
   let loaded = $state(false);
+
+  // Sections with changes you haven't saved: the menu says so.
+  let unsaved = $state<Record<SectionId, boolean>>({ profile: false, ai: false, email: false, statuses: false, templates: false, data: false });
+  $effect(() => {
+    unsaved.statuses = loaded && JSON.stringify(list) !== savedList;
+  });
+
+  // What the menu says beside each name.
+  function noteFor(id: SectionId): { text: string; tone: 'unsaved' | 'bad' | null } | null {
+    if (unsaved[id]) return { text: 'Not saved', tone: 'unsaved' };
+    // The header pill shows what the AI is doing. The menu only points out a problem.
+    if (id === 'ai' && ai.state === 'error') return { text: 'Problem', tone: 'bad' };
+    if (id === 'email' && loaded) return { text: app.settings.email.enabled ? 'On' : 'Off', tone: null };
+    return null;
+  }
 
   // Edit a private copy, taken once the settings have loaded, so a late
   // load can never wipe out changes you are making.
   function take(statuses: Status[]) {
     list = [...statuses].sort((a, b) => a.order - b.order).map((s) => ({ ...s }));
     saved = list.map((s) => s.id);
+    savedList = JSON.stringify(list);
   }
 
+  // A failure to load shows above the menu, whichever section is open.
   onMount(async () => {
     try {
       await loadSettings();
     } catch (err) {
-      error = friendlyError(err);
+      loadError = friendlyError(err);
       return;
     }
     take(app.settings.statuses);
     loaded = true;
-    // The AI pill links to /settings#ai.
-    if (location.hash === '#ai') {
-      await tick();
-      focusAiSettings();
-    } else if (location.hash === '#email') {
-      // The Inbox links to /settings#email.
-      await tick();
-      const heading = document.getElementById('email-heading');
-      heading?.scrollIntoView();
-      heading?.focus();
+  });
+
+  // Moving to a section puts the cursor on its heading, so a screen reader
+  // says where you are. Opening /settings with no section leaves it alone.
+  let moved = false;
+  $effect(() => {
+    const id = active;
+    if (!loaded) return;
+    if (!moved && !router.hash) {
+      moved = true;
+      return;
     }
+    moved = true;
+    void tick().then(() => document.getElementById(`${id}-heading`)?.focus());
   });
 
   function addStatus() {
@@ -101,93 +140,234 @@
 
 <main class="page settings">
   <h1>Settings</h1>
+  {#if loadError}<p class="error" role="alert">{loadError}</p>{/if}
 
-  <section aria-labelledby="statuses-heading">
-    <h2 id="statuses-heading">Statuses</h2>
-    <p class="muted intro">
-      Rename, reorder or add the steps a job goes through. Closed statuses leave the Open list. Each status keeps its id
-      for good, so your history stays correct when you rename it.
-    </p>
-    {#if loaded}
-    <table aria-label="Statuses">
-      <thead>
-        <tr>
-          <th scope="col"><span class="visually-hidden">Order</span></th>
-          <th scope="col">Label</th>
-          <th scope="col">Closed</th>
-          <th scope="col">Sets applied date</th>
-          <th scope="col">Id</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each list as status, i (status.id)}
-          <tr>
-            <td class="order">
-              <button type="button" class="button quiet" aria-label="Move {status.label} up" disabled={i === 0} onclick={() => (list = moveStatus(list, status.id, -1))}>↑</button>
-              <button type="button" class="button quiet" aria-label="Move {status.label} down" disabled={i === list.length - 1} onclick={() => (list = moveStatus(list, status.id, 1))}>↓</button>
-            </td>
-            <td><input aria-label="Label for {status.id}" bind:value={status.label} /></td>
-            <td><input type="checkbox" aria-label="Closed: {status.label}" bind:checked={status.closed} /></td>
-            <td><input type="checkbox" aria-label="Sets applied date: {status.label}" bind:checked={status.setsAppliedDate} /></td>
-            <td class="muted id">{status.id}{saved.includes(status.id) ? '' : ' (new)'}</td>
-          </tr>
+  <div class="layout">
+    <nav class="menu" aria-label="Settings sections">
+      <ul>
+        {#each SECTIONS as section (section.id)}
+          {@const note = noteFor(section.id)}
+          <li>
+            <a
+              href="/settings#{section.id}"
+              aria-current={active === section.id ? 'page' : undefined}
+              aria-label={note ? `${section.label}, ${note.text}` : undefined}
+            >
+              <span>{section.label}</span>
+              {#if note}
+                <span class="note" class:unsaved={note.tone === 'unsaved'} class:bad={note.tone === 'bad'}>{note.text}</span>
+              {/if}
+            </a>
+          </li>
         {/each}
-      </tbody>
-    </table>
-    <form
-      class="add"
-      onsubmit={(e) => {
-        e.preventDefault();
-        addStatus();
-      }}
-    >
-      <label class="field"><span>New status</span><input bind:value={newLabel} placeholder="For example, Phone screen" /></label>
-      <button type="submit" class="button" disabled={!newLabel.trim()}>Add status</button>
-    </form>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button type="button" class="button primary" disabled={saving} onclick={saveStatuses}>Save statuses</button>
-    {:else if error}
-      <p class="error" role="alert">{error}</p>
-    {/if}
-  </section>
+      </ul>
+    </nav>
 
-  {#if loaded}<AiSettingsSection />{/if}
+    <div class="sheet">
+      <ProfileFilesSection
+        show={active === 'profile' || active === 'templates' ? active : null}
+        bind:unsavedProfile={unsaved.profile}
+        bind:unsavedTemplates={unsaved.templates}
+      />
 
-  {#if loaded}<EmailSettingsSection />{/if}
+      <div hidden={active !== 'ai'}>
+        {#if loaded}<AiSettingsSection bind:dirty={unsaved.ai} />{/if}
+      </div>
 
-  <ProfileFilesSection />
+      <div hidden={active !== 'email'}>
+        {#if loaded}<EmailSettingsSection bind:dirty={unsaved.email} />{/if}
+      </div>
 
-  <section aria-labelledby="data-heading">
-    <h2 id="data-heading">Your data</h2>
-    <p class="muted intro">
-      Everything is stored on this computer. A backup is made each time the app starts and once a day while it runs.
-    </p>
-    <div class="row">
-      <button type="button" class="button" onclick={backUp}>Back up now</button>
-      {#if backupMessage}<p>{backupMessage}</p>{/if}
+      <section aria-labelledby="statuses-heading" hidden={active !== 'statuses'}>
+        <h2 id="statuses-heading" tabindex="-1">Statuses</h2>
+        <p class="muted intro">
+          Rename, reorder or add the steps a job goes through. Closed statuses leave the Open list. Each status keeps its id
+          for good, so your history stays correct when you rename it.
+        </p>
+        {#if loaded}
+          <table aria-label="Statuses">
+            <thead>
+              <tr>
+                <th scope="col"><span class="visually-hidden">Order</span></th>
+                <th scope="col">Label</th>
+                <th scope="col">Closed</th>
+                <th scope="col">Sets applied date</th>
+                <th scope="col">Id</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each list as status, i (status.id)}
+                <tr>
+                  <td class="order">
+                    <button type="button" class="button quiet" aria-label="Move {status.label} up" disabled={i === 0} onclick={() => (list = moveStatus(list, status.id, -1))}>↑</button>
+                    <button type="button" class="button quiet" aria-label="Move {status.label} down" disabled={i === list.length - 1} onclick={() => (list = moveStatus(list, status.id, 1))}>↓</button>
+                  </td>
+                  <td><input aria-label="Label for {status.id}" bind:value={status.label} /></td>
+                  <td><input type="checkbox" aria-label="Closed: {status.label}" bind:checked={status.closed} /></td>
+                  <td><input type="checkbox" aria-label="Sets applied date: {status.label}" bind:checked={status.setsAppliedDate} /></td>
+                  <td class="muted id">{status.id}{saved.includes(status.id) ? '' : ' (new)'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          <form
+            class="add"
+            onsubmit={(e) => {
+              e.preventDefault();
+              addStatus();
+            }}
+          >
+            <label class="field"><span>New status</span><input bind:value={newLabel} placeholder="For example, Phone screen" /></label>
+            <button type="submit" class="button" disabled={!newLabel.trim()}>Add status</button>
+          </form>
+          {#if error}<p class="error" role="alert">{error}</p>{/if}
+          <button type="button" class="button primary" disabled={saving} onclick={saveStatuses}>Save statuses</button>
+        {/if}
+      </section>
+
+      <section aria-labelledby="data-heading" hidden={active !== 'data'}>
+        <h2 id="data-heading" tabindex="-1">Your data</h2>
+        <p class="muted intro">
+          Everything is stored on this computer. A backup is made each time the app starts and once a day while it runs.
+        </p>
+        <div class="row">
+          <button type="button" class="button" onclick={backUp}>Back up now</button>
+          {#if backupMessage}<p>{backupMessage}</p>{/if}
+        </div>
+        <div class="row">
+          <button type="button" class="button" onclick={rebuild}>Rebuild search index</button>
+          {#if rebuildMessage}<p>{rebuildMessage}</p>{/if}
+        </div>
+      </section>
     </div>
-    <div class="row">
-      <button type="button" class="button" onclick={rebuild}>Rebuild search index</button>
-      {#if rebuildMessage}<p>{rebuildMessage}</p>{/if}
-    </div>
-  </section>
+  </div>
 </main>
 
 <style>
-  .settings {
+  .layout {
     display: grid;
-    gap: var(--space-6);
-    max-width: 52rem;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    align-items: start;
+    margin-top: var(--space-5);
+  }
+
+  /* The menu is a row of index-card tabs. The open one is part of the card
+     beside it: the same paper, joined through the card's edge, with the
+     accent down its spine. */
+  .menu {
+    position: sticky;
+    top: var(--space-4);
+    z-index: 1;
+  }
+
+  .menu ul {
+    list-style: none;
+    margin: 0;
+    padding: var(--space-4) 0 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .menu a {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-right: 0;
+    border-radius: var(--radius) 0 0 var(--radius);
+    color: var(--ink-2);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .menu a:hover {
+    color: var(--ink);
+  }
+
+  .menu a[aria-current='page'] {
+    margin-right: -1px;
+    padding-right: calc(var(--space-3) + 1px);
+    border-color: var(--rule);
+    background: var(--sheet);
+    color: var(--ink);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .note {
+    font-size: var(--step--1);
+    font-weight: 400;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .note.unsaved {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .note.bad {
+    color: var(--danger);
+    font-weight: 700;
+  }
+
+  .sheet {
+    min-height: 30rem;
+    padding: var(--space-5) var(--space-6) var(--space-6);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--sheet);
+  }
+
+  /* On a narrow screen the tabs run along the top of the card. */
+  @media (max-width: 48rem) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+      margin-top: var(--space-3);
+    }
+
+    .menu {
+      position: static;
+    }
+
+    .menu ul {
+      display: flex;
+      overflow-x: auto;
+      padding: 0 0 var(--space-2);
+    }
+
+    .menu a {
+      border: 0;
+      border-radius: var(--radius);
+      white-space: nowrap;
+    }
+
+    .menu a[aria-current='page'] {
+      margin-right: 0;
+      padding-right: var(--space-3);
+      box-shadow: inset 0 -3px 0 var(--accent);
+    }
+
+    .sheet {
+      min-height: 0;
+      padding: var(--space-4);
+    }
+  }
+
+  /* Every section in the card is set out the same way, whichever component it comes from. */
+  .sheet :global(section) {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .sheet :global(h2) {
+    justify-self: start;
+    font-size: var(--step-1);
   }
 
   section {
-    display: grid;
-    gap: var(--space-3);
     justify-items: start;
-  }
-
-  h2 {
-    font-size: var(--step-1);
   }
 
   .intro {

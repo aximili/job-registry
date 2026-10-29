@@ -125,7 +125,7 @@ flowchart TB
 | Extension | TypeScript + Svelte, built with esbuild, two manifests (Firefox, Chrome) | Reads job pages, shows the save and rating panel, toolbar popup | Server API, **from the background script only** |
 | SQLite database | `better-sqlite3`, WAL mode, FTS5 | Jobs, ads, contacts, notes, documents, search index | — |
 | Files | Plain text and CSS on disk | Settings, secrets, profile, templates, attachments, backups, logs | — |
-| llama-server | PrismML's build of llama.cpp | Runs Bonsai 2 on the GPU. Started on demand, stopped when idle | — |
+| llama-server | PrismML's build of llama.cpp | Runs Bonsai 2 on the GPU. Started on demand, and stopped when idle if you turn that on | — |
 
 Content scripts run inside the job site's page, so the browser's cross-site rules (CORS) apply to them. The background script has host permission for `127.0.0.1` (any port), so it can call the server freely. That's why every server call goes through the background, and why the server sends no CORS headers at all (§13).
 
@@ -340,7 +340,7 @@ type ChatChunk = { kind: 'text' | 'thinking'; text: string };
 
 ```ts
 interface ModelRuntime {
-  ensureRunning(signal?: AbortSignal): Promise<void>;  // starts the process if needed, waits for /health
+  ensureRunning(signal?: AbortSignal, opts?: { background?: boolean }): Promise<void>;  // starts the process if needed, waits for /health
   touch(): void;                                        // resets the idle timer
   stop(): Promise<void>;
   stopNow(): void;                                      // at once, for a crash or the app exiting
@@ -352,7 +352,7 @@ interface ModelRuntime {
 
 | Adapter | Used when |
 |---------|-----------|
-| `LlamaServerRuntime` | The preset is "Bonsai 2 via llama-server" and `managed: true`. It spawns `llama-server.exe` with no console window and sends its logs to `data/logs/llama.log`. If something is already answering on the port, it uses that and won't kill a process it didn't start. On Windows the server can't outlive the app: Node puts child processes in a job object that ends them with it. On macOS and Linux, the app keeps the running server's pid and launch settings in `data/llama-server.pid`, so after a crash the next start knows the server is its own and stops it as usual. Windows ignores that file, so a reused pid can never point it at another program. A stop cancels a start in progress. A change to the program, arguments or address restarts it at the next task. |
+| `LlamaServerRuntime` | The preset is "Bonsai 2 via llama-server" and `managed: true`. It spawns `llama-server.exe` with no console window and sends its logs to `data/logs/llama.log`. If something is already answering on the port, it uses that and won't kill a process it didn't start. On Windows the server can't outlive the app: Node puts child processes in a job object that ends them with it. On macOS and Linux, the app keeps the running server's pid and launch settings in `data/llama-server.pid`, so after a crash the next start knows the server is its own and stops it as usual. Windows ignores that file, so a reused pid can never point it at another program. A stop cancels a start in progress. A change to the program, arguments or address restarts it at the next task. The program can also be a `.bat` or `.cmd` file, such as your own `start_bonsai.bat` (§12.4). |
 | `NoopRuntime` | Ollama, LM Studio or a custom server you run yourself. `ensureRunning` only checks that the server is there. |
 
 ### 6.3 `MailSource` — reading email
@@ -665,7 +665,7 @@ stateDiagram-v2
   Ready --> Busy: task starts
   Busy --> Ready: task ends
   Busy --> Error: process crashed
-  Ready --> Off: idle for 15 minutes
+  Ready --> Off: idle for 15 minutes (if stopWhenIdle)
   Error --> Starting: next task retries
   Ready --> Off: app stops
 ```
@@ -914,7 +914,7 @@ erDiagram
 | `/board` | Board: a column per status in your order (closed ones with **Show closed statuses**, remembered in `localStorage`), plus an "Other" column for a status your settings no longer have. Each card shows the role, company, date applied and any follow-up, and has a **Move to** menu with a **Move** button. Choosing in the menu never moves the card by itself (on Windows an arrow key changes a closed menu, and a typed letter does everywhere); **Move** does. Drag a card to another column (a drag carries its own data type, so dragged text never moves a job; nothing can be dropped on Other), or use **Move**: the card moves at once, the status change is sent (`POST /jobs/:id/status`, so it's in the history), the move is announced and the focus stays on the card's menu (or goes to the Board heading when its new column is hidden). A refused move puts the card back, says why, and keeps the focus on it |
 | `/jobs/:id` | Call sheet at the top. Then the full ad, documents, attachments and a timeline |
 | `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker, Generate and Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
-| `/settings` | Statuses, AI (preset, test), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
+| `/settings` | A menu down the side, and one section at a time beside it: Profile, AI, Email, Statuses, Templates, Your data. Each section has its own address (`/settings#ai`), so links, reload and Back land on it, and moving to one puts the focus on its heading. Every section stays on the page while it's hidden, so moving between them never loses what you typed (and never asks); the menu marks a section with unsaved changes "Not saved", Email "On" or "Off", and AI "Problem" when it has one. Leaving Settings with unsaved profile files still asks. On a narrow screen the menu runs along the top. The sections: Statuses, AI (preset, test; for llama-server, "Start it for me when it isn't running" with the program or .bat file, and for a program its options and "Stop it when it's idle", off by default, with the minutes), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
 | `/inbox` | Inbox: the last check ("Last checked 5 min ago · 2 new emails", or why it failed), **Check now**, and one card per email: what it is ("Rejection", "Not sure" when the AI wasn't), sender and date, subject, summary, the job ("Senior Engineer at Atlassian · now Applied") or "No job matched", the question ("Mark as Rejected?"), a status picker with "Don't change the status", **Confirm** (**Add note** when the status won't change), **Pick another job** ("Pick a job" when none matched; a search that Escape closes) and **Dismiss**. The last-check line is announced when a check ends, and the focus moves to the next card after Confirm or Dismiss, and to the status after a pick. Nothing changes until you confirm. The header's **Inbox** link shows how many wait |
 
 **Structure**
@@ -1014,14 +1014,15 @@ flowchart LR
 - **Priority:** `interactive` (you're waiting) > `parse` > `background`. A waiting interactive task jumps ahead of parse and background tasks, but never stops one that's already running.
 - **Cancelling:** every task takes an `AbortSignal`. Cancelling removes a waiting task, or aborts the HTTP call of a running one.
 - **"Latest wins" keys:** a new task with the same key cancels the older one. Ratings use a key per browser tab.
-- **Idle timer:** each task calls `runtime.touch()` when it ends, which resets the idle timer.
+- **Idle timer:** each task calls `runtime.touch()` when it ends, which resets the idle timer. The timer only runs when `ai.stopWhenIdle` is on (off by default).
 
 ### 12.4 Runtime management (llama-server)
 
 - **Start:** `spawn(exe, args, { windowsHide: true })`. The arguments come from settings, by default `-m ai/models/Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99 -fa on -c 32768 --jinja --port 8080`, so a new PrismML release never needs a code change. `download-ai.bat` fetches the pinned build (`prism-b10777-e3de715`, CUDA 12.4) and the model, and checks each file's SHA-256.
 - **Health check:** polls `http://127.0.0.1:8080/health` every 500 ms, for up to 120 seconds.
-- **Stop:** after the idle timer (15 minutes by default), and whenever the app exits. On Windows it uses `taskkill /T /F`, so no orphaned process is left holding GPU memory. If taskkill doesn't finish in 10 seconds, the process is forced. A crash ends it synchronously on the way out, and the pid file covers anything that still slips through.
+- **Stop:** whenever the app exits, and after the idle timer if you turned on "Stop it when it's idle" (`ai.stopWhenIdle`, off by default since 29 Oct 2026; `ai.idleMinutes`, 15 by default). On Windows it uses `taskkill /T /F`, so no orphaned process is left holding GPU memory. If taskkill doesn't finish in 10 seconds, the process is forced. A crash ends it synchronously on the way out, and the pid file covers anything that still slips through.
 - **Already running:** if the port already answers when the app starts, the app uses that server and never stops it.
+- **A `.bat` file as the program** (for example the user's own `D:\aitest\Bonsai-demo\start_bonsai.bat`): the app opens it the way a double-click does, with PowerShell's `Start-Process` (minimised, in the file's own folder, the paths passed in environment variables), then polls `/health` as above. The window it opens isn't part of the app (Node's job object doesn't reach a grandchild), so it carries on after the app stops. The app never stops it: no idle timer, no stop on exit, no pid file. Background work (`priority: 'background'`: email checks, the start-up sweep) never opens it; it fails with "The AI isn't running. Job Registry opens start_bonsai.bat when you next save an ad or press Test connection." and the state is "off". So a window never pops up when you didn't do anything, for example after you closed Bonsai 2 to play a game. On macOS and Linux a `.bat` file says it only runs on Windows. Added 29 Oct 2026.
 
 ---
 
@@ -1033,7 +1034,7 @@ flowchart LR
 - server port
 - backup folder
 - statuses
-- AI preset and tasks
+- AI preset, tasks, and whether to stop the AI when idle (`stopWhenIdle`, `idleMinutes`)
 - auto-rate
 - email (`enabled`, `address`, `host`, `port`, `mailbox`, `pollMinutes`, `firstCheckDays`, `maxPerCheck`; off by default).
 

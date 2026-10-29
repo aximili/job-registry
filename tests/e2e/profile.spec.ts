@@ -27,7 +27,7 @@ test('Save stays off until you change something', async ({ page }) => {
 });
 
 test('the templates section shows the starter resume template', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#templates');
   const templates = page.getByRole('region', { name: 'Templates' });
   await expect(templates.getByRole('textbox', { name: 'resume.css' })).toHaveValue(/@page/);
   await expect(templates.getByRole('textbox', { name: 'cover-letter.css' })).toHaveValue(/@page/);

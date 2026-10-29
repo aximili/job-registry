@@ -112,7 +112,7 @@ export function createAiService(opts: AiOptions): AiService {
       work: async (sig) => {
         const rt = await useRuntime();
         try {
-          await rt.ensureRunning(sig);
+          await rt.ensureRunning(sig, { background: priority === 'background' });
         } catch (err) {
           publish();
           throw err;

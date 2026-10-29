@@ -56,7 +56,7 @@ Dashboard (browser tab)    ──►        │                                 
   2. **Ollama**
   3. **LM Studio**
   4. **Custom URL**
-- **Startup:** `start.bat` runs the Node server, which opens the dashboard. The server starts the AI **only when it's first needed**. It stops the AI after 15 idle minutes to free GPU memory for your other apps. Both the idle time and the model are settings.
+- **Startup:** `start.bat` runs the Node server, which opens the dashboard. The server starts the AI **only when it's first needed**. It stops the AI when the app stops. Stopping it after some idle minutes, to free GPU memory for your other apps, is a setting you can turn on (off by default since 29 Oct 2026, at the user's request). The model is a setting too.
 
 ## Architecture rules (loose coupling)
 
@@ -199,7 +199,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 ## AI module design
 
 - `server/modules/ai/adapters/openai-compatible.ts`: OpenAI-style chat calls through `fetch`. It handles streaming, JSON-schema output (`response_format`), cancelling and timeouts.
-- `server/modules/ai/runtime/llama-server.ts`: the managed llama-server process. It starts on demand, checks `/health`, stops after the idle time and stops when the app closes. Default arguments come from PrismML's docs: `-ngl 99 -fa on -c 32768 --jinja --port 8080`. The 27B model uses about 6 GB plus about 2 GB for its working memory at 32K context, so it fits beside your other apps.
+- `server/modules/ai/runtime/llama-server.ts`: the managed llama-server process. It starts on demand, checks `/health`, stops when the app closes, and stops after the idle time if that's turned on. Default arguments come from PrismML's docs: `-ngl 99 -fa on -c 32768 --jinja --port 8080`. The 27B model uses about 6 GB plus about 2 GB for its working memory at 32K context, so it fits beside your other apps.
 - `server/modules/ai/queue.ts`: one AI job at a time, because there's one GPU. Priority order: rating (you're waiting) > parse > background email work.
 - `server/modules/ai/tasks/`:
   - `parse-job.ts`
@@ -322,7 +322,7 @@ You chose the light fact-check (no blocking), and "Same job?" suggestions across
 - IMAP rather than the Gmail API.
 - The match rating runs automatically on job pages, with a toggle.
 - Port 4777.
-- The AI loads on demand and stops after 15 idle minutes.
+- The AI loads on demand. It stops after 15 idle minutes if you turn that on (off by default since 29 Oct 2026).
 
 ## Verification
 

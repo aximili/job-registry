@@ -1,8 +1,9 @@
 import { spawn as realSpawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, type AiSettings } from '../../../../shared/contracts/index.ts';
@@ -44,7 +45,7 @@ afterEach(async () => {
 type Setup = { runtime: ModelRuntime; port: number; spawned: ChildProcess[]; root: string; logFile: string };
 
 async function setup(
-  overrides: { args?: string[]; rawArgs?: string[]; idleMinutes?: number; startTimeoutSec?: number; exe?: string; port?: number } = {},
+  overrides: { args?: string[]; rawArgs?: string[]; idleMinutes?: number; stopWhenIdle?: boolean; startTimeoutSec?: number; exe?: string; port?: number } = {},
   extra: { platform?: NodeJS.Platform; kill?: (pid: number) => Promise<void>; fetch?: typeof fetch; root?: string; killTimeoutMs?: number } = {},
 ): Promise<Setup & { config: AiSettings; again: () => ModelRuntime }> {
   const port = overrides.port ?? (await freePort());
@@ -55,6 +56,7 @@ async function setup(
     ...DEFAULT_SETTINGS.ai,
     baseUrl: `http://127.0.0.1:${port}/v1`,
     idleMinutes: overrides.idleMinutes ?? 15,
+    stopWhenIdle: overrides.stopWhenIdle ?? true,
     managed: {
       enabled: true,
       exe: overrides.exe ?? process.execPath,
@@ -135,6 +137,15 @@ describe('llama-server runtime', () => {
     await new Promise((r) => setTimeout(r, 1500));
     expect(runtime.state()).toBe('off');
     expect(await answers(port)).toBe(false);
+  });
+
+  it('with "stop it when it\'s idle" off, it keeps running past the idle time', async () => {
+    const { runtime, port } = await setup({ idleMinutes: 0.005, stopWhenIdle: false });
+    await runtime.ensureRunning();
+    runtime.touch();
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(runtime.state()).toBe('ready');
+    expect(await answers(port)).toBe(true);
   });
 
   it('stop ends the process, and the port stops answering', async () => {
@@ -311,3 +322,131 @@ describe('llama-server runtime', () => {
   });
 });
 
+
+// Your own start_bonsai.bat as the program: the app opens it in its own
+// window, as a double-click does, and never closes that window itself.
+describe('llama-server runtime, started with a .bat file', () => {
+  async function setupBat(o: { platform?: NodeJS.Platform; spawn?: typeof realSpawn; startTimeoutSec?: number; opens?: 'server' | 'nothing'; file?: string } = {}) {
+    const port = await freePort();
+    const root = mkdtempSync(join(tmpdir(), 'jr-bat-'));
+    const file = o.file ?? join(root, 'Bonsai demo', 'start_bonsai.bat');
+    mkdirSync(dirname(file), { recursive: true });
+    if (!o.file) writeFileSync(file, '@echo off\r\n');
+    const opened: string[] = [];
+    let theirs: FakeOpenAiServer | null = null;
+    const config: AiSettings = {
+      ...DEFAULT_SETTINGS.ai,
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      managed: { ...DEFAULT_SETTINGS.ai.managed, exe: file, args: ['-m', 'ignored.gguf'], startTimeoutSec: o.startTimeoutSec ?? 20 },
+    };
+    // Opening the file starts "Bonsai 2" on the port, as start_bonsai.bat would.
+    const openWindow = async (path: string) => {
+      opened.push(path);
+      if ((o.opens ?? 'server') === 'server') theirs = await startFakeOpenAiServer(undefined, { port });
+    };
+    const runtime = createLlamaServerRuntime({
+      root,
+      logFile: join(root, 'data', 'logs', 'llama.log'),
+      getConfig: () => config,
+      platform: o.platform,
+      ...(o.spawn ? { spawn: o.spawn } : { openWindow }),
+    });
+    cleanups.push(async () => {
+      await runtime.stop();
+      await theirs?.close();
+      rmSync(root, { recursive: true, force: true });
+    });
+    return { runtime, port, file, opened, config };
+  }
+
+  it('opens the file when you need the AI, then waits until it answers', async () => {
+    const { runtime, port, file, opened } = await setupBat();
+    const states: string[] = [];
+    runtime.onStateChange((s) => states.push(s));
+    await runtime.ensureRunning();
+    expect(opened).toEqual([file]);
+    expect(states).toEqual(['starting', 'ready']);
+    expect(await answers(port)).toBe(true);
+  });
+
+  it('never stops what it opened: not when the app stops, not at once on exit', async () => {
+    const { runtime, port } = await setupBat();
+    await runtime.ensureRunning();
+    runtime.touch();
+    await runtime.stop();
+    runtime.stopNow();
+    expect(await answers(port)).toBe(true);
+  });
+
+  it('background work never opens it, so a window never pops up on its own', async () => {
+    const { runtime, opened } = await setupBat();
+    const err = await runtime.ensureRunning(undefined, { background: true }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('The AI isn\'t running. Job Registry opens start_bonsai.bat when you next save an ad or press Test connection.');
+    expect(opened).toEqual([]);
+    expect(runtime.state()).toBe('off');
+  });
+
+  it('background work uses it once it runs, however it was started', async () => {
+    const { runtime, port, opened } = await setupBat();
+    const theirs = await startFakeOpenAiServer(undefined, { port });
+    cleanups.push(() => theirs.close());
+    await runtime.ensureRunning(undefined, { background: true });
+    expect(runtime.state()).toBe('ready');
+    expect(opened).toEqual([]);
+  });
+
+  it('a file that never starts the AI says so, and names the file', async () => {
+    const { runtime, port } = await setupBat({ opens: 'nothing', startTimeoutSec: 1 });
+    const err = await runtime.ensureRunning().catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      `The AI didn't answer at http://127.0.0.1:${port}/health within 1 seconds of opening start_bonsai.bat. Check the window it opened.`,
+    );
+    expect(runtime.state()).toBe('error');
+  });
+
+  it('a missing file says which one', async () => {
+    const { runtime, opened } = await setupBat({ file: 'D:\\nowhere\\start_bonsai.bat' });
+    const err = await runtime.ensureRunning().catch((e: unknown) => e);
+    expect((err as Error).message).toBe("D:\\nowhere\\start_bonsai.bat is missing. Check the program in Settings → AI.");
+    expect(opened).toEqual([]);
+  });
+
+  it('a .bat file only runs on Windows, and it says so elsewhere', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'jr-bat-'));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const file = join(root, 'start.cmd');
+    writeFileSync(file, '@echo off\r\n');
+    const config: AiSettings = { ...DEFAULT_SETTINGS.ai, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_SETTINGS.ai.managed, exe: file } };
+    const runtime = createLlamaServerRuntime({ root, logFile: join(root, 'llama.log'), getConfig: () => config, platform: 'darwin' });
+    const err = await runtime.ensureRunning().catch((e: unknown) => e);
+    expect((err as Error).message).toBe("start.cmd couldn't be opened: a .bat or .cmd file only runs on Windows. Check the program in Settings → AI.");
+    expect(runtime.state()).toBe('error');
+  });
+
+  it('on Windows, PowerShell opens it in its own minimised window, in its own folder', async () => {
+    const calls: { cmd: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
+    let theirs: FakeOpenAiServer | null = null;
+    const port = await freePort();
+    const spawn = ((cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+      calls.push({ cmd, args, env: opts.env });
+      const ps = new EventEmitter();
+      void startFakeOpenAiServer(undefined, { port }).then((s) => {
+        theirs = s;
+        ps.emit('exit', 0, null);
+      });
+      return ps;
+    }) as unknown as typeof realSpawn;
+    cleanups.push(async () => {
+      await theirs?.close();
+    });
+    const { runtime, file, config } = await setupBat({ platform: 'win32', spawn });
+    config.baseUrl = `http://127.0.0.1:${port}/v1`;
+    await runtime.ensureRunning();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cmd).toBe('powershell.exe');
+    expect(calls[0]!.args.at(-1)).toBe('Start-Process -FilePath $env:JR_OPEN_FILE -WorkingDirectory $env:JR_OPEN_DIR -WindowStyle Minimized');
+    expect(calls[0]!.env.JR_OPEN_FILE).toBe(file);
+    expect(calls[0]!.env.JR_OPEN_DIR).toBe(dirname(file));
+    expect(runtime.state()).toBe('ready');
+  });
+});

@@ -33,7 +33,8 @@ function match(path: string, search = ''): Route {
   return { name: 'not-found' };
 }
 
-export const router = $state({ route: match(location.pathname, location.search) as Route });
+// hash picks the part of a page to show, such as a section of Settings.
+export const router = $state({ route: match(location.pathname, location.search) as Route, hash: location.hash });
 
 // A page with unsaved text can ask before you leave it: the guard returns
 // the question to ask, or null when there's nothing to lose.
@@ -44,15 +45,20 @@ export function setLeaveGuard(guard: (() => string | null) | null): void {
 }
 
 export function navigate(path: string): void {
-  const question = leaveGuard?.();
+  // Only the hash changing keeps the page, and everything typed on it.
+  const target = new URL(path, location.href);
+  const samePage = target.pathname === location.pathname && target.search === location.search;
+  const question = samePage ? null : leaveGuard?.();
   if (question && !confirm(question)) return;
   if (path !== location.pathname + location.search + location.hash) history.pushState({}, '', path);
   router.route = match(location.pathname, location.search);
+  router.hash = location.hash;
   window.scrollTo(0, 0);
 }
 
 window.addEventListener('popstate', () => {
   router.route = match(location.pathname, location.search);
+  router.hash = location.hash;
 });
 
 document.addEventListener('click', (event) => {

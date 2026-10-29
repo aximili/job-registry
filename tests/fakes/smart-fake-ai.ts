@@ -120,7 +120,8 @@ export function createSmartFake() {
     if (req.jsonSchema?.name === 'email_classification') {
       return JSON.stringify(readEmailLikeAPerson(req.messages[0]?.content ?? '', req.messages[1]?.content ?? ''));
     }
-    if (!req.jsonSchema) return /cover letter/i.test(req.messages[0]?.content ?? '') ? FAKE_COVER_LETTER : FAKE_RESUME;
+    // Only the prompt's first line says which it is: your guides can mention the other.
+    if (!req.jsonSchema) return /cover letter/i.test((req.messages[0]?.content ?? '').split('\n')[0]!) ? FAKE_COVER_LETTER : FAKE_RESUME;
     return 'OK';
   });
   return {

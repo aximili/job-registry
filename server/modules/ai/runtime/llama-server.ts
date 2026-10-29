@@ -1,6 +1,6 @@
 // Runs PrismML's llama-server for you: starts it the first time the AI is
-// needed, waits until it answers, and stops it after the idle time (to free
-// GPU memory) and when the app stops. A llama-server you started yourself is
+// needed, waits until it answers, and stops it when the app stops, and after
+// the idle time if you turned that on (to free GPU memory). A llama-server you started yourself is
 // used as it is, and never stopped. See docs/architecture.md §12.4.
 //
 // On Windows, the server can't outlive the app: Node puts child processes in
@@ -10,11 +10,17 @@
 // stops it as usual. Windows never uses that file, because there a server
 // still answering after a restart can only be someone else's, and a pid can
 // belong to another program by then.
+//
+// The program can also be a .bat file, such as your own start_bonsai.bat.
+// Then the app opens it the way a double-click does, in its own (minimised)
+// window, and waits until the AI answers. That window is yours: the app
+// never closes it, when idle or when it stops, and background work never
+// opens it.
 
 import { execFile, execFileSync, spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import type { AiSettings } from '../../../../shared/contracts/index.ts';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { opensWindow, type AiSettings } from '../../../../shared/contracts/index.ts';
 import { AiUnavailableError } from '../../../core/errors.ts';
 import { runtimeState, type ModelRuntime } from '../runtime.ts';
 
@@ -31,6 +37,8 @@ export type LlamaServerOptions = {
   kill?: (pid: number) => Promise<void>;
   // How long to wait for a stop before forcing it.
   killTimeoutMs?: number;
+  // Opens a .bat file in its own window. Windows uses PowerShell.
+  openWindow?: (file: string) => Promise<void>;
 };
 
 const POLL_MS = 500;
@@ -53,6 +61,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
   const spawn = opts.spawn ?? nodeSpawn;
   const platform = opts.platform ?? process.platform;
   const killTimeout = opts.killTimeoutMs ?? KILL_TIMEOUT_MS;
+  const openWindow = opts.openWindow ?? ((file: string) => openInWindow(file, spawn, platform));
   const pidFile = opts.pidFile ?? resolve(dirname(opts.logFile), '..', 'llama-server.pid');
   const state = runtimeState();
   const logName = relative(opts.root, opts.logFile);
@@ -94,6 +103,44 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
     }
   }
 
+  // Waits until the AI answers, for up to startTimeoutSec. False if it never did.
+  async function waitForAnswer(config: AiSettings, cancelled: () => boolean, exited: () => boolean = () => false): Promise<boolean> {
+    const deadline = Date.now() + config.managed.startTimeoutSec * 1000;
+    while (Date.now() < deadline) {
+      if (cancelled()) throw stoppedError();
+      if (exited()) return false;
+      if (await answers()) {
+        if (cancelled()) throw stoppedError();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
+    return false;
+  }
+
+  function fail(message: string): never {
+    state.set('error', message);
+    throw new AiUnavailableError(message);
+  }
+
+  // Your .bat file, opened in its own window. The app doesn't own what it
+  // starts, so it never stops it.
+  async function open(config: AiSettings, exe: string, cancelled: () => boolean): Promise<void> {
+    const name = basename(exe.replaceAll('\\', '/'));
+    if (!existsSync(exe)) fail(`${config.managed.exe} is missing. Check the program in Settings → AI.`);
+    state.set('starting');
+    try {
+      await openWindow(exe);
+    } catch (err) {
+      fail(`${name} couldn't be opened: ${(err as Error).message}. Check the program in Settings → AI.`);
+    }
+    if (await waitForAnswer(config, cancelled)) {
+      state.set('ready');
+      return;
+    }
+    fail(`The AI didn't answer at ${healthUrl()} within ${config.managed.startTimeoutSec} seconds of opening ${name}. Check the window it opened.`);
+  }
+
   function forget(): void {
     child = null;
     ownedPid = null;
@@ -126,6 +173,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
     if (cancelled()) throw stoppedError();
 
     const exe = isAbsolute(config.managed.exe) ? config.managed.exe : resolve(opts.root, config.managed.exe);
+    if (opensWindow(exe)) return open(config, exe, cancelled);
     if (!existsSync(exe)) {
       const message = `The AI program isn't installed: ${config.managed.exe} is missing. Run download-ai.bat, or pick another AI in Settings.`;
       state.set('error', message);
@@ -169,26 +217,14 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
       }
     });
 
-    const deadline = Date.now() + config.managed.startTimeoutSec * 1000;
-    while (Date.now() < deadline) {
-      if (cancelled()) throw stoppedError();
-      if (exitCode !== undefined) {
-        const message = `llama-server stopped while starting (exit code ${exitCode}). See ${logName}.`;
-        state.set('error', message);
-        throw new AiUnavailableError(message);
-      }
-      if (await answers()) {
-        if (cancelled()) throw stoppedError();
-        state.set('ready');
-        return;
-      }
-      await new Promise((r) => setTimeout(r, POLL_MS));
+    if (await waitForAnswer(config, cancelled, () => exitCode !== undefined)) {
+      state.set('ready');
+      return;
     }
+    if (exitCode !== undefined) fail(`llama-server stopped while starting (exit code ${exitCode}). See ${logName}.`);
     await killPid(proc.pid!, proc);
     forget();
-    const message = `llama-server didn't answer at ${healthUrl()} within ${config.managed.startTimeoutSec} seconds. See ${logName}.`;
-    state.set('error', message);
-    throw new AiUnavailableError(message);
+    fail(`llama-server didn't answer at ${healthUrl()} within ${config.managed.startTimeoutSec} seconds. See ${logName}.`);
   }
 
   // Waits until the process has gone: its exit event if we spawned it, or
@@ -247,7 +283,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
   }
 
   return {
-    async ensureRunning(signal) {
+    async ensureRunning(signal, o = {}) {
       clearIdle();
       // A stop in progress (the idle timer, a settings change) finishes first.
       if (stopping) await stopping;
@@ -261,6 +297,16 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
           // A server we only borrowed can go away (you closed it), so check it each time.
           return;
         }
+      }
+      // Background work only uses a window you (or a task you started) opened.
+      if (o.background && opensWindow(config.managed.exe) && !starting) {
+        if (await answers()) {
+          state.set('ready');
+          return;
+        }
+        state.set('off');
+        const name = basename(config.managed.exe.trim().replaceAll('\\', '/'));
+        throw new AiUnavailableError(`The AI isn't running. Job Registry opens ${name} when you next save an ad or press Test connection.`);
       }
       const gen = generation;
       starting ??= start(gen).finally(() => {
@@ -279,8 +325,9 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
 
     touch() {
       clearIdle();
-      if (ownedPid === null) return;
-      idleTimer = setTimeout(() => void stop(), opts.getConfig().idleMinutes * 60_000);
+      const config = opts.getConfig();
+      if (ownedPid === null || !config.stopWhenIdle) return;
+      idleTimer = setTimeout(() => void stop(), config.idleMinutes * 60_000);
       idleTimer.unref?.();
     },
 
@@ -314,6 +361,23 @@ function signal(pid: number, sig: NodeJS.Signals): void {
   } catch {
     // Already gone.
   }
+}
+
+// Opens a .bat file the way a double-click does: in a new window, in the
+// file's own folder. That window isn't part of the app, so it stays open
+// after the app stops. The paths go in through the environment, so no
+// quoting can go wrong.
+function openInWindow(file: string, spawn: typeof nodeSpawn, platform: NodeJS.Platform): Promise<void> {
+  if (platform !== 'win32') return Promise.reject(new Error('a .bat or .cmd file only runs on Windows'));
+  return new Promise((done, reject) => {
+    const ps = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:JR_OPEN_FILE -WorkingDirectory $env:JR_OPEN_DIR -WindowStyle Minimized'],
+      { env: { ...process.env, JR_OPEN_FILE: file, JR_OPEN_DIR: dirname(file) }, windowsHide: true, stdio: 'ignore' },
+    );
+    ps.on('error', reject);
+    ps.on('exit', (code) => (code === 0 ? done() : reject(new Error(`PowerShell ended with exit code ${code}`))));
+  });
 }
 
 function taskkill(pid: number): Promise<void> {

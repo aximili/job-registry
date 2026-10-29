@@ -129,6 +129,11 @@ kbd {
   padding: var(--space-5) var(--space-5) var(--space-7);
 }
 
+/* A component's own display rule must never show something hidden. */
+[hidden] {
+  display: none !important;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

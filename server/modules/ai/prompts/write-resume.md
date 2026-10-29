@@ -9,7 +9,7 @@ Rules:
 - Use Australian spelling.
 - Markdown only: no code fences, no notes to me, no text before or after the resume.
 
-Layout:
+Layout (my resume guide can change the order of these sections and add others):
 - `# ` my name, then one line with my contact details from my profile.
 - `## Summary`: three or four lines, aimed at this job.
 - `## Experience`: newest job first. For each one, a `### ` line with the title, employer and dates, then bullet points.

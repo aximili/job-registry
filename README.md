@@ -46,7 +46,7 @@ The cursor is already in the search box. Type a few letters of the company, the 
 When you save a job, the app saves it straight away. Then the AI reads the ad in the background and fills in the details you left empty: role, company, salary, location, requirements and so on. It never changes a field you typed or edited. If you've added your master profile, it also rates the match.
 
 - **The pill in the header** shows what the AI is doing: off, starting, ready, working, or a problem. Click it to go to the AI settings.
-- **The AI starts when it's needed** and stops after 15 idle minutes, to free your graphics card's memory for other apps.
+- **The AI starts when it's needed** and keeps running until Job Registry stops. To free your graphics card's memory for other apps sooner, tick **Stop it when it's idle** in Settings → AI and pick the minutes. (A Bonsai 2 you start yourself, or with your own .bat file, is never stopped: see below.)
 - **If the AI can't be reached**, your job is still saved. It says why, and it's read the next time the AI works (when another job is read, or you press **Test connection**), or at the next start. **Read again** on the job tries straight away.
 - **Match ratings** need your master profile: paste it in **Settings → Profile**. Your preferences are optional: the roles you want, your salary floor, locations, work mode and deal-breakers.
 
@@ -55,6 +55,7 @@ When you save a job, the app saves it straight away. Then the AI reads the ad in
 Go to **Settings → AI**, pick the AI server, then press **Test connection**.
 
 - **Bonsai 2 (the default):** the app starts and stops PrismML's llama-server for you. Run `download-ai.bat` once to get it (about 8 GB, for an NVIDIA graphics card). If a download stops, run it again: it carries on.
+- **Your own Bonsai 2, started with a .bat file:** keep **Bonsai 2 (llama-server)**, tick **Start it for me when it isn't running**, and put your file in **Program or .bat file** (for example `D:\aitest\Bonsai-demo\start_bonsai.bat`). If Bonsai 2 is already running, the app uses it. If not, the app opens your file in its own window (minimised) the next time you save an ad or press **Test connection**. Checking Gmail never opens it. The app never closes that window: close it yourself when you want Bonsai 2 to stop, even after Job Registry has stopped.
 - **Ollama or LM Studio:** start it yourself, pick it in Settings, and type the model's name in **Model** (for example `qwen3:8b`). Nothing else changes.
 - **Another OpenAI-style server:** pick "Another OpenAI-style server" and enter its address, which usually ends in `/v1`.
 

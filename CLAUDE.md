@@ -36,6 +36,10 @@ If the code and these documents disagree, stop and ask. Don't quietly follow one
   - **Run 1** (29 Oct 2026, [findings.md](docs/handover/findings.md)): steps 1–3 and 11–13 ran; steps 4–10 didn't, because a missing `ai\` download was a STOP. Both FAILs are fixed: Firefox from the Microsoft Store is found, and the checks follow Settings → AI.
   - **The user's AI:** the agent tool is whatever they pick (KiloCode in VS Code right now; they may switch to OpenCode, ZCode or others), so keep the handover docs tool-neutral. The model is their own Bonsai 2, run from `D:\aitest\Bonsai-demo\start_bonsai.bat` on port 8080. The app uses it by address (Settings → AI → Another OpenAI-style server), so `ai\` stays empty. They may switch later.
   - **Next:** run 2, a clean run from Step 1 (do-by-hand.md, "Running the runbook again").
+- **After run 1** (29 Oct 2026, ledger: Phase 6, "After run 1"):
+  - **Settings** has a side menu and shows one section at a time (`/settings#ai` and so on). Hidden sections stay on the page, so nothing typed is lost.
+  - **Your own .bat file as the AI program:** Settings → AI → Bonsai 2, "Start it for me when it isn't running", Program `D:\aitest\Bonsai-demo\start_bonsai.bat`. The app opens it in its own window when you need the AI, and never closes it. Background work never opens it. Not run on Windows yet (do-by-hand step 8, and the 15-minute check).
+  - **Stopping the AI when idle is optional, and off by default** (`ai.stopWhenIdle`): the user doesn't usually want it stopped automatically. The handover's AI check turns it on in its test copy.
 - **How the user wants to work:**
   - (28 Oct 2026) "I just want the app finished the best you can." Build phase after phase, through Phase 6, without stopping for plan reviews or Windows tests. Don't ask about details: make the call and record it in the phase's ledger.
   - (29 Oct 2026) The user won't run checklists by hand. When everything is built, write a **Windows handover for Bonsai 2**, the local model, which is less capable. It's a step-by-step runbook it can follow on the Windows PC.

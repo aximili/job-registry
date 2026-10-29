@@ -22,4 +22,4 @@ Gmail reading was built and tested on macOS, against a test IMAP server (hoodiec
 - **Confirm:** on a real card, **Confirm** changes the job's status and adds one note starting "Email, ".
 - **The timer:** leave the app running for 30 minutes with email on. The log shows a check about every 10 minutes and no errors.
 - **Stop during a check:** press **Check now**, then run `stop.bat` at once. The app stops within a few seconds, and the next start checks again with no duplicate cards.
-- **The AI off:** in Settings → AI, untick "Start and stop llama-server for me" and set the address to `http://127.0.0.1:9/v1` (nothing listens there), then **Check now** in the Inbox. It says "Waiting for the AI: …" and makes no cards. Put the AI settings back and check again: the cards appear.
+- **The AI off:** in Settings → AI, untick "Start it for me when it isn't running" and set the address to `http://127.0.0.1:9/v1` (nothing listens there), then **Check now** in the Inbox. It says "Waiting for the AI: …" and makes no cards. Put the AI settings back and check again: the cards appear.

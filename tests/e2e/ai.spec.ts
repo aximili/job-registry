@@ -91,5 +91,6 @@ test('the AI problem is written out in Settings, not only in the pill', async ({
   const ai = page.getByRole('region', { name: 'AI', exact: true });
   await expect(ai).toContainText("Right now: AI problem. Can't reach the AI at http://127.0.0.1:8080/v1.");
   await expect(page.getByRole('heading', { name: 'AI', exact: true })).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'AI, Problem' })).toBeVisible();
 });
 

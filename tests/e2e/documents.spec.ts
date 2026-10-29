@@ -44,7 +44,7 @@ test.describe('the document editor', () => {
     const sentB = await seedDocument(request, b.id, { markdown: '# Sam Taylor\n\nFor Canva.', sent: true });
     const draft = await seedDocument(request, b.id, { markdown: '# Sam Taylor\n\nA newer draft.' });
 
-    await page.goto('/settings');
+    await page.goto('/settings#templates');
     const css = page.getByRole('region', { name: 'Templates' }).getByRole('textbox', { name: 'resume.css' });
     await css.fill(`${await css.inputValue()}\n.document h1 { color: ${RED}; }\n`);
     await page.getByRole('button', { name: 'Save resume.css' }).click();

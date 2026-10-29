@@ -82,7 +82,7 @@ This uses `start.bat`, `setup.bat` and `stop.bat` themselves.
 ## Step 6: The AI in the test copy (5 to 25 minutes)
 
 The test copy uses the AI that the user's settings use (Settings → AI). The line `INFO the AI used` says which:
-- **"your own AI server at …"**: a server the user runs, such as the Bonsai 2 you run on (port 8080). The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
+- **"your own AI server at …"**: a server the user runs, such as the Bonsai 2 you run on (port 8080). This includes a Bonsai 2 the app opens with the user's own .bat file. The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
 - **"Bonsai 2 started by the app …"**: the test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
 
 - **Run:** `node scripts\handover\ai-smoke.ts`

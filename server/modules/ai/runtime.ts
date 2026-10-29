@@ -6,8 +6,11 @@
 export type RuntimeState = 'off' | 'starting' | 'ready' | 'error';
 
 export interface ModelRuntime {
-  // Starts the program if needed and waits until it answers.
-  ensureRunning(signal?: AbortSignal): Promise<void>;
+  // Starts the program if needed and waits until it answers. Background
+  // work (an email check, reading saved ads at start-up) says so: then a
+  // program that opens a window, such as your start_bonsai.bat, is never
+  // opened. A window shouldn't pop up when you didn't do anything.
+  ensureRunning(signal?: AbortSignal, opts?: { background?: boolean }): Promise<void>;
   // Called after each task: restarts the idle timer.
   touch(): void;
   // Stops a program the app started. Never one you started yourself.

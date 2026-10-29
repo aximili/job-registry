@@ -142,7 +142,8 @@ describe('handover: the test copy', () => {
     const s = Settings.parse(
       testSettings({ port: 4787, llama: { exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', model: 'C:\\JR\\ai\\models\\m.gguf', port: 8081 } }),
     );
-    expect(s.ai).toMatchObject({ preset: 'llama-server', baseUrl: 'http://127.0.0.1:8081/v1', idleMinutes: 1 });
+    // The AI check tests the idle stop, so its test copy turns it on.
+    expect(s.ai).toMatchObject({ preset: 'llama-server', baseUrl: 'http://127.0.0.1:8081/v1', idleMinutes: 1, stopWhenIdle: true });
     expect(s.ai.managed).toMatchObject({ enabled: true, exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', startTimeoutSec: 240 });
     expect(s.ai.managed.args).toEqual(['-m', 'C:\\JR\\ai\\models\\m.gguf', '-ngl', '99', '-fa', 'on', '-c', '16384', '--jinja', '--port', '8081']);
   });
@@ -164,6 +165,13 @@ describe('handover: which AI your settings use', () => {
     expect(appAi(ollama, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:11434/v1' });
     const unmanaged = Settings.parse({ ai: { managed: { enabled: false } } }).ai;
     expect(appAi(unmanaged, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
+  });
+
+  it('your own start_bonsai.bat: the app only opens it, so the checks treat it as a server you run', () => {
+    const bat = Settings.parse({ ai: { managed: { exe: 'D:\\aitest\\Bonsai-demo\\start_bonsai.bat' } } }).ai;
+    expect(appAi(bat, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
+    const cmd = Settings.parse({ ai: { managed: { exe: 'start.CMD' } } }).ai;
+    expect(appAi(cmd, '/app')).toMatchObject({ kind: 'external' });
   });
 
   it('Bonsai 2 started by the app: its program and model, from the app folder or anywhere else', () => {

@@ -65,12 +65,21 @@ describe('AI service', () => {
     expect(app.services.ai.status().state).toBe('ready');
   });
 
+  it('tells the runtime which tasks are background work, so they never open a window', async () => {
+    const runtime = new FakeRuntime();
+    app = await createTestApp({ fakes: { runtime } });
+    await app.services.ai.parseJob('An ad.', { priority: 'background' });
+    await app.services.ai.parseJob('An ad.');
+    await app.services.ai.test();
+    expect(runtime.background).toEqual([true, false, false]);
+  });
+
   it('POST /ai/test reports the reply time', async () => {
     app = await createTestApp();
     const res = await app.request('POST', '/api/v1/ai/test', {});
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, models: ['fake-model'] });
-    expect(res.body.detail).toMatch(/^Connected to Bonsai 2 \(llama-server, started by the app\)\. It replied in \d+ ms\.$/);
+    expect(res.body.detail).toMatch(/^Connected to Bonsai 2 \(llama-server\)\. It replied in \d+ ms\.$/);
     expect(typeof res.body.replyMs).toBe('number');
   });
 

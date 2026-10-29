@@ -10,7 +10,7 @@ export type AiPreset = { label: string; baseUrl: string | null; managed: boolean
 
 export const AI_PRESETS: Record<AiPresetId, AiPreset> = {
   'llama-server': {
-    label: 'Bonsai 2 (llama-server, started by the app)',
+    label: 'Bonsai 2 (llama-server)',
     baseUrl: 'http://127.0.0.1:8080/v1',
     managed: true,
     needsModel: false,
@@ -19,6 +19,10 @@ export const AI_PRESETS: Record<AiPresetId, AiPreset> = {
   lmstudio: { label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1', managed: false, needsModel: true },
   custom: { label: 'Another OpenAI-style server', baseUrl: null, managed: false, needsModel: true },
 };
+
+// A .bat or .cmd file as the program: the app opens it in its own window,
+// as a double-click does, and never closes that window itself.
+export const opensWindow = (exe: string): boolean => /\.(bat|cmd)$/i.test(exe.trim());
 
 export const ThinkingEffort = z.enum(['low', 'medium', 'xhigh']);
 export type ThinkingEffort = z.infer<typeof ThinkingEffort>;
@@ -75,6 +79,10 @@ export const AiSettings = z.strictObject({
   // llama-server ignores the name. Ollama, LM Studio and most others need one.
   model: z.string().default(''),
   timeoutSec: z.number().int().min(5).default(300),
+  // Stop a llama-server the app started after this many idle minutes, to
+  // free the graphics card. Off unless you turn it on: then it runs until
+  // the app stops.
+  stopWhenIdle: z.boolean().default(false),
   idleMinutes: z.number().int().min(1).default(15),
   managed: ManagedSettings.prefault({}),
   tasks: z

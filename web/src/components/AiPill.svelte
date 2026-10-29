@@ -2,18 +2,21 @@
   // A small pill in the header that shows what the AI is doing. It links to
   // the AI settings, where you can test the connection.
   import { onMount } from 'svelte';
+  import { tick } from 'svelte';
   import { AI_LABEL, ai, focusAiSettings, watchAi } from '../lib/ai-state.svelte.ts';
-  import { router } from '../lib/router.svelte.ts';
+  import { navigate, router } from '../lib/router.svelte.ts';
 
   onMount(() => watchAi());
 
   const title = $derived(ai.state === 'error' ? (ai.detail ?? 'The AI had a problem.') : ai.state === 'off' ? "The AI starts when it's needed." : AI_LABEL[ai.state]);
 
-  // Already on Settings: the page doesn't reload, so move to the AI section here.
+  // Already on Settings: open its AI section and move there, even when it's
+  // the one already open.
   function onclick(event: MouseEvent) {
     if (router.route.name !== 'settings') return;
     event.preventDefault();
-    focusAiSettings();
+    navigate('/settings#ai');
+    void tick().then(focusAiSettings);
   }
 </script>
 
