@@ -4,11 +4,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Settings } from '../shared/contracts/index.ts';
-import { createServer } from 'node:http';
-import { createReport, keepInTestCopy, killPortListeners, prepareTestRoot, testSettings } from '../scripts/handover/lib.ts';
+import { DEFAULT_SETTINGS, Settings } from '../shared/contracts/index.ts';
+import { createServer, type RequestListener } from 'node:http';
+import { appAi, createReport, findFirefox, keepInTestCopy, killPortListeners, prepareTestRoot, testSettings } from '../scripts/handover/lib.ts';
 import { freePort } from './helpers/test-app.ts';
 
 const dirs: string[] = [];
@@ -19,6 +19,30 @@ const temp = () => {
   const dir = mkdtempSync(join(tmpdir(), 'jr-handover-'));
   dirs.push(dir);
   return dir;
+};
+
+// Your own settings, for a check that reads them, in a temp file.
+const realSettings = (settings: object) => {
+  const file = join(temp(), 'settings.json');
+  writeFileSync(file, JSON.stringify(settings));
+  return file;
+};
+
+// Runs a check without blocking, so a server in this process can answer it.
+const runScript = (script: string, env: NodeJS.ProcessEnv) =>
+  new Promise<string>((resolveOut) => {
+    const child = spawn(process.execPath, [`scripts/handover/${script}`], { env });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    child.on('close', () => resolveOut(out));
+  });
+
+const listen = async (handler: RequestListener) => {
+  const port = await freePort();
+  const server = createServer(handler).listen(port, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  return { port, close: () => new Promise((r) => server.close(r)) };
 };
 
 describe('handover: the report', () => {
@@ -122,6 +146,64 @@ describe('handover: the test copy', () => {
     expect(s.ai.managed).toMatchObject({ enabled: true, exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', startTimeoutSec: 240 });
     expect(s.ai.managed.args).toEqual(['-m', 'C:\\JR\\ai\\models\\m.gguf', '-ngl', '99', '-fa', 'on', '-c', '16384', '--jinja', '--port', '8081']);
   });
+
+  it('test settings for the AI check can use the AI server you run yourself, as your settings do', () => {
+    const yours = Settings.parse({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2', tasks: { write: { maxTokens: 6000 } } } }).ai;
+    const s = Settings.parse(testSettings({ port: 4787, external: yours }));
+    expect(s.server.port).toBe(4787);
+    expect(s.ai).toEqual(yours);
+    expect(s.email.enabled).toBe(false);
+  });
+});
+
+describe('handover: which AI your settings use', () => {
+  it('a server you run yourself: another preset, or llama-server that the app does not start', () => {
+    const custom = Settings.parse({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2' } }).ai;
+    expect(appAi(custom, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
+    const ollama = Settings.parse({ ai: { preset: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' } }).ai;
+    expect(appAi(ollama, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:11434/v1' });
+    const unmanaged = Settings.parse({ ai: { managed: { enabled: false } } }).ai;
+    expect(appAi(unmanaged, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
+  });
+
+  it('Bonsai 2 started by the app: its program and model, from the app folder or anywhere else', () => {
+    expect(appAi(DEFAULT_SETTINGS.ai, '/app')).toEqual({
+      kind: 'managed',
+      exe: resolve('/app', 'ai/llama.cpp/llama-server.exe'),
+      model: resolve('/app', 'ai/models/Ternary-Bonsai-2-27B-PQ2_0.gguf'),
+    });
+    const elsewhere = Settings.parse({ ai: { managed: { exe: '/aitest/llama-server', args: ['--model', '/aitest/bonsai.gguf', '--port', '8080'] } } }).ai;
+    expect(appAi(elsewhere, '/app')).toEqual({ kind: 'managed', exe: '/aitest/llama-server', model: '/aitest/bonsai.gguf' });
+    const noModel = Settings.parse({ ai: { managed: { args: ['--port', '8080'] } } }).ai;
+    expect(appAi(noModel, '/app')).toMatchObject({ kind: 'managed', model: null });
+  });
+});
+
+describe('handover: finding Firefox', () => {
+  it('finds it in Program Files, installed just for you, or from the Microsoft Store', () => {
+    const base = temp();
+    const env = { ProgramFiles: join(base, 'pf'), 'ProgramFiles(x86)': join(base, 'pf86'), LOCALAPPDATA: join(base, 'local') };
+    const place = (...parts: string[]) => {
+      mkdirSync(join(base, ...parts.slice(0, -1)), { recursive: true });
+      writeFileSync(join(base, ...parts), '');
+      return join(base, ...parts);
+    };
+    expect(findFirefox(env)).toBeNull();
+    // The Store's app links, as on the PC (the package's folder, then the short link).
+    const store = join(base, 'local', 'Microsoft', 'WindowsApps');
+    mkdirSync(join(store, 'Mozilla.Firefox_n80bbvh6b1yt2'), { recursive: true });
+    expect(findFirefox(env)).toBe(join(store, 'Mozilla.Firefox_n80bbvh6b1yt2', 'firefox.exe'));
+    // Each place is found ahead of the ones before it.
+    for (const parts of [
+      ['local', 'Microsoft', 'WindowsApps', 'firefox.exe'],
+      ['local', 'Mozilla Firefox', 'firefox.exe'],
+      ['pf86', 'Mozilla Firefox', 'firefox.exe'],
+      ['pf', 'Mozilla Firefox', 'firefox.exe'],
+    ]) {
+      const file = place(...parts);
+      expect(findFirefox(env)).toBe(file);
+    }
+  });
 });
 
 describe('handover: cleaning up', () => {
@@ -162,6 +244,15 @@ describe('handover: the summary', () => {
     expect(summary).toContain('- Writing a resume: 95 s');
     expect(summary).toContain('1 bug:');
     expect(summary).toContain('- bug-01.md: The graphics memory stays in use');
+  });
+
+  it('says which AI the AI check used', () => {
+    const base = temp();
+    const results = join(base, 'results.txt');
+    writeFileSync(results, '2026-11-02 10:05:00 ai-smoke: INFO the AI used - your own AI server at http://127.0.0.1:8080/v1\r\n');
+    const res = spawnSync(process.execPath, ['scripts/handover/summary.ts'], { env: { ...process.env, JR_RESULTS: results }, encoding: 'utf8' });
+    expect(res.status, res.stdout + res.stderr).toBe(0);
+    expect(readFileSync(join(base, 'summary.md'), 'utf8')).toContain('- The AI check used: your own AI server at http://127.0.0.1:8080/v1');
   });
 });
 
@@ -246,6 +337,128 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
     expect(report.status, report.stdout + report.stderr).toBe(0);
     expect(readFileSync(join(base, 'eval-report.txt'), 'utf8')).toMatch(/title/i);
   });
+
+  // As on the PC: your settings point at your own Bonsai 2, and ai\ is empty.
+  it('uses the AI server your settings point at, and leaves it running', { timeout: 150_000 }, async () => {
+    const base = temp();
+    const root = join(base, 'copy');
+    const aiPort = await freePort();
+    const yours = spawn(process.execPath, [join('tests', 'fakes', 'fake-llama-server.ts'), '--port', String(aiPort), '--smart'], { stdio: 'ignore' });
+    const up = () => fetch(`http://127.0.0.1:${aiPort}/health`).then((r) => r.ok, () => false);
+    try {
+      for (let i = 0; i < 100 && !(await up()); i++) await new Promise((r) => setTimeout(r, 100));
+      const env = {
+        ...process.env,
+        JR_TEST_ROOT: root,
+        JR_RESULTS: join(base, 'results.txt'),
+        JR_TEST_PORT: '4792',
+        JR_REAL_SETTINGS: realSettings({ ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${aiPort}/v1`, model: 'bonsai-2' } }),
+      };
+      const made = spawnSync(process.execPath, ['scripts/handover/make-test-copy.ts', '--link-modules'], { env, encoding: 'utf8' });
+      expect(made.status, made.stdout + made.stderr).toBe(0);
+      const out = await runScript('ai-smoke.ts', env);
+      for (const check of [
+        `INFO the AI used - your own AI server at http://127.0.0.1:${aiPort}/v1`,
+        'PASS your AI server answers',
+        'PASS the app starts',
+        'PASS the app reaches your AI server and it answers',
+        'PASS the AI reads a saved ad',
+        'PASS the AI rates a job against the profile',
+        'PASS the AI writes a resume',
+        'PASS no thinking text in the resume',
+        'PASS the resume exports as a .docx file',
+        'PASS stopping the app leaves your AI server running',
+        'ai-smoke: all PASS.',
+      ]) {
+        expect(out).toContain(check);
+      }
+      expect(out).not.toContain('FAIL');
+      expect(out).not.toContain('llama-server answers on port');
+      expect(await up()).toBe(true);
+    } finally {
+      yours.kill();
+    }
+  });
+
+  it('says plainly when your AI server does not answer', { timeout: 60_000 }, async () => {
+    const base = temp();
+    const root = join(base, 'copy');
+    const nothing = await freePort();
+    const env = {
+      ...process.env,
+      JR_TEST_ROOT: root,
+      JR_RESULTS: join(base, 'results.txt'),
+      JR_TEST_PORT: '4793',
+      JR_REAL_SETTINGS: realSettings({ ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${nothing}/v1`, model: 'bonsai-2' } }),
+    };
+    const made = spawnSync(process.execPath, ['scripts/handover/make-test-copy.ts', '--link-modules'], { env, encoding: 'utf8' });
+    expect(made.status, made.stdout + made.stderr).toBe(0);
+    const out = await runScript('ai-smoke.ts', env);
+    expect(out).toContain(`FAIL your AI server answers - nothing answers at http://127.0.0.1:${nothing}/v1.`);
+    expect(out).toContain('ai-smoke: 1 FAIL.');
+  });
+});
+
+describe("handover: your settings' AI, in the first check", () => {
+  const prereqs = (settings: object) =>
+    runScript('prereqs.ts', { ...process.env, JR_RESULTS: join(temp(), 'results.txt'), JR_TEST_PORT: '4794', JR_REAL_SETTINGS: realSettings(settings) });
+
+  it('your own AI server answers, so the empty ai folder is fine', async () => {
+    const yours = await listen((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(req.url === '/v1/models' ? '{"data":[{"id":"bonsai"}]}' : '{}');
+    });
+    try {
+      const out = await prereqs({ ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${yours.port}/v1`, model: 'bonsai-2' } });
+      expect(out).toContain(`PASS your AI server answers - http://127.0.0.1:${yours.port}/v1 (you run it; the app never starts or stops it)`);
+      expect(out).not.toContain('downloaded');
+    } finally {
+      await yours.close();
+    }
+  });
+
+  it("your own AI server doesn't answer", async () => {
+    const nothing = await freePort();
+    const out = await prereqs({ ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${nothing}/v1`, model: 'bonsai-2' } });
+    expect(out).toContain(`FAIL your AI server answers - nothing answers at http://127.0.0.1:${nothing}/v1.`);
+  });
+
+  it('Bonsai 2 started by the app, but not downloaded: it says both ways out', async () => {
+    const out = await prereqs({ ai: { managed: { exe: '/nowhere/llama-server.exe', args: ['-m', '/nowhere/bonsai.gguf'] } } });
+    expect(out).toContain("FAIL the app's own Bonsai 2 is downloaded - missing /nowhere/llama-server.exe.");
+    expect(out).toContain('Run download-ai.bat, or point the app at the Bonsai 2 you run yourself');
+  });
+});
+
+describe("handover: your real install's AI, in the read-only checks", () => {
+  // Your app, as far as these checks see it.
+  const yourApp = (aiTest: object) =>
+    listen((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      const answers: Record<string, unknown> = {
+        'GET /api/v1/health': { ok: true },
+        'GET /api/v1/settings': {},
+        'GET /api/v1/settings/secrets': { emailPassword: false },
+        'GET /api/v1/ai/status': { state: 'ready', baseUrl: 'http://127.0.0.1:8080/v1' },
+        'POST /api/v1/ai/test': aiTest,
+      };
+      res.end(JSON.stringify(answers[`${req.method} ${req.url}`] ?? {}));
+    });
+
+  it.each([
+    [{ ok: true, detail: 'Connected to Another OpenAI-style server. It replied in 900 ms.' }, "PASS the app's AI answers - Connected to Another OpenAI-style server. It replied in 900 ms."],
+    [{ ok: false, detail: "The AI program isn't installed." }, "FAIL the app's AI answers - The AI program isn't installed."],
+  ])('asks the app to test its AI, as Settings -> AI does: %o', async (aiTest, line) => {
+    const app = await yourApp(aiTest);
+    try {
+      const env = { ...process.env, JR_RESULTS: join(temp(), 'results.txt'), JR_REAL_SETTINGS: realSettings({ server: { port: app.port } }) };
+      const out = await runScript('real-checks.ts', env);
+      expect(out).toContain(`PASS the app is running - port ${app.port}`);
+      expect(out).toContain(line);
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe('handover: the read-only checks run cleanly here too', () => {
@@ -258,13 +471,7 @@ describe('handover: the read-only checks run cleanly here too', () => {
     try {
       const base = temp();
       const env = { ...process.env, JR_RESULTS: join(base, 'results.txt'), JR_TEST_PORT: String(port) };
-      const res = await new Promise<string>((resolveOut) => {
-        const child = spawn(process.execPath, ['scripts/handover/prereqs.ts'], { env });
-        let out = '';
-        child.stdout.on('data', (d) => (out += d));
-        child.stderr.on('data', (d) => (out += d));
-        child.on('close', () => resolveOut(out));
-      });
+      const res = await runScript('prereqs.ts', env);
       expect(res).toContain(`FAIL port ${port} is free for the checks`);
       expect(res).not.toContain('DEP0190');
     } finally {

@@ -2,10 +2,21 @@
 //
 //   node scripts\handover\prereqs.ts
 
-import { existsSync, readFileSync, statfsSync } from 'node:fs';
+import { existsSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
-import { Settings } from '../../shared/contracts/index.ts';
-import { createReport, healthy, IS_WINDOWS, portAnswers, REAL_ROOT, runCommand, testPort } from './lib.ts';
+import {
+  aiServerAnswers,
+  appAi,
+  createReport,
+  findFirefox,
+  healthy,
+  IS_WINDOWS,
+  portAnswers,
+  readRealSettings,
+  REAL_ROOT,
+  runCommand,
+  testPort,
+} from './lib.ts';
 
 const report = createReport('prereqs');
 const run = (command: string) => runCommand(command, REAL_ROOT, 30_000);
@@ -40,22 +51,17 @@ if (freeGb >= 15) report.pass('15 GB of free disk space', `${freeGb.toFixed(0)} 
 else report.fail('15 GB of free disk space', `only ${freeGb.toFixed(1)} GB free`);
 
 if (IS_WINDOWS) {
-  const firefox = ['C:\\Program Files\\Mozilla Firefox\\firefox.exe', 'C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe'].find((p) => existsSync(p));
+  const firefox = findFirefox();
   if (firefox) report.pass('Firefox is installed', firefox);
-  else report.fail('Firefox is installed', 'not found in Program Files. Install it with: winget install Mozilla.Firefox');
+  else report.fail('Firefox is installed', 'not found in Program Files, AppData or the Microsoft Store apps. Install it with: winget install Mozilla.Firefox');
 
   const gpu = run('nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader');
   if (gpu.status === 0) report.pass('an NVIDIA graphics card is ready', gpu.stdout.trim());
   else report.fail('an NVIDIA graphics card is ready', 'nvidia-smi failed. Install or update the NVIDIA driver.');
 }
 
-const exe = join(REAL_ROOT, 'ai', 'llama.cpp', 'llama-server.exe');
-const model = join(REAL_ROOT, 'ai', 'models', 'Ternary-Bonsai-2-27B-PQ2_0.gguf');
-if (existsSync(exe) && existsSync(model)) report.pass('Bonsai 2 and llama-server are downloaded');
-else report.fail('Bonsai 2 and llama-server are downloaded', `missing ${existsSync(exe) ? model : exe}. Run download-ai.bat.`);
-
 if (await answers('http://127.0.0.1:8080/health')) report.pass('Bonsai 2 answers on port 8080 (the agent uses it)');
-else report.info('nothing answers on port 8080', 'start-bonsai-server.bat starts Bonsai 2 there');
+else report.info('nothing answers on port 8080', 'start Bonsai 2 there (see do-by-hand.md)');
 
 for (const p of [testPort(), 8081, 4798, 4799]) {
   if (await portAnswers(p)) report.fail(`port ${p} is free for the checks`, 'something answers there. Run node scripts\\handover\\cleanup.ts');
@@ -63,19 +69,30 @@ for (const p of [testPort(), 8081, 4798, 4799]) {
 }
 
 // Your own settings, read only: do they still load?
-const settingsFile = join(REAL_ROOT, 'config', 'settings.json');
-if (existsSync(settingsFile)) {
-  try {
-    const parsed = Settings.safeParse(JSON.parse(readFileSync(settingsFile, 'utf8').replace(/^\uFEFF/, '')));
-    if (parsed.success) report.pass('your config\\settings.json is valid');
-    else report.fail('your config\\settings.json is valid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
-    const realPort = parsed.success ? parsed.data.server.port : 4777;
-    report.info(`the real app on port ${realPort}`, (await healthy(realPort)) ? 'running' : 'not running');
-  } catch (err) {
-    report.fail('your config\\settings.json is valid', (err as Error).message);
+const real = readRealSettings();
+if (!real.exists) report.info('no config\\settings.json yet', 'setup.bat makes it');
+else if (real.settings) report.pass('your config\\settings.json is valid');
+else report.fail('your config\\settings.json is valid', real.error ?? 'it did not load');
+if (real.settings) {
+  const realPort = real.settings.server.port;
+  report.info(`the real app on port ${realPort}`, (await healthy(realPort)) ? 'running' : 'not running');
+
+  // The AI that Settings -> AI picks: a server you run yourself, or Bonsai 2
+  // started by the app, which needs its program and model on this PC.
+  const ai = appAi(real.settings.ai);
+  if (ai.kind === 'external') {
+    if (await aiServerAnswers(ai.baseUrl)) report.pass('your AI server answers', `${ai.baseUrl} (you run it; the app never starts or stops it)`);
+    else report.fail('your AI server answers', `nothing answers at ${ai.baseUrl}. Start it, or change Settings -> AI (see do-by-hand.md).`);
+  } else {
+    const missing = [ai.exe, ai.model ?? 'the model (no -m in Settings -> AI -> Arguments)'].find((p) => !existsSync(p));
+    if (!missing) report.pass("the app's own Bonsai 2 is downloaded", ai.model!);
+    else {
+      report.fail(
+        "the app's own Bonsai 2 is downloaded",
+        `missing ${missing}. Settings -> AI has the app start Bonsai 2 itself. Run download-ai.bat, or point the app at the Bonsai 2 you run yourself (see do-by-hand.md).`,
+      );
+    }
   }
-} else {
-  report.info('no config\\settings.json yet', 'setup.bat makes it');
 }
 
 process.exit(report.finish());

@@ -1,18 +1,21 @@
 // Handover step: read-only checks of your real install, after you've run
-// setup.bat and done your own steps. It changes nothing: the one request it
-// sends, Gmail's Test connection, only logs in and opens the inbox.
+// setup.bat and done your own steps. It changes nothing. Its two requests
+// are the Test connection buttons: Gmail's only logs in and opens the inbox,
+// and the AI's asks one short question.
 //
 //   node scripts\handover\real-checks.ts
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { api, createReport, healthy, IS_WINDOWS, REAL_ROOT } from './lib.ts';
+import { DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
+import { api, createReport, healthy, IS_WINDOWS, readRealSettings, REAL_ROOT } from './lib.ts';
 
 const report = createReport('real-checks');
-const settingsFile = join(REAL_ROOT, 'config', 'settings.json');
-const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, 'utf8').replace(/^\uFEFF/, '')) : {};
-const port = Number(settings?.server?.port ?? 4777);
+const real = readRealSettings();
+if (real.error) report.fail('your config\\settings.json is valid', real.error);
+const settings = real.settings ?? DEFAULT_SETTINGS;
+const port = settings.server.port;
 
 if (IS_WINDOWS) {
   const folder = (name: string) =>
@@ -43,8 +46,8 @@ else report.fail('your master profile is saved', 'Settings -> Profile -> Master 
 
 if (await healthy(port)) {
   report.pass('the app is running', `port ${port}`);
-  const email = settings?.email;
-  if (email?.enabled && email?.address) {
+  const email = settings.email;
+  if (email.enabled && email.address) {
     const test = await api(port, 'POST', '/email/test', {}, 60_000);
     if (test.json?.ok) report.pass('Gmail answers', test.json.detail);
     else report.fail('Gmail answers', test.json?.detail ?? `status ${test.status}`);
@@ -57,7 +60,7 @@ if (await healthy(port)) {
   const onlyFlags = secrets.json && Object.values(secrets.json).every((v) => typeof v === 'boolean');
   if (!settingsText.includes('emailPassword') && onlyFlags) report.pass('no password comes back from the app');
   else report.fail('no password comes back from the app', 'GET /settings or /settings/secrets holds more than true or false');
-  if (email?.enabled) {
+  if (email.enabled) {
     const status = (await api(port, 'GET', '/email/status')).json;
     if (status?.lastCheckAt && !status.lastError) report.info('the last Gmail check', `${status.lastCheckAt}, ${status.lastAdded ?? 0} new, ${status.pending} waiting in the Inbox`);
     else if (status?.lastError) report.fail('the last Gmail check worked', status.lastError);
@@ -65,7 +68,11 @@ if (await healthy(port)) {
   }
   const ai = await api(port, 'GET', '/ai/status');
   report.info('the AI', `${ai.json?.state ?? 'unknown'} (${ai.json?.baseUrl ?? '?'})`);
-} else if (settings?.email?.enabled) {
+  // As Settings -> AI -> Test connection does.
+  const aiTest = await api(port, 'POST', '/ai/test', {}, 300_000);
+  if (aiTest.json?.ok) report.pass("the app's AI answers", aiTest.json.detail);
+  else report.fail("the app's AI answers", aiTest.json?.detail ?? `status ${aiTest.status}`);
+} else if (settings.email.enabled) {
   report.fail('the app is running, to check Gmail', `email is on, but nothing answers on port ${port}. Start the app with the Desktop shortcut, then run this again.`);
 } else {
   report.info('the app is not running', `port ${port}`);

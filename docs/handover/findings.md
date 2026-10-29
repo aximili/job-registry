@@ -82,3 +82,24 @@ so the STOP procedure was followed: both FAILs written as bugs, then **steps
   (Settings → Profile → Master profile, or the file directly)
 - Test copy location (used by steps 5–6, never touches the real install):
   `%USERPROFILE%\JobRegistryTest`
+
+## What changed after this run (Claude, 29 Oct 2026)
+
+- **Decided:** the app uses the Bonsai 2 you run yourself, from
+  `D:\aitest\Bonsai-demo`, by its address. `ai\` stays empty.
+- **Firefox (bug-01), fixed:** `prereqs.ts` now also finds Firefox installed
+  just for you (`%LOCALAPPDATA%\Mozilla Firefox\`) and from the Microsoft
+  Store (`%LOCALAPPDATA%\Microsoft\WindowsApps\`).
+- **The AI (bug-02), fixed:** the checks now read Settings -> AI and check the
+  AI it picks.
+  - `prereqs.ts`: with your own AI server, it checks that the server answers.
+    The `ai\` files are checked only when the app is set to start Bonsai 2
+    itself. A FAIL about the AI no longer stops the run, so steps 4 to 10 run.
+  - `ai-smoke.ts` (step 6): with your own AI server, the test copy uses it to
+    read an ad, rate a job and write a resume. It then checks that stopping the
+    app leaves your server running. The start, idle-stop and kill checks run
+    only when the app starts Bonsai 2 itself.
+  - `real-checks.ts` (step 10) now presses the AI's Test connection on your
+    real install, so it shows whether the app reaches your Bonsai 2.
+- **For you:** a new do-by-hand step 8 points the app at your Bonsai 2, and
+  "Running the runbook again" says how to start a clean run.

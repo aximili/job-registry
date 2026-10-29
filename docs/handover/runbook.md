@@ -57,7 +57,7 @@ The check scripts print lines that start with `PASS`, `FAIL` or `INFO`. `INFO` i
 - **If not:**
   - A FAIL on a port: F2.
   - Every other FAIL is for the user: write a bug for each one, with **Type: needs you**.
-  - STOP if any of these FAILed: "Node.js 24 or later", "npm works", "Git works", "Bonsai 2 and llama-server are downloaded". Otherwise go on.
+  - STOP if any of these FAILed: "Node.js 24 or later", "npm works", "Git works". Otherwise go on. A FAIL about the AI is no reason to stop: step 6 deals with it.
 
 ## Step 4: Make the test copy (5 to 15 minutes)
 
@@ -79,15 +79,17 @@ This uses `start.bat`, `setup.bat` and `stop.bat` themselves.
 - **Expect:** `app-smoke: all PASS.`
 - **If not:** "the test port is free" is F2. For anything else, write a bug for each FAIL and go on.
 
-## Step 6: The AI in the test copy (15 to 25 minutes)
+## Step 6: The AI in the test copy (5 to 25 minutes)
 
-The test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory.
+The test copy uses the AI that the user's settings use (Settings → AI). The line `INFO the AI used` says which:
+- **"your own AI server at …"**: a server the user runs, such as the Bonsai 2 you run on (port 8080). The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
+- **"Bonsai 2 started by the app …"**: the test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
 
 - **Run:** `node scripts\handover\ai-smoke.ts`
 - **Expect:** `ai-smoke: all PASS.`
 - **If not:**
   - "the test ports are free": F2.
-  - "there is room on the graphics card" or "the AI is downloaded": write a bug with **Type: needs you**, then go to step 8 (skip step 7).
+  - "your AI server answers", "there is room on the graphics card" or "the AI is downloaded": write a bug with **Type: needs you**, then go to step 8 (skip step 7).
   - Anything else: write a bug for each FAIL, run `node scripts\handover\cleanup.ts`, and go on.
 
 ## Step 7: How well Bonsai 2 reads ads (a report, not a test; about 5 minutes)
@@ -117,11 +119,11 @@ This runs `npm test`, Mozilla's extension checks, then the browser tests in Fire
 
 ## Step 10: Check the user's own install (read-only; about 1 minute)
 
-This only reads. Its one request, Gmail's Test connection, only logs in.
+This only reads. Its two requests are the app's own Test connection buttons: Gmail's only logs in, and the AI's asks one short question.
 
 - **Run:** `node scripts\handover\real-checks.ts`
 - **Expect:** `real-checks: all PASS.`
-- **If not:** most FAILs here mean a step in the user's list isn't done yet: the master profile, setup.bat's shortcut, or starting the app with email on. Write each of those as a bug with **Type: needs you**. A FAIL on "Gmail answers" or "the last Gmail check worked" is a **bug**, with the exact message.
+- **If not:** most FAILs here mean a step in the user's list isn't done yet: the master profile, setup.bat's shortcut, pointing Settings → AI at the user's Bonsai 2 ("the app's AI answers"), or starting the app with email on. Write each of those as a bug with **Type: needs you**. A FAIL on "Gmail answers" or "the last Gmail check worked" is a **bug**, with the exact message.
 
 ## Step 11: Stop everything the checks started
 
@@ -160,10 +162,11 @@ This only reads. Its one request, Gmail's Test connection, only logs in.
 | `/` and Ctrl+K in Firefox, pasting a link | The browser tests in step 8 (Firefox; they check where the focus goes, not that Firefox's own find bar stays shut) |
 | setup.bat while the app runs, and run again later keeping your jobs | Step 5 |
 | **Phase 2** | |
-| setup.bat offers the download, download-ai.bat finishes | The user (do-by-hand); step 6 checks the model's SHA-256 |
+| setup.bat offers the download, download-ai.bat finishes | The user (do-by-hand). With the app's own Bonsai 2, step 6 checks the model's SHA-256. Not covered with the user's own Bonsai 2: nothing is downloaded |
 | Resuming a download, download-ai.bat while the app runs | Not covered: either would fetch 8 GB again |
-| Test connection, reading an ad (in 60 seconds at most; the goal is about 20), the AI pill | Step 6 (the pill: the browser tests in step 8, with the fake AI) |
-| llama-server's log names CUDA, the idle stop, graphics memory freed, stop.bat and a killed app stop it, a llama-server you started is left alone | Step 6. Not covered: "no extra console window" (it can't be seen from a script) |
+| Test connection, reading an ad (in 60 seconds at most; the goal is about 20), the AI pill | Step 6; Test connection on the user's own install: step 10 (the pill: the browser tests in step 8, with the fake AI) |
+| A llama-server you started is left alone | Step 6, with either AI |
+| llama-server's log names CUDA, the idle stop, graphics memory freed, stop.bat and a killed app stop it | Step 6, only with the app's own Bonsai 2. Not covered with the user's own Bonsai 2, which the app never starts or stops. Not covered either way: "no extra console window" (it can't be seen from a script) |
 | Match ratings | Step 6 (against a sample profile) |
 | The AI not installed, old jobs read after an update, a new job goes first | The unit tests in step 8; step 5 checks a job waits with the reason when the AI can't be reached |
 | Ollama and LM Studio | Not covered: optional, only if you use them |

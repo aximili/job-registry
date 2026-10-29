@@ -27,6 +27,7 @@ const lastMatch = (pattern: RegExp) => {
 const read = lastMatch(/PASS the AI reads a saved ad - (\d+) s/);
 const wrote = lastMatch(/PASS the AI writes a resume - (\d+) s/);
 const signed = lastMatch(/sign: (PASS the extension is signed|INFO not signed|FAIL[^-]*)/);
+const aiUsed = lastMatch(/ai-smoke: INFO the AI used - (.+)$/);
 
 const bugsDir = join(dir, 'bugs');
 const bugs = existsSync(bugsDir) ? readdirSync(bugsDir).filter((f) => /^bug-\d+\.md$/.test(f)).sort() : [];
@@ -47,6 +48,7 @@ const text = [
   `- reading-quality report: ${existsSync(join(dir, 'eval-report.txt')) ? 'eval-report.txt' : 'not made'}`,
   '',
   '## Times',
+  `- The AI check used: ${aiUsed ?? 'not run'}`,
   `- Reading an ad: ${read ? `${read} s` : 'not measured'}`,
   `- Writing a resume: ${wrote ? `${wrote} s` : 'not measured'}`,
   '',

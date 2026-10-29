@@ -10,8 +10,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_SETTINGS, Settings, type AiSettings } from '../../shared/contracts/index.ts';
 
 export const REAL_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 export const IS_WINDOWS = process.platform === 'win32';
@@ -20,6 +21,58 @@ const MARKER = '.jr-test-copy';
 export const testRoot = (): string => resolve(process.env.JR_TEST_ROOT ?? join(homedir(), 'JobRegistryTest'));
 export const testPort = (): number => Number(process.env.JR_TEST_PORT ?? 4787);
 export const resultsFile = (): string => process.env.JR_RESULTS ?? join(REAL_ROOT, 'handover-results', 'results.txt');
+// Your own settings (the Mac tests give another file).
+export const realSettingsFile = (): string => process.env.JR_REAL_SETTINGS ?? join(REAL_ROOT, 'config', 'settings.json');
+
+// Your own settings, read only. No file means the defaults, as in the app.
+export function readRealSettings(): { exists: boolean; settings: Settings | null; error: string | null } {
+  const file = realSettingsFile();
+  if (!existsSync(file)) return { exists: false, settings: DEFAULT_SETTINGS, error: null };
+  try {
+    const parsed = Settings.safeParse(JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')));
+    if (parsed.success) return { exists: true, settings: parsed.data, error: null };
+    return { exists: true, settings: null, error: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') };
+  } catch (err) {
+    return { exists: true, settings: null, error: (err as Error).message };
+  }
+}
+
+// Which AI your settings use (Settings -> AI): a server you run yourself, or
+// the llama-server the app starts, with that program's and model's paths.
+export type AppAi = { kind: 'external'; baseUrl: string } | { kind: 'managed'; exe: string; model: string | null };
+
+export function appAi(ai: AiSettings, root = REAL_ROOT): AppAi {
+  if (ai.preset !== 'llama-server' || !ai.managed.enabled) return { kind: 'external', baseUrl: ai.baseUrl };
+  const at = (p: string) => (isAbsolute(p) ? p : resolve(root, p));
+  const flag = ai.managed.args.findIndex((a) => a === '-m' || a === '--model');
+  const model = flag >= 0 ? ai.managed.args[flag + 1] : undefined;
+  return { kind: 'managed', exe: at(ai.managed.exe), model: model ? at(model) : null };
+}
+
+// Any answer from an OpenAI-style server's model list means it's there.
+export async function aiServerAnswers(baseUrl: string): Promise<boolean> {
+  try {
+    return (await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, { signal: AbortSignal.timeout(5_000) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+// Firefox from its installer (for everyone, or just for you), or from the
+// Microsoft Store. A Store app is only a link in WindowsApps, which Node
+// can't always follow, so that folder is listed instead.
+export function findFirefox(env: NodeJS.ProcessEnv = process.env): string | null {
+  const local = env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
+  const installed = [env.ProgramFiles ?? 'C:\\Program Files', env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', local]
+    .map((dir) => join(dir, 'Mozilla Firefox', 'firefox.exe'))
+    .find((p) => existsSync(p));
+  if (installed) return installed;
+  const store = join(local, 'Microsoft', 'WindowsApps');
+  const names = existsSync(store) ? readdirSync(store) : [];
+  if (names.some((n) => n.toLowerCase() === 'firefox.exe')) return join(store, 'firefox.exe');
+  const app = names.find((n) => n.startsWith('Mozilla.Firefox_'));
+  return app ? join(store, app, 'firefox.exe') : null;
+}
 
 export type Report = {
   pass(name: string, detail?: string): void;
@@ -117,8 +170,9 @@ export function isTestCopy(dir: string): boolean {
 
 // The test copy's settings: its own port, no email, and an AI address where
 // nothing listens, so it never uses the Bonsai 2 the agent is running on. The
-// AI check gives it its own llama-server on another port instead.
-export function testSettings(o: { port: number; llama?: { exe: string; model: string; port: number } }): object {
+// AI check gives it either its own llama-server on another port, or the AI
+// server you run yourself, with your AI settings ("external").
+export function testSettings(o: { port: number; llama?: { exe: string; model: string; port: number }; external?: AiSettings }): object {
   const ai = o.llama
     ? {
         preset: 'llama-server',
@@ -131,7 +185,7 @@ export function testSettings(o: { port: number; llama?: { exe: string; model: st
           startTimeoutSec: 240,
         },
       }
-    : { preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' };
+    : (o.external ?? { preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' });
   return { server: { port: o.port }, ai, email: { enabled: false } };
 }
 
