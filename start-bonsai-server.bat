@@ -1,6 +1,6 @@
 @echo off
 rem Starts Bonsai 2 (llama-server) on this computer only, for the agent tool
-rem (for example Cline) and Job Registry to share. Leave this window open;
+rem (for example KiloCode) and Job Registry to share. Leave this window open;
 rem close it to stop the AI. Job Registry sees the server already running,
 rem uses it, and never stops it.
 rem -c 65536 -np 2: two requests at once, each with up to 32768 tokens.

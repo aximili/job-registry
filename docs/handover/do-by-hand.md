@@ -19,20 +19,13 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
    - **N** if you run Bonsai 2 yourself, as you do from `D:\aitest\Bonsai-demo`. The app then uses yours (step 8).
    - **Y** only if you want the app to start and stop its own copy of Bonsai 2. That's about 8 GB.
 4. **Start Bonsai 2:** run `stop.bat` first (if Job Registry is running, it may have started its own AI on port 8080). Then start your Bonsai 2: `D:\aitest\Bonsai-demo\start_bonsai.bat`. (If you downloaded the AI in step 3 instead, double-click `start-bonsai-server.bat`.) Wait until its window says the server is listening on port 8080. Leave that window open the whole time. Bonsai 2 now runs once, on port 8080, for both the agent tool and the app.
-5. **Set up the agent tool: Cline, in VS Code.**
-   1. In VS Code, open Extensions (Ctrl+Shift+X), search for **Cline**, and install it.
-   2. Open Cline's settings. Set:
-      - **API Provider:** OpenAI Compatible
-      - **Base URL:** `http://127.0.0.1:8080/v1`
-      - **API Key:** `local` (any text works; llama-server doesn't check it)
-      - **Model ID:** `bonsai-2` (any name works; llama-server uses the model it loaded)
-      - **Context window:** `32768`
-      - **Supports images:** off
-   3. In Cline's settings, turn on **Use Compact Prompt** (under Features), which helps local models with a small context.
-   4. Make sure Cline's terminal is **PowerShell** (VS Code: Terminal → Select Default Profile → PowerShell).
-   5. In Cline's auto-approve settings, allow **read files** and **execute commands**. Leave **edit files** off. Bonsai 2 should only ever edit files in `handover-results\`, so approve only those edits. Stay near the PC: each bug it writes waits for your OK.
-   6. If you prefer a terminal, OpenCode works too. Point a custom OpenAI-compatible provider at the same base URL.
-6. **Open the app folder** in VS Code (File → Open Folder → `C:\JobRegistry`).
+5. **The agent tool.** It's the tool that runs Bonsai 2 and follows the runbook. Any tool works (yours is KiloCode in VS Code right now; OpenCode, ZCode and others are fine too), if you can set it up like this:
+   - **API provider:** OpenAI Compatible, with base URL `http://127.0.0.1:8080/v1`. Any API key and model name work, because llama-server checks neither.
+   - **Context window:** the same as your Bonsai 2 gives each request (32,768 with `start-bonsai-server.bat`). No images.
+   - **Terminal:** PowerShell, in the app folder (in VS Code: Terminal → Select Default Profile → PowerShell).
+   - **Long commands:** it must let one command run for up to 40 minutes (step 8 takes that long). Some tools stop a command after a few minutes: look for a command timeout setting, and raise it.
+   - **Approvals:** allow reading files and running commands, but not editing files. Bonsai 2 should only ever edit files in `handover-results\`, so approve only those edits. Stay near the PC: each bug it writes waits for your OK.
+6. **Open the app folder** in your agent tool (in VS Code: File → Open Folder → yours is `F:\CODE\VIBE\job-registry`).
 
 ## Your own data (10 minutes)
 
@@ -51,13 +44,13 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
    setx WEB_EXT_API_KEY "user:12345:678"
    setx WEB_EXT_API_SECRET "your secret"
    ```
-   Restart VS Code after that, so Cline sees them.
+   Restart your agent tool after that, so it sees them.
 
 ## Start Bonsai 2 on the runbook
 
-11. In Cline, type: **"Follow docs/handover/runbook.md from Step 1. Read one step at a time, and do every step in order."** It takes about an hour and a half. Approve its edits to files in `handover-results\` when it asks.
+11. In your agent tool, type: **"Follow docs/handover/runbook.md from Step 1. Read one step at a time, and do every step in order."** It takes about an hour and a half. Approve its edits to files in `handover-results\` when it asks.
 12. When it says "Done", bring the `handover-results` folder back to Claude: `summary.md`, `results.txt`, the `bugs` folder and the `logs-…` folder.
-13. If Cline loses its place, tell it: "Run Get-Content handover-results\progress.txt and carry on from the next step of docs/handover/runbook.md." 
+13. If it loses its place, tell it: "Run Get-Content handover-results\progress.txt and carry on from the next step of docs/handover/runbook.md." 
 
 ## Running the runbook again
 
@@ -66,12 +59,12 @@ After Claude has fixed the bugs from a run:
 1. Rename the old `handover-results` folder, for example to `handover-results-1`. The new run then starts clean, and old bugs don't end up in the new summary. Keep the old folder: Claude may ask for it.
 2. Get Claude's fixes: in the app folder, run `git pull`.
 3. Do any step above that you haven't done yet.
-4. In Cline, type the same sentence as in step 11.
+4. In your agent tool, type the same sentence as in step 11.
 
 ## How the app and the agent share Bonsai 2
 
 - **Your own Bonsai 2** (Settings → AI → Another OpenAI-style server): the app only sends it requests, and never starts or stops it. So the agent is never cut off.
-  - While a check script runs, Cline waits for it, so the two don't compete.
+  - While a check script runs, the agent tool waits for it, so the two don't compete.
   - Your server's own settings decide how long a request can be (llama-server's `-c`, shared between its `-np` slots). If writing a resume fails with a message about the context size, give it a bigger `-c`. `start-bonsai-server.bat` uses `-c 65536 -np 2`: two requests at once, each up to 32,768 tokens.
 - **The app's own Bonsai 2** (Settings → AI → Bonsai 2, started by the app): if a server already answers on port 8080, the app uses it and never stops it, even after 15 idle minutes.
   - During step 6 of the runbook, the test copy starts a second, small llama-server on port 8081 and stops it again. Close games and other GPU-heavy apps while the runbook runs.
