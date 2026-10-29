@@ -2,7 +2,7 @@
 // 4799 and the fake AI. Phase 3's goal: clicking through 5 Seek results shows
 // a rating on each, and saving takes one click.
 
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { shortDate } from '../../shared/dates.ts';
 import { ORIGIN, reset, setAiMode } from '../e2e/helpers.ts';
 import { expect, SITES, test } from './fixtures.ts';
@@ -198,3 +198,71 @@ test('the popup offers Try again when the app is not running', async ({ context,
   await expect(popup.getByRole('status').first()).toHaveText('Connected to Job Registry.');
 });
 
+// Quick marks on a search list (Phase 7). The list is a copy of three real
+// Seek cards; job 81234567 is also the job at /seek/job/81234567.
+const LIST_IDS = ['81234567', '81234570', '81234571'];
+
+// Each card's marks, by job id: the words inside each mark's shadow root
+// (open in the test build). A card with two marks would show two here.
+const marksByCard = (page: Page) =>
+  page.evaluate(() =>
+    Object.fromEntries(
+      Array.from(document.querySelectorAll('article[data-job-id]'), (card) => [
+        card.getAttribute('data-job-id'),
+        Array.from(card.querySelectorAll('[data-job-registry-mark]'), (host) => host.shadowRoot?.querySelector('.mark')?.textContent ?? '(no open shadow root)'),
+      ]),
+    ),
+  );
+
+const cardCalls = async (request: APIRequestContext) =>
+  ((await (await request.get('/__test/ai-calls')).json()) as { cards: number }).cards;
+
+test('each card on a search list gets a quick mark', async ({ page }) => {
+  await page.goto(`${SITES}/seek/list`);
+  await expect
+    .poll(() => marksByCard(page), { timeout: 15_000 })
+    .toEqual(Object.fromEntries(LIST_IDS.map((id) => [id, ['Good 68 · quick']])));
+  // The tooltip gives the AI's reason and says what "quick" means.
+  const tooltip = await page.evaluate(
+    () => document.querySelector('[data-job-registry-mark]')?.shadowRoot?.querySelector('.mark')?.getAttribute('title') ?? null,
+  );
+  expect(tooltip).toBe('Your TypeScript work fits the role.\nQuick rating from the card. Open the job for a full rating.');
+});
+
+test('a card for a job you saved says so', async ({ page, request }) => {
+  await page.goto(`${SITES}/seek/job/81234567`);
+  await expect(panel(page)).toContainText('Senior Software Engineer · Atlassian');
+  await panel(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Open in Job Registry' })).toBeVisible();
+
+  await page.goto(`${SITES}/seek/list`);
+  await expect
+    .poll(() => marksByCard(page), { timeout: 15_000 })
+    .toEqual({ '81234567': ['Saved'], '81234570': ['Good 68 · quick'], '81234571': ['Good 68 · quick'] });
+  // The saved job's card never went to the AI.
+  expect(await cardCalls(request)).toBe(2);
+});
+
+test("with 'Rate the jobs in search results' off, no marks", async ({ page, request, extensionId }) => {
+  await page.goto(`chrome-extension://${extensionId}/options.html`);
+  const option = page.getByLabel('Rate the jobs in search results (a quick rating from each card)');
+  // Each checkbox is tied to its hint, so a screen reader reads it out.
+  await expect(page.getByLabel('Rate jobs automatically on job pages')).toHaveAccessibleDescription(
+    "Ratings use your master profile in Job Registry. Turn this off, and a job page isn't rated until you save the job.",
+  );
+  await expect(option).toHaveAccessibleDescription('Each card gets a quick rating from what the card shows. Only the tab in front is rated.');
+  await expect(option).toBeChecked();
+  await option.uncheck();
+  await expect(page.getByRole('status')).toHaveText('Saved.');
+
+  // The list with a job open in its split view, as clicking a card does
+  // (Seek adds the job id and `type`). The panel showing up proves the
+  // extension is running on this page. This copy of the list has no job
+  // details, so the panel says it couldn't read the job, and nothing is rated.
+  await page.goto(`${SITES}/seek/list?jobId=81234567&type=standard`);
+  await expect(page.locator('article[data-job-id]')).toHaveCount(3);
+  await expect(panel(page)).toContainText("Couldn't read this job", { timeout: 10_000 });
+  await page.waitForTimeout(3000);
+  expect(await marksByCard(page)).toEqual(Object.fromEntries(LIST_IDS.map((id) => [id, []])));
+  expect(await cardCalls(request)).toBe(0);
+});

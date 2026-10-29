@@ -221,6 +221,24 @@ describe('jobs service: duplicates', () => {
     expect(res.match).toMatchObject({ jobId: job.id, title: 'Senior Engineer', status: 'saved' });
     expect(jobs.lookupByUrl('https://www.seek.com.au/job/1').match).toBeNull();
   });
+
+  it('checkMany answers each link or site id in order, with the same match check() gives', () => {
+    const a = create({ capture: seekCapture('1'), fields: atlassian });
+    const b = create({ capture: seekCapture('2'), fields: { title: 'Designer', company: 'Canva' } });
+    jobs.update(b.id, { archived: true });
+    const items = [
+      { canonicalUrl: 'https://www.seek.com.au/job/1', sourceSite: 'seek' as const, externalId: null },
+      { canonicalUrl: 'https://www.seek.com.au/job/999', sourceSite: 'seek' as const, externalId: null },
+      { canonicalUrl: 'https://www.seek.com.au/job/2?type=promoted', sourceSite: 'seek' as const, externalId: '2' },
+    ];
+    const results = jobs.checkMany(items);
+    expect(results).toEqual([
+      { jobId: a.id, title: 'Senior Engineer', company: 'Atlassian', status: 'saved', dateApplied: null },
+      null,
+      { jobId: b.id, title: 'Designer', company: 'Canva', status: 'saved', dateApplied: null },
+    ]);
+    expect(results).toEqual(items.map((item) => jobs.check(item).exact));
+  });
 });
 
 describe('jobs service: review fixes', () => {

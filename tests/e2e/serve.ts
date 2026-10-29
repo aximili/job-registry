@@ -58,7 +58,8 @@ app.http.post('/__test/reset', async () => {
     DELETE FROM email_suggestions; DELETE FROM email_state;
     DELETE FROM documents; DELETE FROM attachments;
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
-    DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;`);
+    DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;
+    DELETE FROM card_rating_cache;`);
   app.services.settings.update(DEFAULT_SETTINGS);
   app.services.settings.updateSecrets({ emailPassword: null });
   // Your profile and templates as a fresh install has them.
@@ -69,10 +70,11 @@ app.http.post('/__test/reset', async () => {
 });
 
 // Test-only: how many AI calls each task has started, for the extension's
-// "only the last rating runs" check.
+// "only the last rating runs" check, and its quick marks on a search list.
 app.http.get('/__test/ai-calls', async () => ({
   ratings: smart.provider.callsFor('rating').length,
   ratingsFinished: smart.provider.finished.filter((c) => c.jsonSchema?.name === 'rating').length,
+  cards: smart.provider.callsFor('card_rating').length,
 }));
 
 // Test-only: the fake mailbox. { messages } adds emails (received now unless
@@ -99,6 +101,7 @@ const sites = join(projectRoot, 'tests', 'fixtures', 'sites');
 // /indeed/… and /other/… (the extension's test build reads them as the real sites).
 const SITE_PAGES: [RegExp, string][] = [
   [/^\/seek\/jobs$/, join(fixtures, 'seek-live-search.html')],
+  [/^\/seek\/list$/, join(fixtures, 'seek-list.html')],
   [/^\/seek\/job\/99999999$/, join(fixtures, 'seek-unreadable.html')],
   [/^\/seek\/job\/88888888$/, join(fixtures, 'seek-growing.html')],
   [/^\/seek\/job\/\d+$/, join(sites, 'seek-job.html')],

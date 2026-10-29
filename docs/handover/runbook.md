@@ -145,7 +145,7 @@ This only reads. Its two requests are the app's own Test connection buttons: Gma
 
 ---
 
-## Where each Windows check from Phases 1 to 6 is covered
+## Where each Windows check from Phases 1 to 7 is covered
 
 "You" is the user's [optional 15-minute check](do-by-hand.md#your-15-minute-check-optional-after-the-runbook).
 
@@ -190,3 +190,8 @@ This only reads. Its two requests are the app's own Test connection buttons: Gma
 | The board's drag and drop and Move, follow-ups, Escape and focus | The browser tests in step 8 (Firefox and Chromium) |
 | The Windows date picker, a touchpad, a follow-up across midnight | You |
 | NVDA, Firefox's resist-fingerprinting mode, a tab left open overnight, dragging to a column off screen, 50 or more jobs | Not covered: optional, rare, or a judgement call |
+| **Phase 7** | |
+| Bonsai 2's time per card | Step 6 (one card, from the sample ad, against the sample profile) |
+| Marks on real signed-in lists on Seek, LinkedIn and Indeed, scrolling, no card with two marks, opening and saving a job from a list | You (one search list per site, and one job opened from a Seek list) |
+| Saved cards, a new search, the app stopping, two tabs, the option off | The unit tests and the extension's browser tests in step 8 (on copies of the sites, Chromium). Not covered on the real sites |
+| Seek redrawing a card, the tooltips, how the marks look under each site's titles, dark mode, LinkedIn signed out, a minimised Firefox | Not covered: a judgement call, or it needs your signed-in browser |

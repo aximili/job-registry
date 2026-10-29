@@ -45,6 +45,8 @@ function taskSettings(defaults: { temperature: number; maxTokens: number; thinki
 
 const ParseTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 4096, thinking: false });
 const RateTaskSettings = taskSettings({ temperature: 0.3, maxTokens: 2048, thinking: false });
+// A quick rating from a card in a search list: a short answer, and no thinking.
+const CardTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 512, thinking: false });
 // Resumes and cover letters: the model thinks first, and writes at length.
 const WriteTaskSettings = taskSettings({ temperature: 0.6, maxTokens: 8192, thinking: true });
 // Reading an email: short, and no thinking.
@@ -89,6 +91,7 @@ export const AiSettings = z.strictObject({
     .strictObject({
       parse: ParseTaskSettings,
       rate: RateTaskSettings,
+      card: CardTaskSettings,
       write: WriteTaskSettings,
       email: EmailTaskSettings,
     })

@@ -4,6 +4,7 @@
   // them never loses what you typed. Each has its own address
   // (/settings#ai), so links, reload and Back land on the right one.
   import { onMount, tick } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import type { Status } from '../../../shared/contracts/index.ts';
   import AiSettingsSection from '../components/AiSettingsSection.svelte';
   import EmailSettingsSection from '../components/EmailSettingsSection.svelte';
@@ -15,6 +16,7 @@
   import { plural } from '../lib/format.ts';
   import { router } from '../lib/router.svelte.ts';
   import { moveStatus, slugifyStatusId } from '../lib/statuses.ts';
+  import { setTheme, storedTheme, type Theme } from '../lib/theme.ts';
   import { showToast } from '../lib/toast.svelte.ts';
 
   const SECTIONS = [
@@ -23,6 +25,7 @@
     { id: 'email', label: 'Email' },
     { id: 'statuses', label: 'Statuses' },
     { id: 'templates', label: 'Templates' },
+    { id: 'display', label: 'Display' },
     { id: 'data', label: 'Your data' },
   ] as const;
   type SectionId = (typeof SECTIONS)[number]['id'];
@@ -41,7 +44,16 @@
   let loaded = $state(false);
 
   // Sections with changes you haven't saved: the menu says so.
-  let unsaved = $state<Record<SectionId, boolean>>({ profile: false, ai: false, email: false, statuses: false, templates: false, data: false });
+  let unsaved = $state<Record<SectionId, boolean>>({ profile: false, ai: false, email: false, statuses: false, templates: false, display: false, data: false });
+
+  // The theme changes the moment you pick one, so Display never has unsaved changes.
+  let theme = $state<Theme>(storedTheme());
+  const computerIsDark = new MediaQuery('(prefers-color-scheme: dark)');
+  const themes = $derived<{ id: Theme; label: string }[]>([
+    { id: 'system', label: `Match this computer (now ${computerIsDark.current ? 'dark' : 'light'})` },
+    { id: 'light', label: 'Light' },
+    { id: 'dark', label: 'Dark' },
+  ]);
   $effect(() => {
     unsaved.statuses = loaded && JSON.stringify(list) !== savedList;
   });
@@ -223,6 +235,20 @@
           {#if error}<p class="error" role="alert">{error}</p>{/if}
           <button type="button" class="button primary" disabled={saving} onclick={saveStatuses}>Save statuses</button>
         {/if}
+      </section>
+
+      <section aria-labelledby="display-heading" hidden={active !== 'display'}>
+        <h2 id="display-heading" tabindex="-1">Display</h2>
+        <fieldset class="themes">
+          <legend>Theme</legend>
+          {#each themes as option (option.id)}
+            <label>
+              <input type="radio" name="theme" value={option.id} bind:group={theme} onchange={() => setTheme(theme)} />
+              {option.label}
+            </label>
+          {/each}
+        </fieldset>
+        <p class="muted">It changes at once, and this browser remembers it.</p>
       </section>
 
       <section aria-labelledby="data-heading" hidden={active !== 'data'}>
@@ -415,5 +441,25 @@
     align-items: center;
     gap: var(--space-4);
     flex-wrap: wrap;
+  }
+
+  .themes {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .themes legend {
+    padding: 0;
+    margin-bottom: var(--space-2);
+    font-weight: 600;
+  }
+
+  .themes label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 </style>

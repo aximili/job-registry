@@ -12,6 +12,8 @@
     "http://localhost/*",
     "https://www.seek.com.au/*",
     "https://www.seek.co.nz/*",
+    "https://au.seek.com/*",
+    "https://nz.seek.com/*",
     "https://*.linkedin.com/*",
     "https://*.indeed.com/*"
   ],
@@ -20,6 +22,8 @@
       "matches": [
         "https://www.seek.com.au/*",
         "https://www.seek.co.nz/*",
+        "https://au.seek.com/*",
+        "https://nz.seek.com/*",
         "https://*.linkedin.com/*",
         "https://*.indeed.com/*"
       ],

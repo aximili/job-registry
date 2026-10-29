@@ -54,4 +54,6 @@ export const generic: SiteExtractor = {
     const title = heading ?? article?.title?.trim() ?? doc.title.trim();
     return { ...base, ...(title ? { title } : {}), jdText: text };
   },
+  // Any other site's search lists aren't known, so they get no marks.
+  readCards: () => [],
 };

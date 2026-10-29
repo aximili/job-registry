@@ -7,7 +7,8 @@
 //   Bonsai 2 that the agent runs on port 8080 is never stopped. It also checks
 //   that the app stops it after the idle time, and when the app stops or is
 //   killed.
-// Either way it reads an ad, rates a job and writes a resume with it.
+// Either way it reads an ad, rates a job, gives a job card a quick mark and
+// writes a resume with it.
 //
 //   node scripts\handover\ai-smoke.ts            (5 to 25 minutes)
 //   --no-idle   skips the 1-minute idle stop
@@ -195,6 +196,25 @@ try {
   }, 300_000);
   if (rated.json?.rating?.verdict) report.pass('the AI rates a job against the profile', `${rated.json.rating.verdict}, ${rated.json.rating.score}`);
   else report.fail('the AI rates a job against the profile', rated.json?.reason ?? rated.json?.error?.message ?? `status ${rated.status}`);
+
+  // A quick mark from one job card, as the extension asks for one on a search
+  // list. Its time is the time per card: a list has 20 or more.
+  const cardStart = Date.now();
+  const card = await api(port, 'POST', '/ratings/card', {
+    card: {
+      canonicalUrl: 'https://www.seek.com.au/job/81234567',
+      sourceSite: 'seek',
+      externalId: '81234567',
+      title: expected.title,
+      company: expected.company,
+      location: 'Melbourne VIC (Hybrid)',
+      text: 'This is a Full time job\n$120,000 - $135,000 per year + super\nTurn customer and network data into clear decisions. Strong SQL and Power BI.',
+    },
+  }, 300_000);
+  const cardSecs = Math.round((Date.now() - cardStart) / 1000);
+  const mark = card.json?.rating;
+  if (mark?.verdict && cardSecs <= 30) report.pass('the AI gives a job card a quick mark', `${cardSecs} s per card; ${mark.verdict}, ${mark.score}`);
+  else report.fail('the AI gives a job card a quick mark', mark?.verdict ? `${cardSecs} s for one card (30 s at most)` : card.json?.reason ?? card.json?.error?.message ?? `status ${card.status}`);
 
   // A resume, written from the sample profile, as the editor's Generate does.
   if (id !== undefined) {

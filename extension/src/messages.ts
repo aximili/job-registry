@@ -1,7 +1,18 @@
 // The messages between the content script, the popup and the background
 // script. Only the background talks to the server; everyone else asks it.
 
-import type { Capture, Health, JobCheckResponse, RateResponse, SaveDecision, SaveJobResponse } from '../../shared/contracts/index.ts';
+import type {
+  Capture,
+  CardMark,
+  ExactMatch,
+  Health,
+  JobCard,
+  JobCheckResponse,
+  RateCardResponse,
+  RateResponse,
+  SaveDecision,
+  SaveJobResponse,
+} from '../../shared/contracts/index.ts';
 
 export type Request =
   | { type: 'check'; capture: Capture }
@@ -9,7 +20,14 @@ export type Request =
   | { type: 'save'; capture: Capture; status: string; note: string; decision?: SaveDecision }
   | { type: 'captureActiveTab' }
   | { type: 'openJob'; jobId: number }
-  | { type: 'health' };
+  | { type: 'health' }
+  | { type: 'cards'; cards: JobCard[] }
+  | { type: 'rateCard'; card: JobCard };
+
+// What's already known about a search list's cards, one entry per card in
+// the same order: the job you saved, and the mark the card already has.
+// reason says why no card can get a mark (no master profile yet).
+export type CardsInfo = { saved: (ExactMatch | null)[]; marks: (CardMark | null)[]; reason: string | null };
 
 export type ReplyData = {
   check: JobCheckResponse;
@@ -18,6 +36,8 @@ export type ReplyData = {
   captureActiveTab: Capture | null;
   openJob: null;
   health: Health;
+  cards: CardsInfo;
+  rateCard: RateCardResponse;
 };
 
 // offline: the app couldn't be reached at all. error "cancelled": a newer

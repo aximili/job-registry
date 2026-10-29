@@ -127,6 +127,14 @@
         "thinkingEffort": "medium",
         "extra": {}
       },
+      "card": {
+        "model": null,
+        "temperature": 0.2,
+        "maxTokens": 512,
+        "thinking": false,
+        "thinkingEffort": "medium",
+        "extra": {}
+      },
       "write": {
         "model": null,
         "temperature": 0.6,

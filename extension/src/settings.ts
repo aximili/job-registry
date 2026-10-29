@@ -1,7 +1,8 @@
 // The extension's own settings, kept in the browser: where Job Registry is,
-// and whether to rate jobs as you open them.
+// whether to rate jobs as you open them, and whether to rate the jobs in
+// search results.
 
-export type ExtensionSettings = { serverUrl: string; autoRate: boolean };
+export type ExtensionSettings = { serverUrl: string; autoRate: boolean; rateLists: boolean };
 
 // The permission the extension needs to reach Job Registry on this computer.
 export const HOST_ORIGINS = ['http://127.0.0.1/*', 'http://localhost/*'];
@@ -12,6 +13,7 @@ declare const __DEFAULT_SERVER__: string | undefined;
 export const DEFAULT_EXTENSION_SETTINGS: ExtensionSettings = {
   serverUrl: typeof __DEFAULT_SERVER__ === 'string' ? __DEFAULT_SERVER__ : 'http://127.0.0.1:4777',
   autoRate: true,
+  rateLists: true,
 };
 
 export function checkServerUrl(text: string): { ok: true; value: string } | { ok: false; error: string } {
@@ -31,11 +33,12 @@ export function checkServerUrl(text: string): { ok: true; value: string } | { ok
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {
-  const stored = (await chrome.storage.local.get(['serverUrl', 'autoRate'])) as Partial<ExtensionSettings>;
+  const stored = (await chrome.storage.local.get(['serverUrl', 'autoRate', 'rateLists'])) as Partial<ExtensionSettings>;
   const server = typeof stored.serverUrl === 'string' ? checkServerUrl(stored.serverUrl) : null;
   return {
     serverUrl: server?.ok ? server.value : DEFAULT_EXTENSION_SETTINGS.serverUrl,
     autoRate: typeof stored.autoRate === 'boolean' ? stored.autoRate : DEFAULT_EXTENSION_SETTINGS.autoRate,
+    rateLists: typeof stored.rateLists === 'boolean' ? stored.rateLists : DEFAULT_EXTENSION_SETTINGS.rateLists,
   };
 }
 

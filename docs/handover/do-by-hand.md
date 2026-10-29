@@ -37,7 +37,7 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
    - **Program or .bat file:** `D:\aitest\Bonsai-demo\start_bonsai.bat`
 
    Press **Save AI settings**, then **Test connection**. It should say "Connected to Bonsai 2 (llama-server)". The app now sends its AI work to your Bonsai 2, and never stops it.
-   - If Bonsai 2 isn't running, the app opens `start_bonsai.bat` in its own window (minimised) the next time you save an ad or press Test connection. Checking Gmail never opens it.
+   - If Bonsai 2 isn't running, the app opens `start_bonsai.bat` in its own window (minimised) the next time it needs the AI for you: when you save an ad, press Test connection, or open a job page or a search list (any rating). Checking Gmail never opens it.
    - Close that window yourself when you want Bonsai 2 to stop. It stays open after Job Registry stops.
    - Already set to "Another OpenAI-style server" from run 1? That still works, but it never starts Bonsai 2 for you.
    - To switch later (to Ollama, LM Studio or the app's own Bonsai 2), pick another AI server here.
@@ -74,12 +74,16 @@ After Claude has fixed the bugs from a run:
 - **The app's own Bonsai 2** (Settings → AI → Bonsai 2, started by the app): if a server already answers on port 8080, the app uses it and never stops it, even after 15 idle minutes.
   - During step 6 of the runbook, the test copy starts a second, small llama-server on port 8081 and stops it again. Close games and other GPU-heavy apps while the runbook runs.
   - When you've finished, close the Bonsai 2 window. From then on, the app starts and stops Bonsai 2 itself, as usual.
+- **Quick marks on search lists** use the same Bonsai 2. While the agent tool is working, untick "Rate the jobs in search results" in the extension's options, so a search list open in Firefox doesn't keep Bonsai 2 busy. Tick it again when the agent has finished.
 
 ## Your 15-minute check (optional, after the runbook)
 
 These need a person, a signed-in browser or Word. Skip any you don't care about.
 
 - **The extension:** install the signed `.xpi` from `extension\dist\signed\` in Firefox (or load `extension\dist\firefox\manifest.json` in `about:debugging`). Open one job on Seek, LinkedIn and Indeed while signed in. The panel shows the job and **Save** works.
+  - Updated an older copy of the extension? Open `about:addons` → Job Registry → **Permissions**. Check that au.seek.com and nz.seek.com are allowed, and turn them on if not. Firefox may not grant new sites on an update.
+  - Then open one search list on each site. Within a minute, the cards on screen get a mark after their title, one card after another (such as "Good 68 · quick"). A job you saved says "Saved". Scroll down: new cards get marks too, and no card has two. About how many seconds does each card take?
+  - Open a job from a Seek search list (the split view). Wait for its full rating in the panel: its card's mark changes to the full one (no "· quick"). Then press **Save**: the card says "Saved".
 - **Print to PDF:** on a job, make a resume, press **Print / PDF**, then Ctrl+P → Save to PDF. It looks like the preview.
 - **.docx:** press **Export .docx** and open it in Word for the web. It looks tidy.
 - **Gmail:** after the app has run for 15 minutes with email on, open the Inbox. Do the cards make sense? Were the emails still unread in Gmail?

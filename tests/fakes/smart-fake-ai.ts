@@ -7,7 +7,11 @@
 
 import type { EmailClassification, EmailEvent, ParsedJob } from '../../shared/contracts/index.ts';
 import { AiUnavailableError } from '../../server/core/errors.ts';
-import { FAKE_RATING, FakeAiProvider } from './fake-ai-provider.ts';
+import { FAKE_CARD_RATING, FAKE_RATING, FakeAiProvider } from './fake-ai-provider.ts';
+
+// The quick rating the fake gives every job card in a search list. It lives
+// with the plain fake, which gives the same answer.
+export { FAKE_CARD_RATING };
 
 export type SmartMode = 'smart' | 'fail' | 'slow' | 'bad';
 
@@ -117,6 +121,7 @@ export function createSmartFake() {
       return JSON.stringify(readAdLikeAPerson(ad));
     }
     if (req.jsonSchema?.name === 'rating') return JSON.stringify(FAKE_RATING);
+    if (req.jsonSchema?.name === 'card_rating') return JSON.stringify(FAKE_CARD_RATING);
     if (req.jsonSchema?.name === 'email_classification') {
       return JSON.stringify(readEmailLikeAPerson(req.messages[0]?.content ?? '', req.messages[1]?.content ?? ''));
     }

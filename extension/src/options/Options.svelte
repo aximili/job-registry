@@ -6,6 +6,7 @@
   let serverUrl = $state('');
   let access = $state<boolean | null>(null);
   let autoRate = $state(true);
+  let rateLists = $state(true);
   let message = $state('');
   let error = $state('');
 
@@ -13,6 +14,7 @@
     const s = await loadSettings();
     serverUrl = s.serverUrl;
     autoRate = s.autoRate;
+    rateLists = s.rateLists;
     access = await chrome.permissions.contains({ origins: HOST_ORIGINS });
   });
 
@@ -40,6 +42,11 @@
     await saveSettings({ autoRate });
     message = 'Saved.';
   }
+
+  async function saveRateLists() {
+    await saveSettings({ rateLists });
+    message = 'Saved.';
+  }
 </script>
 
 <main>
@@ -56,8 +63,10 @@
   </label>
   <p id="server-hint" class="hint">Where Job Registry runs on this computer. Usually http://127.0.0.1:4777.</p>
   {#if error}<p class="bad" role="alert">{error}</p>{/if}
-  <label class="check"><input type="checkbox" bind:checked={autoRate} onchange={saveAutoRate} /> Rate jobs automatically on job pages</label>
-  <p class="hint">Ratings use your master profile in Job Registry. Turn this off to rate nothing until you save a job.</p>
+  <label class="check"><input type="checkbox" bind:checked={autoRate} onchange={saveAutoRate} aria-describedby="auto-rate-hint" /> Rate jobs automatically on job pages</label>
+  <p id="auto-rate-hint" class="hint">Ratings use your master profile in Job Registry. Turn this off, and a job page isn't rated until you save the job.</p>
+  <label class="check"><input type="checkbox" bind:checked={rateLists} onchange={saveRateLists} aria-describedby="rate-lists-hint" /> Rate the jobs in search results (a quick rating from each card)</label>
+  <p id="rate-lists-hint" class="hint">Each card gets a quick rating from what the card shows. Only the tab in front is rated.</p>
   <p role="status">{message}</p>
 </main>
 

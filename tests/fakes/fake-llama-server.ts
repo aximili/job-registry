@@ -1,9 +1,10 @@
 // Pretends to be llama-server, for the runtime tests:
 //   node tests/fakes/fake-llama-server.ts --port 8089 [--slow-start-ms 3000] [--exit-after-ms 500] [--smart]
 // It waits (if asked), then serves the fake OpenAI-style API on that port.
-// With --smart it reads ads a little and rates them, like the browser tests' fake.
+// With --smart it reads ads a little and rates them (and job cards), like the
+// browser tests' fake.
 
-import { FAKE_RATING } from './fake-ai-provider.ts';
+import { FAKE_CARD_RATING, FAKE_RATING } from './fake-ai-provider.ts';
 import { startFakeOpenAiServer, type FakeHandler } from './fake-openai-server.ts';
 import { readAdLikeAPerson } from './smart-fake-ai.ts';
 
@@ -23,6 +24,7 @@ const smart: FakeHandler = (body) => {
   const messages = body.messages as { content: string }[];
   if (schema === 'parsed_job') return { content: JSON.stringify(readAdLikeAPerson(messages[1]!.content.split('The job ad:').pop() ?? '')) };
   if (schema === 'rating') return { content: JSON.stringify(FAKE_RATING) };
+  if (schema === 'card_rating') return { content: JSON.stringify(FAKE_CARD_RATING) };
   return { content: 'OK' };
 };
 await startFakeOpenAiServer(process.argv.includes('--smart') ? smart : undefined, { port });

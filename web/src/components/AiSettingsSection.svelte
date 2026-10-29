@@ -1,10 +1,12 @@
 <script lang="ts">
-  // Settings → AI: which AI server to use, and a button to check it answers.
-  // Saving sends the whole AI section, so settings that aren't on this page
-  // (such as the per-task ones you can edit in settings.json) are kept.
+  // Settings → AI: which AI server to use, a button to check it answers, and
+  // how the AI works on each task. Saving sends the whole AI section, so
+  // settings that aren't on this page (such as each task's extra request
+  // fields, which you can edit in settings.json) are kept.
   import { onMount } from 'svelte';
   import { AI_PRESETS, opensWindow, type AiPresetId, type AiSettings } from '../../../shared/contracts/index.ts';
   import { AI_LABEL, ai } from '../lib/ai-state.svelte.ts';
+  import { fromRow, rowOf, rowProblem, TASK_ROWS, THINKING, type TaskKey, type TaskRow } from '../lib/ai-tasks.ts';
   import { api } from '../lib/api.ts';
   import { app, loadSettings } from '../lib/app-state.svelte.ts';
   import { friendlyError } from '../lib/errors.ts';
@@ -18,7 +20,8 @@
     exe: string;
     args: string;
     stopWhenIdle: boolean;
-    idleMinutes: number;
+    idleMinutes: number | null;
+    tasks: Record<TaskKey, TaskRow>;
   };
 
   const PRESETS = Object.entries(AI_PRESETS) as [AiPresetId, (typeof AI_PRESETS)[AiPresetId]][];
@@ -28,13 +31,33 @@
 
   let base: AiSettings | null = null;
   let saved = $state('');
-  let form = $state<Form>({ preset: 'llama-server', baseUrl: '', model: '', managed: true, exe: '', args: '', stopWhenIdle: false, idleMinutes: 15 });
+  let form = $state<Form>({
+    preset: 'llama-server',
+    baseUrl: '',
+    model: '',
+    managed: true,
+    exe: '',
+    args: '',
+    stopWhenIdle: false,
+    idleMinutes: 15,
+    tasks: rowsOf(app.settings.ai.tasks),
+  });
   let ready = $state(false);
   let busy = $state(false);
   let testing = $state(false);
   let result = $state<{ ok: boolean; text: string } | null>(null);
   let error = $state<string | null>(null);
   let ratings = $state('');
+
+  function rowsOf(tasks: AiSettings['tasks']): Record<TaskKey, TaskRow> {
+    return {
+      parse: rowOf(tasks.parse),
+      rate: rowOf(tasks.rate),
+      card: rowOf(tasks.card),
+      write: rowOf(tasks.write),
+      email: rowOf(tasks.email),
+    };
+  }
 
   function take(ai: AiSettings) {
     base = ai;
@@ -47,12 +70,15 @@
       args: ai.managed.args.join('\n'),
       stopWhenIdle: ai.stopWhenIdle,
       idleMinutes: ai.idleMinutes,
+      tasks: rowsOf(ai.tasks),
     };
     saved = JSON.stringify(form);
   }
 
   const managedHere = $derived(form.preset === 'llama-server' && form.managed);
   const batch = $derived(opensWindow(form.exe));
+  // The idle minutes box is on screen only in this case.
+  const idleShown = $derived(managedHere && !batch && form.stopWhenIdle);
 
   $effect(() => {
     dirty = ready && JSON.stringify(form) !== saved;
@@ -73,15 +99,33 @@
     form.managed = preset.managed;
   }
 
+  // The form checks its own numbers (novalidate), so a problem shows as a
+  // sentence beside the buttons, not as the browser's bubble. Throws that
+  // sentence, and nothing is saved.
   function fromForm(): AiSettings {
     const ai = base!;
+    // A box you can't see can't block a save: it keeps the saved minutes.
+    let idle = ai.idleMinutes;
+    if (idleShown) {
+      const typed = form.idleMinutes;
+      if (typeof typed !== 'number' || !Number.isInteger(typed) || typed < 1) {
+        throw new Error('Stop it after this many idle minutes: use a whole number, 1 or more.');
+      }
+      idle = typed;
+    }
+    const tasks = { ...ai.tasks };
+    for (const { key, label } of TASK_ROWS) {
+      const problem = rowProblem(label, form.tasks[key]);
+      if (problem) throw new Error(problem);
+      tasks[key] = fromRow(ai.tasks[key], form.tasks[key]);
+    }
     return {
       ...ai,
       preset: form.preset,
       baseUrl: form.baseUrl.trim(),
       model: form.model.trim(),
       stopWhenIdle: form.stopWhenIdle,
-      idleMinutes: Number(form.idleMinutes),
+      idleMinutes: idle,
       managed: {
         ...ai.managed,
         enabled: form.managed,
@@ -91,6 +135,7 @@
           .map((a) => a.trim())
           .filter(Boolean),
       },
+      tasks,
     };
   }
 
@@ -142,6 +187,7 @@
   {#if ready}
     <form
       class="ai-form"
+      novalidate
       onsubmit={(e) => {
         e.preventDefault();
         void save();
@@ -177,9 +223,9 @@
             </p>
             {#if batch}
               <p class="note">
-                The app opens this file in its own window, minimised, when you save an ad or press Test connection and the AI isn't
-                running. Checking Gmail waits instead. The app never closes that window: close it yourself when you want the AI to
-                stop.
+                The app opens this file in its own window, minimised, when it needs the AI for you and the AI isn't running: when
+                you save an ad, press Test connection, or open a job page or a search list. Checking Gmail waits instead. The app
+                never closes that window: close it yourself when you want the AI to stop.
               </p>
             {:else}
               <label class="field">
@@ -193,7 +239,7 @@
               <label class="check">
                 <input type="checkbox" bind:checked={form.stopWhenIdle} aria-describedby="idle-hint" /> Stop it when it's idle
               </label>
-              {#if form.stopWhenIdle}
+              {#if idleShown}
                 <label class="field idle">
                   <span>Stop it after this many idle minutes</span>
                   <input type="number" min="1" bind:value={form.idleMinutes} />
@@ -215,6 +261,36 @@
       {:else}
         <p class="wide muted hint">Start this server yourself. The app only sends it work, and never starts or stops it.</p>
       {/if}
+      <div class="wide tasks">
+        <h3>How the AI works on each task</h3>
+        <p class="muted hint">
+          Thinking gives better answers but takes longer. Keep quick marks light, and let resume writing think hard. Longest
+          answer is in tokens: a token is about three-quarters of a word. Leave Model empty to use the same model as above.
+        </p>
+        {#each TASK_ROWS as row (row.key)}
+          <fieldset class="task">
+            <legend>{row.label}</legend>
+            <label class="field">
+              <span>Thinking <span class="visually-hidden">for {row.label}</span></span>
+              <select bind:value={form.tasks[row.key].thinking}>
+                {#each THINKING as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
+              </select>
+            </label>
+            <label class="field">
+              <span>Longest answer (tokens) <span class="visually-hidden">for {row.label}</span></span>
+              <input type="number" min="16" step="1" bind:value={form.tasks[row.key].maxTokens} />
+            </label>
+            <label class="field">
+              <span>Temperature <span class="visually-hidden">for {row.label}</span></span>
+              <input type="number" min="0" max="2" step="0.1" bind:value={form.tasks[row.key].temperature} />
+            </label>
+            <label class="field">
+              <span>Model <span class="visually-hidden">for {row.label}</span></span>
+              <input bind:value={form.tasks[row.key].model} placeholder="Same as above" spellcheck="false" />
+            </label>
+          </fieldset>
+        {/each}
+      </div>
       {#if error}<p class="error wide" role="alert">{error}</p>{/if}
       <div class="actions wide">
         <button type="submit" class="button primary" disabled={busy || testing}>Save AI settings</button>
@@ -293,6 +369,39 @@
   textarea {
     width: 100%;
     font-family: var(--mono, ui-monospace, monospace);
+  }
+
+  .tasks {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  .tasks h3 {
+    font-size: var(--step-0);
+  }
+
+  /* One task: its four settings side by side, wrapping on a narrow screen. */
+  .task {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: var(--space-2) var(--space-3);
+    align-items: end;
+    margin: 0;
+    padding: var(--space-2) var(--space-3) var(--space-3);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+  }
+
+  .task legend {
+    padding: 0 var(--space-1);
+    font-weight: 600;
+  }
+
+  .task input,
+  .task select {
+    width: 100%;
+    min-width: 0;
   }
 
   .actions {

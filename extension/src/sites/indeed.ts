@@ -1,10 +1,12 @@
-// Indeed (au.indeed.com and others): job pages (/viewjob?jk=…) and search
-// pages with a job open on the right (?vjk=…).
+// Indeed (au.indeed.com and others): job pages (/viewjob?jk=…), search pages
+// with a job open on the right (?vjk=…), and the job cards in a search list.
 
-import { firstElement, firstText, paneOf, siteCapture, type SiteExtractor } from './helpers.ts';
+import { cardsIn, firstElement, firstText, foundCard, paneOf, siteCapture, squash, textsOf, type SiteExtractor } from './helpers.ts';
 
 const JOB_KEY = /^[0-9a-f]{16}$/i;
 const DETAILS = ['#jobsearch-ViewjobPaneWrapper', '.jobsearch-ViewJobLayout', '.jobsearch-JobComponent'];
+
+const jobUrl = (url: URL, jk: string) => `${url.origin}/viewjob?jk=${jk}`;
 
 export const indeed: SiteExtractor = {
   id: 'indeed',
@@ -21,7 +23,7 @@ export const indeed: SiteExtractor = {
     const title = firstText(pane, ['[data-testid="jobsearch-JobInfoHeader-title"]', '.jobsearch-JobInfoHeader-title'])?.replace(/\s*-\s*job post$/i, '');
     return siteCapture({
       url,
-      jobUrl: `https://${url.hostname}/viewjob?jk=${id}`,
+      jobUrl: jobUrl(url, id),
       doc,
       now,
       title: title || undefined,
@@ -31,6 +33,27 @@ export const indeed: SiteExtractor = {
       description: firstElement(pane, ['#jobDescriptionText']),
       jobId: id,
       paneJobId: null,
+    });
+  },
+  readCards(doc, url) {
+    return cardsIn(doc, '.job_seen_beacon', (card) => {
+      // A sponsored card's link has no job key, so it's skipped.
+      const link = card.querySelector('a.jcs-JobTitle');
+      const jk = link?.getAttribute('data-jk');
+      return foundCard({
+        element: card,
+        titleEl: link,
+        // The title's own span, not the "new" label next to it.
+        title: squash(card.querySelector('h2.jobTitle span[title]')?.getAttribute('title')) || firstText(card, ['h2.jobTitle']),
+        jobUrl: jk ? jobUrl(url, jk) : null,
+        company: firstText(card, ['[data-testid="company-name"]']),
+        location: firstText(card, ['[data-testid="text-location"]']),
+        // Not when it was posted (data-testid="myJobsStateDate"): it changes every day.
+        parts: [
+          ...textsOf(card, '[data-testid="attribute_snippet_testid"], .salary-snippet-container'),
+          ...textsOf(card, '[data-testid="jobsnippet_footer"] li, .job-snippet li'),
+        ],
+      });
     });
   },
 };

@@ -174,8 +174,10 @@
     gap: var(--space-2);
     min-height: 12rem;
     padding: var(--space-2);
+    border: 1px solid var(--rule);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--rule) 30%, transparent);
+    /* Halfway between the page and a card, so the cards stand out in it. */
+    background: color-mix(in srgb, var(--sheet) 50%, transparent);
     outline: 2px dashed transparent;
   }
 

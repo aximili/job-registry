@@ -2,28 +2,40 @@
   Job Registry: design tokens and shared styles.
 
   The idea: a card index for a job hunt. The search bar is the one bold
-  element, because a ringing phone is the moment that matters. Everything
-  else stays quiet: rows, not cards; one ultramarine accent, like carbon-copy
-  ink; and Atkinson Hyperlegible, a typeface designed for fast, accurate
-  reading, for glancing at mid-call.
+  element, because a ringing phone is the moment that matters: it's the
+  bright slot in a band of ultramarine ink, like carbon-copy ink, across the
+  top. Below it, white cards sit clearly on a darker page, so each part of a
+  page stands apart. Every edge you can click is drawn firmly enough to see.
+  Atkinson Hyperlegible is a typeface designed for fast, accurate reading,
+  for glancing at mid-call.
 */
 
 :root {
   color-scheme: light dark;
 
-  --paper: #f3f5f8;
-  --sheet: #ffffff;
-  --ink: #17202c;
-  --ink-2: #4e5a6a;
-  --rule: #d6dce5;
-  --accent: #2b44d1;
-  --accent-ink: #ffffff;
-  --accent-soft: #e6eafc;
-  --good: #1b7a4b;
-  --closed: #8a94a3;
-  --danger: #b3261e;
-  --ok: #1a7f37;
-  --mark: #fff1a8;
+  /* Each colour is light-dark(light theme, dark theme). The browser picks
+     from color-scheme: the computer's setting, or your choice in
+     Settings → Display (data-theme on <html>, below). */
+  --paper: light-dark(#dae0e8, #0a0d12);
+  --sheet: light-dark(#ffffff, #1e2631);
+  /* A tint on a card: a table's heading row, a row under the pointer. */
+  --sheet-2: light-dark(#eef1f5, #28313e);
+  --ink: light-dark(#17202c, #e6eaf0);
+  --ink-2: light-dark(#4e5a6a, #9aa6b6);
+  /* Lines between parts of a page, and the edges of cards. */
+  --rule: light-dark(#c2cad5, #353f4d);
+  /* The edges of fields and buttons: at least 3:1 against a card or the page. */
+  --edge: light-dark(#7b8696, #717d8e);
+  --accent: light-dark(#2b44d1, #8ea2ff);
+  --accent-ink: light-dark(#ffffff, #0d1330);
+  --accent-soft: light-dark(#e6eafc, #1d2647);
+  --good: light-dark(#1b7a4b, #5cc58e);
+  --closed: light-dark(#8a94a3, #6e7886);
+  --danger: light-dark(#b3261e, #ff8a80);
+  --ok: light-dark(#1a7f37, #6fd58a);
+  --mark: light-dark(#fff1a8, #5a4b00);
+  /* The header's band of ink. It's dark in both themes. */
+  --band: light-dark(#1d2b64, #1b2450);
 
   --font: 'Atkinson Hyperlegible Next Variable', 'Segoe UI', system-ui, sans-serif;
   --step--1: 0.875rem;
@@ -44,22 +56,24 @@
   --width: 72rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #11151b;
-    --sheet: #181e26;
-    --ink: #e6eaf0;
-    --ink-2: #9aa6b6;
-    --rule: #2a323d;
-    --accent: #8ea2ff;
-    --accent-ink: #0d1330;
-    --accent-soft: #1d2647;
-    --good: #5cc58e;
-    --closed: #6e7886;
-    --danger: #ff8a80;
-    --ok: #6fd58a;
-    --mark: #5a4b00;
-  }
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* Anything on the band: the colours turn light, whichever the theme. */
+.on-band {
+  --ink: #ffffff;
+  --ink-2: #c3ccf0;
+  --rule: rgb(255 255 255 / 0.35);
+  --accent: #ffffff;
+  --accent-ink: #1d2b64;
+  --ok: #86e3a6;
+  --danger: #ffb3ab;
+  color: var(--ink);
 }
 
 *,
@@ -160,7 +174,7 @@ kbd {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--sheet);
   color: var(--ink);
@@ -205,7 +219,7 @@ textarea {
   font: inherit;
   color: inherit;
   background: var(--sheet);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: var(--space-2) var(--space-3);
 }

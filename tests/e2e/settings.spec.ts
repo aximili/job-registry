@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { reset, seedJob } from './helpers.ts';
+import { expect, test, type Page } from '@playwright/test';
+import { ORIGIN, reset, seedJob } from './helpers.ts';
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -53,19 +53,20 @@ test.describe('AI settings', () => {
     const ai = section(page);
     await expect(ai.getByLabel('AI server')).toHaveValue('llama-server');
     await expect(ai.getByLabel("Start it for me when it isn't running")).toBeChecked();
-    await expect(ai.getByLabel('Model')).toHaveCount(0);
+    // Exact: each task below has its own "Model for …".
+    await expect(ai.getByLabel('Model', { exact: true })).toHaveCount(0);
     await ai.getByLabel('AI server').selectOption('ollama');
     await expect(ai.getByLabel('Server address')).toHaveValue('http://127.0.0.1:11434/v1');
     await expect(ai.getByLabel("Start it for me when it isn't running")).toHaveCount(0);
     // The app never stops Ollama, so there's no idle stop to set.
     await expect(ai.getByLabel("Stop it when it's idle")).toHaveCount(0);
     await expect(ai).toContainText('Start this server yourself.');
-    await ai.getByLabel('Model').fill('qwen3:8b');
+    await ai.getByLabel('Model', { exact: true }).fill('qwen3:8b');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
     await page.reload();
     await expect(section(page).getByLabel('AI server')).toHaveValue('ollama');
-    await expect(section(page).getByLabel('Model')).toHaveValue('qwen3:8b');
+    await expect(section(page).getByLabel('Model', { exact: true })).toHaveValue('qwen3:8b');
   });
 
   test('Test connection shows how the AI answered', async ({ page }) => {
@@ -130,6 +131,75 @@ test.describe('AI settings', () => {
     // The options stay saved, for when you go back to llama-server.exe.
     expect(settings.ai.managed.args).toContain('-ngl');
   });
+
+  test.describe('how the AI works on each task', () => {
+    type Task = { model: string | null; temperature: number; maxTokens: number; thinking: boolean; thinkingEffort: string; extra: object };
+    type Saved = { ai: { tasks: Record<string, Task> } };
+    const task = (page: Page, name: string) => section(page).getByRole('group', { name, exact: true });
+    const saved = async (page: Page) => (await (await page.request.get('/api/v1/settings')).json()) as Saved;
+    const save = (page: Page) => section(page).getByRole('button', { name: 'Save AI settings' }).click();
+
+    test('each task has its own row, saved with the rest, and its extra fields stay as they are', async ({ page }) => {
+      // Extra request fields, as you might add them to settings.json by hand.
+      const extra = { top_k: 20, chat_template_kwargs: { enable_thinking: true } };
+      const { ai } = await saved(page);
+      ai.tasks.rate = { ...ai.tasks.rate!, extra };
+      expect((await page.request.patch('/api/v1/settings', { headers: { origin: ORIGIN }, data: { ai } })).ok()).toBe(true);
+
+      await page.goto('/settings#ai');
+      await expect(section(page).getByRole('heading', { name: 'How the AI works on each task' })).toBeVisible();
+      const card = task(page, 'Quick marks on search lists');
+      await expect(card.getByLabel('Thinking').locator('option:checked')).toHaveText('Off');
+      await expect(card.getByLabel('Longest answer')).toHaveValue('512');
+
+      const rate = task(page, 'Rating a job');
+      await rate.getByLabel('Thinking').selectOption({ label: 'Low' });
+      await rate.getByLabel('Longest answer').fill('1500');
+      await save(page);
+      await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+
+      await page.reload();
+      await expect(task(page, 'Rating a job').getByLabel('Thinking').locator('option:checked')).toHaveText('Low');
+      await expect(task(page, 'Rating a job').getByLabel('Longest answer')).toHaveValue('1500');
+      expect((await saved(page)).ai.tasks.rate).toEqual({
+        model: null,
+        temperature: 0.3,
+        maxTokens: 1500,
+        thinking: true,
+        thinkingEffort: 'low',
+        extra,
+      });
+    });
+
+    test('an empty Model means the same model as above', async ({ page }) => {
+      await page.goto('/settings#ai');
+      const model = task(page, 'Writing resumes and cover letters').getByLabel('Model');
+      await expect(model).toHaveValue('');
+      await expect(model).toHaveAttribute('placeholder', 'Same as above');
+      await model.fill('qwen3:32b');
+      await save(page);
+      // The toast comes once the form has reloaded what was saved.
+      await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+      expect((await saved(page)).ai.tasks.write.model).toBe('qwen3:32b');
+      await model.fill('');
+      await save(page);
+      await expect.poll(async () => (await saved(page)).ai.tasks.write.model).toBeNull();
+    });
+
+    test('a Longest answer that is not a number, or under 16, says so and saves nothing', async ({ page }) => {
+      for (const typed of ['', 'abc', '10']) {
+        await page.goto('/settings#ai');
+        const longest = task(page, 'Rating a job').getByLabel('Longest answer');
+        await longest.fill('');
+        // Typed key by key: a number box won't take letters any other way.
+        if (typed) await longest.pressSequentially(typed);
+        await save(page);
+        await expect(section(page).getByRole('alert')).toHaveText('Rating a job: the longest answer must be a whole number, 16 or more.');
+        await expect(page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'AI, Not saved' })).toBeVisible();
+      }
+      expect((await saved(page)).ai.tasks.rate.maxTokens).toBe(2048);
+    });
+  });
 });
 
 test.describe('the Settings menu', () => {
@@ -172,5 +242,31 @@ test.describe('the Settings menu', () => {
     await expect(page.getByRole('textbox', { name: 'Master profile' })).toHaveValue('# Jo Citizen\nPasted, not saved yet.');
     await page.getByRole('button', { name: 'Save master profile' }).click();
     await expect(menu(page).getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
+  });
+});
+
+test.describe('Display', () => {
+  const paper = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+
+  test('Light or Dark wins over the computer, stays after a reload, and Match this computer undoes it', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/settings#display');
+    await expect(page.getByRole('radio', { name: 'Match this computer (now dark)' })).toBeChecked();
+    const dark = await paper(page);
+
+    await page.getByRole('radio', { name: 'Light' }).check();
+    await expect.poll(() => paper(page)).not.toBe(dark);
+    const light = await paper(page);
+
+    await page.reload();
+    await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked();
+    expect(await paper(page)).toBe(light);
+
+    await page.getByRole('radio', { name: /^Match this computer/ }).check();
+    await expect.poll(() => paper(page)).toBe(dark);
+    // The computer changes its mind: the page follows, and so does the label.
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect.poll(() => paper(page)).toBe(light);
+    await expect(page.getByRole('radio', { name: 'Match this computer (now light)' })).toBeChecked();
   });
 });

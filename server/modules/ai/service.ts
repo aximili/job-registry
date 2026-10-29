@@ -8,6 +8,7 @@ import {
   type AiState,
   type AiStatus,
   type AiTestResult,
+  type CardRating,
   type EmailClassification,
   type ParsedJob,
   type Rating,
@@ -22,14 +23,18 @@ import { createAiQueue, type Priority } from './queue.ts';
 import type { ModelRuntime } from './runtime.ts';
 import { classifyEmailTask, type ClassifyInput } from './tasks/classify-email.ts';
 import { parseJobTask } from './tasks/parse-job.ts';
+import { rateCardTask, type CardInput } from './tasks/rate-card.ts';
 import { rateJobTask, type RateInput } from './tasks/rate-job.ts';
 import { writeDocumentTask, type WriteInput } from './tasks/write-document.ts';
 
-export type { ClassifyInput, Priority, RateInput, WriteInput };
+export type { CardInput, ClassifyInput, Priority, RateInput, WriteInput };
 
 export interface AiService {
   parseJob(adText: string, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<ParsedJob>;
   rateJob(input: RateInput, opts?: { signal?: AbortSignal; key?: string; priority?: Priority }): Promise<Rating>;
+  // A quick rating from one card in a search list. It waits behind anything
+  // you're waiting for, but goes before reading saved ads.
+  rateCard(input: CardInput, opts?: { signal?: AbortSignal; key?: string; priority?: Priority }): Promise<CardRating>;
   // A resume or cover letter, as it's written. It holds the AI until the
   // stream ends, is cancelled, or the reader stops early.
   writeDocument(input: WriteInput, opts?: { signal?: AbortSignal; key?: string }): AsyncIterable<string>;
@@ -61,6 +66,7 @@ export function createAiService(opts: AiOptions): AiService {
   const prompts = {
     parse: loadPrompt(dir, 'parse-job'),
     rate: loadPrompt(dir, 'rate-job'),
+    card: loadPrompt(dir, 'rate-card'),
     resume: loadPrompt(dir, 'write-resume'),
     cover_letter: loadPrompt(dir, 'write-cover-letter'),
     email: loadPrompt(dir, 'classify-email'),
@@ -149,6 +155,12 @@ export function createAiService(opts: AiOptions): AiService {
     rateJob(input, o = {}) {
       return run(o.priority ?? 'interactive', o.key, o.signal, (signal) =>
         rateJobTask({ provider: opts.provider, prompt: prompts.rate, config: opts.getConfig(), input, signal }),
+      );
+    },
+
+    rateCard(input, o = {}) {
+      return run(o.priority ?? 'list', o.key, o.signal, (signal) =>
+        rateCardTask({ provider: opts.provider, prompt: prompts.card, config: opts.getConfig(), input, signal }),
       );
     },
 

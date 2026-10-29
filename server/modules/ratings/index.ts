@@ -5,9 +5,9 @@ import type { AiService } from '../ai/index.ts';
 import type { ProfileService } from '../profile/index.ts';
 import { createRatingsRepo } from './repo.ts';
 import { ratingsRoutes } from './routes.ts';
-import { adKey, createRatingsService, type RateAd, type RateResult, type RatingsService } from './service.ts';
+import { adKey, cardKey, cardText, createRatingsService, type RateAd, type RateResult, type RatingsService } from './service.ts';
 
-export { adKey };
+export { adKey, cardKey, cardText };
 export type { RateAd, RateResult, RatingsService };
 
 export function createRatingsModule(opts: { db: Db; ai: AiService; profile: ProfileService; now: Clock }): HttpModule<RatingsService> {

@@ -166,7 +166,7 @@
   .chip {
     font: inherit;
     padding: var(--space-1) var(--space-3);
-    border: 1px solid var(--rule);
+    border: 1px solid var(--edge);
     border-radius: 999px;
     background: transparent;
     color: var(--ink);
@@ -191,11 +191,15 @@
     margin-left: auto;
   }
 
+  /* A card, like the job list. */
   .results {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: 1px solid var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--sheet);
+    overflow: hidden;
   }
 
   .results li {
@@ -204,8 +208,12 @@
     border-left: 3px solid transparent;
   }
 
+  .results li:last-child {
+    border-bottom: 0;
+  }
+
   .results li.active {
-    background: var(--sheet);
+    background: var(--sheet-2);
     border-left-color: var(--accent);
   }
 

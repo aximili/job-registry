@@ -143,11 +143,11 @@ The server is split **by feature**. Each module owns its own data. No other modu
 | `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `statuses()`, `secrets()` (only whether each is set), `emailPassword()`, `updateSecrets()` | — |
 | `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `file(name)`, `write(name, text)`, `hash()`, `installStarters()` | — |
 | `capture` | nothing (stateless) | `fromUrl(url)`, `fromText(text)` | — |
-| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `writeDocument()` (streamed), `status()`, `test()`, `stop()`, `classifyEmail()` | — |
-| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()`, `setFollowUp()`, `listFollowUps()` | — |
+| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `rateCard()`, `writeDocument()` (streamed), `status()`, `test()`, `stop()`, `classifyEmail()` | — |
+| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `checkMany()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()`, `setFollowUp()`, `listFollowUps()` | — |
 | `contacts` | `contacts`, `job_contacts`, `interactions` | `create()`, `update()`, `linkToJob()`, `logInteraction()`, `listForJob()`, `findByPhoneDigits()` | — |
 | `notes` | `notes` | `add()`, `update()`, `remove()`, `listForJob()` | — |
-| `ratings` | `rating_cache` | `rate(input, { signal, key })` | `ai`, `profile` |
+| `ratings` | `rating_cache`, `card_rating_cache` | `rate(input, { signal, key })`, `rateCard(card, { signal, key })`, `lookupCards(cards)` | `ai`, `profile` |
 | `enrich` | nothing | listens for new ads, then parses and rates them; `reparse(jobId)`, `sweep()` (jobs still waiting) | `jobs`, `ai`, `ratings` |
 | `documents` | `documents`, `attachments`, `data/files/` | `list()`, `listAll()`, `get()`, `saveVersion()`, `copyFrom()`, `markSent()`, `latestSent()`, `render()`, `exporters()`, `export()`, `generate()`, `attach()`, `listAttachments()`, `attachmentFile()` | `ai`, `profile`, `jobs` |
 | `search` | `search_index` | `query(q)`, `reindexJob(id)`, `rebuild()` | `jobs`, `contacts`, `notes` |
@@ -405,10 +405,14 @@ interface SiteExtractor {
   matches(url: URL): boolean;
   currentJobId(url: URL, doc: Document): string | null;  // handles split-pane search pages
   extract(doc: Document, url: URL, now: Date): Capture | null;  // null until the ad's text is there; the watcher waits
+  readCards(doc: Document, url: URL): FoundCard[];  // the job cards in a search list, in page order; [] for generic
 }
+type FoundCard = { element: Element; anchor: Element; card: JobCard };  // the card, where its mark goes (after anchor), what it says
 ```
 
 Adapters: one file each in `extension/src/sites/`. The registry tries them in order, and `generic` comes last. Generic uses the text you selected first (if it's over 200 characters), then the page's schema.org `JobPosting` data, then Mozilla Readability.
+
+`readCards` skips a card with no job link it can read (an advert, a "jobs you may like" banner), and reads each job once even when the site draws it twice. A card's `text` is everything else it shows, as plain text: salary, work type, the teaser and its bullet points. It leaves out when the job was listed ("Posted 3d ago", "2 days ago"), because that changes every day and would make the card look new to the cache. LinkedIn's cards have no teaser, so its marks come from the title, company, location and salary alone.
 
 ### 6.6 Shared types used by the ports
 
@@ -672,6 +676,50 @@ stateDiagram-v2
 
 The dashboard shows this state in a small pill in the header, which updates live.
 
+### 7.7 Quick marks on a search list
+
+```mermaid
+sequenceDiagram
+  participant CS as Content script
+  participant BG as Background
+  participant API as Server API
+  participant J as jobs
+  participant R as ratings
+  participant Q as AI queue
+
+  CS->>CS: readCards: 20 cards on screen
+  CS->>BG: cards (all 20)
+  par saved?
+    BG->>API: POST /jobs/check-many
+    API->>J: checkMany
+  and rated before?
+    BG->>API: POST /ratings/cards/lookup
+    API->>R: lookupCards (full rating first, then quick)
+  end
+  BG-->>CS: per card: saved, mark
+  CS->>CS: Draw what's known at once
+  loop each card with no mark, on screen first, while the tab is in front
+    CS->>BG: rateCard (card 7)
+    BG->>API: POST /ratings/card (key cards-tab-7)
+    API->>R: rateCard
+    R->>Q: Queue rateCard (list priority)
+    Q-->>R: CardRating
+    R->>R: Store in card_rating_cache
+    R-->>BG: CardRating
+    BG-->>CS: Draw "Good 68 · quick"
+  end
+```
+
+- **Only the cards.** A quick mark reads only what the card shows. It never opens the ad, so the sites see nothing but your own browsing. Opening a job still gets the full rating (§7.3), and its card's mark becomes the full one.
+- **One card at a time per tab**, so a job you open never waits behind a whole page of cards: the queue runs `interactive` before `list`, and only one card from each tab is ever waiting.
+- **Known marks first.** A card for a job you've saved shows "Saved · Applied 12 Oct" (no AI). A card for a job you've opened before shows that full rating (the newest `rating_cache` row for its link and your current profile). A card rated before shows its quick mark. Only the rest go to the AI.
+- **The tab in front only.** Rating pauses while the tab is hidden and carries on when you come back. A new search (the list changes) or leaving the page stops the loop; a card already with the AI finishes and is kept. Its mark goes only on a card for the same job, never on whatever card is now in that spot. Opening a job in the split view isn't a new search: the open job's id (Seek's `jobId` and `type`, LinkedIn's `currentJobId`, Indeed's `vjk`) is left out when the address is compared.
+- **It stops when something goes wrong.** An `offline` reply, or any error other than `cancelled`, stops the loop for that list. That's true for a card's rating and for the lookup, so a stopped app or AI isn't asked again and again. The cards that already have marks keep them. The loop starts again when you come back to the tab (after it was hidden), or when a new list starts.
+- **A card that fails is skipped.** A card whose rating fails with an error (not `offline`, not `cancelled`) isn't sent to the AI again on that page, even on a new list, so one card the AI can't rate never blocks the rest. Reloading the page clears this.
+- **Saving updates the card.** When you save a job from the panel, its card's mark turns to "Saved" at once (or "Saved · Applied 12 Oct" if you saved it as Applied). Any rating it had moves into the tooltip.
+- **Off switch:** the extension's options, "Rate the jobs in search results". With no master profile, no card gets a mark (the panel already says why). Coming back to the tab looks the cards up again, so a profile you've added meanwhile counts.
+- **After the extension is updated or reloaded,** the old copy on an open page can't reach the browser any more. Its card watcher stops for good; reloading the page starts the new copy.
+
 ---
 
 ## 8. Data model
@@ -802,6 +850,12 @@ erDiagram
     text rating_json
     text created_at
   }
+  CARD_RATING_CACHE {
+    text card_key PK "canonical URL + # + 16 hex of the SHA-256 of the card's title, company, location and text"
+    text profile_hash PK
+    text rating_json "CardRating"
+    text created_at
+  }
   EMAIL_SUGGESTIONS {
     integer id PK
     text message_id UK "Message-ID header, or uid:<uidvalidity>:<uid>"
@@ -883,6 +937,7 @@ erDiagram
 | | `POST /jobs/:id/status` `{ status }` | Change status, which logs history |
 | | `POST /jobs/:id/postings` `{ capture }` | Link another ad to this job |
 | | `GET /postings/lookup?url=` | Fast "already saved?" check for the extension badge |
+| | `POST /jobs/check-many` `{ items: [{ canonicalUrl, sourceSite, externalId }] }` (1–100) | `{ results: (ExactMatch \| null)[] }`, in the same order: the saved job for each link or site id. No "likely" matches |
 | | `POST /jobs/:id/reparse` | Run AI parsing again (202). Served by `enrich`, so `jobs` never knows about the AI |
 | Call sheet | `GET /jobs/:id/callsheet` | Everything for the one-screen view |
 | Search | `GET /search?q=` | Ranked hits |
@@ -891,6 +946,7 @@ erDiagram
 | | `POST /jobs/:id/contacts` · `DELETE /jobs/:id/contacts/:contactId` | Link or unlink a contact |
 | | `POST /interactions` · `GET /jobs/:id/interactions` | Call log |
 | Ratings | `POST /ratings` `{ capture, key? }` · `GET /ratings/status` | Rating, from cache or the AI, as `{ rating, cached, reason }` (`rating` is null with a `reason` when there's no master profile). `key` is "latest wins", one per browser tab. Closing the request cancels the rating · whether ratings can run |
+| | `POST /ratings/card` `{ card, key? }` · `POST /ratings/cards/lookup` `{ cards }` (1–100) | A quick mark for one job card, from cache or the AI, as `{ rating, cached, reason }` (`rating` is a `CardRating`, null with a `reason` when there's no master profile). Closing the request cancels it · what's known without the AI: `{ results: (CardMark \| null)[], reason }`, where a `CardMark` is `{ kind: "full" \| "quick", verdict, score, reason }` |
 | Documents | `GET /jobs/:id/documents` · `POST /jobs/:id/documents` `{ kind, markdown, origin }` or `{ fromDocumentId }` | List · save a version (201) or copy one |
 | | `GET /documents?kind=` · `GET /documents/:id` | Every job's versions of one kind, with the job's title and company, for "Start from another job's version" · one version, with its Markdown |
 | | `POST /jobs/:id/documents/generate` `{ kind }` | Streamed Markdown as NDJSON (`application/x-ndjson`): `{kind:"text",text}` lines, then `{kind:"done"}` or `{kind:"error",message}`. A missing job (404) or master profile (400) is refused before the stream starts. Nothing is saved |
@@ -914,13 +970,14 @@ erDiagram
 | `/board` | Board: a column per status in your order (closed ones with **Show closed statuses**, remembered in `localStorage`), plus an "Other" column for a status your settings no longer have. Each card shows the role, company, date applied and any follow-up, and has a **Move to** menu with a **Move** button. Choosing in the menu never moves the card by itself (on Windows an arrow key changes a closed menu, and a typed letter does everywhere); **Move** does. Drag a card to another column (a drag carries its own data type, so dragged text never moves a job; nothing can be dropped on Other), or use **Move**: the card moves at once, the status change is sent (`POST /jobs/:id/status`, so it's in the history), the move is announced and the focus stays on the card's menu (or goes to the Board heading when its new column is hidden). A refused move puts the card back, says why, and keeps the focus on it |
 | `/jobs/:id` | Call sheet at the top. Then the full ad, documents, attachments and a timeline |
 | `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker, Generate and Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
-| `/settings` | A menu down the side, and one section at a time beside it: Profile, AI, Email, Statuses, Templates, Your data. Each section has its own address (`/settings#ai`), so links, reload and Back land on it, and moving to one puts the focus on its heading. Every section stays on the page while it's hidden, so moving between them never loses what you typed (and never asks); the menu marks a section with unsaved changes "Not saved", Email "On" or "Off", and AI "Problem" when it has one. Leaving Settings with unsaved profile files still asks. On a narrow screen the menu runs along the top. The sections: Statuses, AI (preset, test; for llama-server, "Start it for me when it isn't running" with the program or .bat file, and for a program its options and "Stop it when it's idle", off by default, with the minutes), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
+| `/settings` | A menu down the side, and one section at a time beside it: Profile, AI, Email, Statuses, Templates, Display, Your data. Each section has its own address (`/settings#ai`), so links, reload and Back land on it, and moving to one puts the focus on its heading. Every section stays on the page while it's hidden, so moving between them never loses what you typed (and never asks); the menu marks a section with unsaved changes "Not saved", Email "On" or "Off", and AI "Problem" when it has one. Leaving Settings with unsaved profile files still asks. On a narrow screen the menu runs along the top. The sections: Statuses, AI (preset, test; for llama-server, "Start it for me when it isn't running" with the program or .bat file, and for a program its options and "Stop it when it's idle", off by default, with the minutes; then "How the AI works on each task": one row per task, reading ads, rating a job, quick marks on search lists, writing resumes and cover letters, reading emails, each with Thinking (Off, Low, Medium, High), Longest answer (tokens), Temperature and Model, blank for the one above. Saved with the rest of the AI section; each task's `extra` fields stay as they are), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), Display (the theme: Match this computer, Light or Dark; it changes at once and this browser remembers it), backups |
 | `/inbox` | Inbox: the last check ("Last checked 5 min ago · 2 new emails", or why it failed), **Check now**, and one card per email: what it is ("Rejection", "Not sure" when the AI wasn't), sender and date, subject, summary, the job ("Senior Engineer at Atlassian · now Applied") or "No job matched", the question ("Mark as Rejected?"), a status picker with "Don't change the status", **Confirm** (**Add note** when the status won't change), **Pick another job** ("Pick a job" when none matched; a search that Escape closes) and **Dismiss**. The last-check line is announced when a check ends, and the focus moves to the next card after Confirm or Dismiss, and to the status after a pick. Nothing changes until you confirm. The header's **Inbox** link shows how many wait |
 
 **Structure**
 - **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiPill`, `EmailSettingsSection`, `SuggestionCard`, `JobPicker`, `FollowUps`, `FollowUpDialog`, `BoardCard`. `InboxPage` is the Inbox and `BoardPage` the board.
 - **The preview** is an iframe with `sandbox=""` whose `srcdoc` is `documentPage(...)` from `shared/document-page.ts`, the same page the print view serves. It's redrawn 300 ms after you stop typing. A sent version uses its frozen CSS. Fact-check flags are `<mark>`ed in the preview only, never in print.
 - **API calls:** `web/src/lib/api.ts` creates the shared typed API client. Pages load data when they open.
+- **Light and dark:** every colour in `web/src/app.css` is a `light-dark()` pair, so one list of tokens covers both themes. With no choice made, the browser follows the computer. Settings → Display sets `data-theme` on `<html>` (`web/src/lib/theme.ts`, kept in `localStorage`), and a small script in `index.html` applies it before the page first draws. The header is a band of ink in both themes; the extension keeps its own colours.
 - **Live updates:** `web/src/lib/live.svelte.ts` listens to `GET /events`. A page reloads its data only when an event is about what's on screen, such as `job.updated` for the open job. There's no global state library.
 - **Markdown:** rendered by `shared/markdown.ts` (`marked`, GFM, line breaks kept). It escapes any raw HTML, turns links other than `http:`, `https:` and `mailto:` into plain text, and shows images as their alt text. The page shell carries a Content Security Policy (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'`) as a meta tag, and the print view sends it as a header too. Every `<` in template CSS becomes the CSS escape `\3c`, so a template can't end its own `<style>`.
 
@@ -949,6 +1006,7 @@ flowchart LR
     reg["Site registry<br/>seek, linkedin, indeed, generic"]
     watch["Page watcher<br/>URL + DOM changes"]
     panel["Floating panel<br/>Svelte in a shadow DOM"]
+    marks["Card marks<br/>one shadow DOM per card"]
   end
   bg["Background<br/>Firefox: event page<br/>Chrome: service worker"]
   pop["Toolbar popup"]
@@ -958,21 +1016,23 @@ flowchart LR
   watch -->|job changed| cs
   cs --> reg
   cs --> panel
+  cs --> marks
   cs <-->|typed messages| bg
   pop <-->|typed messages| bg
   opt -->|extension storage| bg
   bg -->|shared api-client| srv
 ```
 
-- **Content scripts** run only on Seek, LinkedIn and Indeed (`matches` in the manifest: `www.seek.com.au`, `www.seek.co.nz`, `*.linkedin.com`, `*.indeed.com`). On any other site, the popup's **Save this page** injects the generic reader (`generic.js`) once, using `activeTab` and `scripting`, so the extension doesn't need permission to read every website.
+- **Content scripts** run only on Seek, LinkedIn and Indeed (`matches` in the manifest: `au.seek.com`, `nz.seek.com`, the older `www.seek.com.au` and `www.seek.co.nz`, `*.linkedin.com`, `*.indeed.com`). A Seek job from any of these addresses gets the same stable link, `www.seek.com.au/job/<id>` (or `www.seek.co.nz`), so it's the same job. On any other site, the popup's **Save this page** injects the generic reader (`generic.js`) once, using `activeTab` and `scripting`, so the extension doesn't need permission to read every website.
 - **Readers** (`extension/src/sites/`): each site's selectors first, then the page's own JobPosting data (only when its title matches the title on screen), then nothing. On the three job sites, the ad's header facts (title, company, location, work type, salary) go above the description in the saved ad text, because the salary is often only in the header. A reader returns `null` until the ad's text is there, and when a split pane's own job link names another job. The generic reader uses your selection (over 200 characters), then the JobPosting data, then Readability. `npm run ext:check -- page.html URL` runs a reader on a page you saved.
 - **Single-page sites:** Seek, LinkedIn and Indeed change the job without reloading the page. The page watcher (`watcher.ts`) checks the URL and the job id every 500 ms, and on page changes. When the id changes, it waits up to 5 seconds for that job's details, ignoring a pane that still shows the last job, reports the job, and reports again if more of it arrives in that time. If nothing arrives, the panel says it couldn't read the job and offers **Save selection** and **Save page**.
 - **The panel** is a Svelte component in a shadow root (closed, so the site's scripts can't read your saved status or rating; the test build opens it). The site's CSS can't break it, and it can't break the site. It shows which job it's about, then one of: checking; already saved ("Saved · Applied 12 Oct", **Open in Job Registry**); likely the same as another job (**Same job** / **Different job**); new (**Save**, with Saved or Applied and an optional note); couldn't read; the app isn't running (**Try again**). The rating shows below. **Hide** (or Esc) tucks it away, and it stays tucked away.
-- **Messages** between the content script, popup and background are one typed union in `extension/src/messages.ts`: `check`, `rate`, `save`, `captureActiveTab`, `openJob`, `health`. The background's work is in `handlers.ts`, behind a small `ChromeLike` port, so it's tested without a browser. Replies are `{ ok, data }` or `{ ok: false, error, offline }`.
-- **Ratings:** one per tab at a time. A newer one aborts the older request in the browser, which cancels it on the server too, and the server's "latest wins" key (`tab-<id>`) is a second guard. Replies for a job you've left are dropped.
+- **Card marks** (`cards.ts`, `marks.ts`): on a search list, each job card gets a small mark after its title: "Strong 84", "Good 68 · quick", "Saved · Applied 12 Oct", or "Rating…" while the AI reads it. The mark itself shows the verdict and score. Its tooltip holds the AI's one-line reason, plus "Quick rating from the card. Open the job for a full rating." for a quick mark. A saved job's tooltip also gives its rating, if it has one. Each mark is a closed shadow root (open in the test build), with its words and its tooltip inside, so the site's CSS can't touch it and the site's scripts can't read your rating. It sits above the card's own click-through link, so its tooltip shows. The card watcher reads the list every second, so cards that load as you scroll (LinkedIn) get marks too, and a mark the site redraws away is put back, never twice. See §7.7.
+- **Messages** between the content script, popup and background are one typed union in `extension/src/messages.ts`: `check`, `rate`, `save`, `captureActiveTab`, `openJob`, `health`, `cards` (what's known about a list's cards: both lookups at once) and `rateCard`. The background's work is in `handlers.ts`, behind a small `ChromeLike` port, so it's tested without a browser. Replies are `{ ok, data }` or `{ ok: false, error, offline }`.
+- **Ratings:** one per tab at a time. A newer one aborts the older request in the browser, which cancels it on the server too, and the server's "latest wins" key (`tab-<id>`) is a second guard. Replies for a job you've left are dropped. Card ratings are separate: one per tab at a time too, with their own key (`cards-tab-<id>`), so the open job's rating and a card's never cancel each other.
 - **Badge:** the toolbar icon shows ✓ on pages you've already saved, from the `check` reply's exact match.
 - **Shortcut:** `Alt+Shift+J` opens the popup.
-- **Options:** server address (`http://127.0.0.1` or `http://localhost`, any port; default `:4777`), and rating jobs automatically, on or off. If you've taken away the extension's permission to reach this computer, the options page says so and offers **Allow access**.
+- **Options:** server address (`http://127.0.0.1` or `http://localhost`, any port; default `:4777`), rating jobs automatically on job pages (on or off), and rating the jobs in search results (`rateLists`, on or off; on by default). If you've taken away the extension's permission to reach this computer, the options page says so and offers **Allow access**.
 - **Two browsers, one codebase:**
   - `manifest.base.json` holds what both share.
   - `manifest.firefox.json` adds `background.scripts` and `browser_specific_settings.gecko` (id `job-registry@local`, Firefox 140 or later).
@@ -992,13 +1052,14 @@ flowchart LR
 |------|-------|--------|----------------|----------|----------|
 | `parseJob` | ad text (the page's `JobPosting` fields are already on the job, and the AI never overwrites them) | `ParsedJob` (JSON schema) | parse (background for the start-up sweep) | off | no |
 | `rateJob` | master profile, preferences, ad | `Rating` (JSON schema) | interactive | off | no |
+| `rateCard` | master profile, preferences, one job card as plain text (title, company, location, then the rest) | `CardRating`: `{ verdict, score, reason }`, the reason one sentence (JSON schema) | list | off (`ai.tasks.card`: temperature 0.2, 512 tokens) | no |
 | `writeDocument` | kind, master profile, guide, the job's fields as plain text, its newest ad, today's date (cover letters) | Markdown | interactive, key `doc-<jobId>-<kind>` | on (`ai.tasks.write`: temperature 0.6, 8192 tokens, effort medium) | yes: it holds the queue until the stream ends, is cancelled, or the reader stops |
 | `classifyEmail` | sender, subject, date, the email's new text (quoted history cut, a forward kept, 4,000 characters at most), up to 5 candidate jobs as `[id] Title at Company (Status)` | `{ event, jobId, company, role, confidence, summary }`: a `jobId` that wasn't a candidate becomes null; summary 200 and names 120 characters at most. The suggested status is plain code, not the AI (§7.5) | background | off (`ai.tasks.email`: temperature 0.1, 1024 tokens) | no |
 
-- **Settings per task:** each task has its own block in `settings.json` (`ai.tasks.parse`, `ai.tasks.rate`, …), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings.
+- **Settings per task:** each task has its own block in `settings.json` (`ai.tasks.parse`, `ai.tasks.rate`, `ai.tasks.card`, `ai.tasks.write`, `ai.tasks.email`), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings. Settings → AI shows all but `extra` (§10).
 - **Thinking off** is `reasoning_effort: "none"` (§6.1). Bonsai 2 thinks at length by default, so tasks that don't need it turn it off.
 - **Prompts are text files** in `server/modules/ai/prompts/*.md`, with `{{placeholders}}`. You can change wording without touching code.
-- **Prompt order helps the cache.** The fixed part comes first: the instructions, then your profile. The ad comes last. llama-server reuses the cached start of the prompt, so repeat ratings are much faster.
+- **Prompt order helps the cache.** The fixed part comes first and the ad comes last. llama-server reuses the cached start of the prompt, so repeat ratings are much faster. The two rating prompts (`rate-job.md` and `rate-card.md`) share one system part, word for word: who you are, your profile and your preferences. Each one's own rules go in the user part, before the ad or card. So moving between a full rating and quick marks keeps the cache (a test checks the two system parts match).
 - **Size limits:** ad text over about 12,000 characters is trimmed. The 32K context leaves room for the profile (usually 3–6K tokens), the ad and the answer.
 
 ### 12.2 Structured output
@@ -1011,7 +1072,7 @@ flowchart LR
 ### 12.3 Queue
 
 - **One task runs at a time**, because there's one GPU.
-- **Priority:** `interactive` (you're waiting) > `parse` > `background`. A waiting interactive task jumps ahead of parse and background tasks, but never stops one that's already running.
+- **Priority:** `interactive` (you're waiting) > `list` (quick marks on the search list you're looking at) > `parse` > `background`. A waiting task jumps ahead of lower ones, but never stops one that's already running. `list` may start the AI (only `background` never does).
 - **Cancelling:** every task takes an `AbortSignal`. Cancelling removes a waiting task, or aborts the HTTP call of a running one.
 - **"Latest wins" keys:** a new task with the same key cancels the older one. Ratings use a key per browser tab.
 - **Idle timer:** each task calls `runtime.touch()` when it ends, which resets the idle timer. The timer only runs when `ai.stopWhenIdle` is on (off by default).
@@ -1091,9 +1152,9 @@ Each status has these settings:
 | Pure functions | `shared/canonical-url`, `shared/phone`, `shared/fact-check`, `capture/jsonld`, `jobs/match`, search query builder | Vitest, table-driven cases | none |
 | Services | each module's logic, with its real repo | Vitest, in-memory SQLite (`:memory:`) with real migrations | `FakeAiProvider`, `FakeRuntime`, `FakeMailSource`, fake clock |
 | API | routes, validation, error shape, Host and Origin checks | `fastify.inject` on `buildApp()` with fakes | as above |
-| Site extractors | Seek, LinkedIn, Indeed, generic; the page watcher | Vitest + `linkedom`, on HTML fixtures in `tests/fixtures/sites/` (hand-made from each site's structure, plus a trimmed real LinkedIn page), fake timers for the watcher | — |
-| Extension background | check, save, rate (latest wins), badge, offline, no permission, time limits | Vitest, `handlers.ts` against a real listening test app | `FakeChrome`, fake AI |
-| Extension end to end | the panel on copies of the sites, saving, five quick clicks with one finished rating, the popup | Playwright, the real extension (test build) in Chromium; Firefox has no way to load an extension in Playwright, so it's covered by `web-ext lint` and the Windows checklist | fake AI |
+| Site extractors | Seek, LinkedIn, Indeed, generic: job pages and the cards on search lists; the page watcher; the card watcher and its marks | Vitest + `linkedom`, on HTML fixtures in `tests/fixtures/sites/` (hand-made from each site's structure, plus trimmed real Seek and LinkedIn pages), fake timers for the watchers | — |
+| Extension background | check, save, rate and rateCard (each latest wins, kept apart), cards, badge, offline, no permission, time limits | Vitest, `handlers.ts` against a real listening test app | `FakeChrome`, fake AI |
+| Extension end to end | the panel on copies of the sites, saving, five quick clicks with one finished rating, the popup, quick marks on a Seek list (a saved job's card, the option off) | Playwright, the real extension (test build) in Chromium; Firefox has no way to load an extension in Playwright, so it's covered by `web-ext lint` and the Windows checklist | fake AI |
 | Dashboard | paste, search, status, call log, document edit and preview, print view | Playwright against the built app, started with `JR_FAKE_AI=1` | fake AI wired by `app.ts` |
 | AI quality | parsing accuracy per field on 8–10 real ads | `npm run eval:parse` against the real model. A report, not a pass/fail test | none |
 | Architecture | the dependency rules in §15 | `npm run check:deps` | — |
@@ -1134,7 +1195,7 @@ Each status has these settings:
 2. Register it in `extension/src/sites/index.ts`, before `generic`.
 3. Add its URL rule to `shared/canonical-url.ts`, with tests.
 4. Add the site to `matches` and `host_permissions` in `manifest.base.json`.
-5. Save a fixture page to `tests/fixtures/sites/` and add an extractor test.
+5. Save a job page and a search list to `tests/fixtures/sites/`, and add tests for `extract` and `readCards`.
 
 **Swap the AI model or server:** Settings → AI → pick a preset, or enter a URL and model name, then click **Test**. No code change.
 
@@ -1159,6 +1220,8 @@ Each status has these settings:
 | Risk | Impact | What we do about it |
 |------|--------|---------------------|
 | A job site changes its page layout | Its extractor stops finding fields | One small file per site, fixture tests, a generic fallback, and "save highlighted text" always works |
+| A job site changes its search list. Lists change more often than job pages: LinkedIn's differ signed in and signed out, and sites try out new card designs | Cards get no marks, or some cards are missed | `readCards` lives in the same small file per site, with tests on real saved lists. A list it can't read just gets no marks: job pages, the panel and saving still work. `npm run ext:check -- page.html URL` prints the cards it found (`Cards: N`, then one line per card), so a saved page shows what broke |
+| Bonsai 2 is slow on a long list | Marks fill in slowly | One card at a time, the cards on screen first, thinking off and a short answer (`ai.tasks.card`), a prompt start shared with full ratings that llama-server keeps cached, and a cache by card and profile, so a list you've seen before marks at once. The handover times one card (`ai-smoke`). The extension's options turn quick marks off |
 | PrismML changes llama-server flags or file formats | AI won't start | Arguments live in settings, not code. Setup downloads a pinned, known-good release. You can switch to Ollama with another model |
 | Small-model quality varies | Wrong fields or weak drafts | JSON-schema output with checks, a per-field eval set, model choice per task, edit-before-save everywhere, fact-check highlights |
 | `better-sqlite3` has no prebuilt binary for a very new Node version | `npm ci` fails on Windows | Setup checks for a supported Node LTS version, and `.nvmrc` and `engines` pin it |

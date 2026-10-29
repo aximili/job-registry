@@ -30,7 +30,7 @@ function v1Migrations(): string {
   return dir;
 }
 
-const LATEST = 5;
+const LATEST = 6;
 
 describe('database', () => {
   it('migrates an empty database to the latest version with all tables', () => {
@@ -38,7 +38,7 @@ describe('database', () => {
     expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
     const names = tableNames(db);
-    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache', 'documents', 'attachments', 'email_suggestions', 'email_state']) {
+    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache', 'card_rating_cache', 'documents', 'attachments', 'email_suggestions', 'email_state']) {
       expect(names).toContain(t);
     }
   });
@@ -154,7 +154,7 @@ describe('database', () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.pragma('user_version', { simple: true })).toBe(5);
+    expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
     expect(db.prepare('SELECT title, follow_up_on, follow_up_note FROM jobs').all()).toEqual([
       { title: 'Engineer', follow_up_on: null, follow_up_note: null },
     ]);

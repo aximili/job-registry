@@ -43,6 +43,32 @@ describe('AI queue', () => {
     expect(order).toEqual(['running parse', 'interactive', 'parse', 'background']);
   });
 
+  it('list runs after interactive and before parse and background', async () => {
+    const queue = createAiQueue();
+    const order: string[] = [];
+    const first = gate();
+    const add = (name: string, priority: Priority, wait?: Promise<void>) =>
+      queue.run({
+        priority,
+        work: async () => {
+          order.push(name);
+          await wait;
+        },
+      });
+    const all = [
+      add('running', 'parse', first.opened),
+      add('background', 'background'),
+      add('parse', 'parse'),
+      add('list', 'list'),
+      add('interactive', 'interactive'),
+    ];
+    await new Promise((r) => setTimeout(r, 10));
+    expect(order).toEqual(['running']);
+    first.open();
+    await Promise.all(all);
+    expect(order).toEqual(['running', 'interactive', 'list', 'parse', 'background']);
+  });
+
   it('parse goes before background, and each priority keeps its arrival order', async () => {
     const queue = createAiQueue();
     const order: string[] = [];

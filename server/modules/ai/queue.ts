@@ -1,11 +1,12 @@
 // One AI task at a time, because there's one GPU. Waiting tasks start by
-// priority: you waiting on a rating first, then reading saved ads, then
-// background work. A running task is never interrupted for a higher one.
+// priority: you waiting on a rating first, then quick marks on the search
+// list you're looking at, then reading saved ads, then background work.
+// A running task is never interrupted for a higher one.
 // See docs/architecture.md §12.3.
 
-export type Priority = 'interactive' | 'parse' | 'background';
+export type Priority = 'interactive' | 'list' | 'parse' | 'background';
 
-const RANK: Record<Priority, number> = { interactive: 0, parse: 1, background: 2 };
+const RANK: Record<Priority, number> = { interactive: 0, list: 1, parse: 2, background: 3 };
 
 export type QueueTask<T> = {
   priority: Priority;

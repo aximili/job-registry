@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   AddPostingRequest,
   ChangeStatusRequest,
+  CheckManyRequest,
   JobCheckRequest,
   ListJobsQuery,
   SaveJobRequest,
@@ -17,6 +18,10 @@ const LookupQuery = z.object({ url: z.string().min(1) });
 export function jobsRoutes(service: JobsService): FastifyPluginAsync {
   return async (http) => {
     http.post('/jobs/check', async (req) => service.check(parseOrThrow(JobCheckRequest, req.body)));
+
+    http.post('/jobs/check-many', async (req) => ({
+      results: service.checkMany(parseOrThrow(CheckManyRequest, req.body).items),
+    }));
 
     http.post('/jobs/:id/postings', async (req) => {
       const { id } = parseOrThrow(IdParams, req.params);

@@ -11,29 +11,37 @@
   onMount(() => watchInbox());
 </script>
 
+<!-- A band of ink across the page. The search box is the bright slot in it,
+     so it keeps the page's colours; the bar above it uses the band's. -->
 <header>
-  <div class="bar">
-    <a href="/" class="brand">Job Registry</a>
-    <nav aria-label="Main">
-      <AiPill />
-      {#if onNewJob}
-        <button type="button" class="button primary" onclick={onNewJob}>New job <kbd>N</kbd></button>
-      {/if}
-      <a href="/board" class="button quiet">Board</a>
-      <a href="/inbox" class="button quiet" aria-label={pending > 0 ? `Inbox, ${pending} to check` : 'Inbox'}>
-        Inbox{#if pending > 0}<span class="count" aria-hidden="true">{pending}</span>{/if}
-      </a>
-      <a href="/settings" class="button quiet">Settings</a>
-    </nav>
+  <div class="inner">
+    <div class="bar on-band">
+      <a href="/" class="brand">Job Registry</a>
+      <nav aria-label="Main">
+        <AiPill />
+        {#if onNewJob}
+          <button type="button" class="button primary" onclick={onNewJob}>New job <kbd>N</kbd></button>
+        {/if}
+        <a href="/board" class="button quiet">Board</a>
+        <a href="/inbox" class="button quiet" aria-label={pending > 0 ? `Inbox, ${pending} to check` : 'Inbox'}>
+          Inbox{#if pending > 0}<span class="count" aria-hidden="true">{pending}</span>{/if}
+        </a>
+        <a href="/settings" class="button quiet">Settings</a>
+      </nav>
+    </div>
+    <SearchBox />
   </div>
-  <SearchBox />
 </header>
 
 <style>
   header {
+    background: var(--band);
+  }
+
+  .inner {
     max-width: var(--width);
     margin: 0 auto;
-    padding: var(--space-4) var(--space-5) 0;
+    padding: var(--space-4) var(--space-5);
     display: grid;
     gap: var(--space-3);
   }

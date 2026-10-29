@@ -12,6 +12,16 @@ export type CanonicalJobUrl = {
 
 const TRACKING_PARAM = /^(utm_.+|gclid|fbclid|mc_cid|mc_eid)$/i;
 
+// Seek's older addresses and its newer ones (au.seek.com, nz.seek.com). A
+// Seek job always gets the older form, so a job saved from either address is
+// the same job.
+const SEEK_HOSTS = new Map([
+  ['seek.com.au', 'com.au'],
+  ['seek.co.nz', 'co.nz'],
+  ['au.seek.com', 'com.au'],
+  ['nz.seek.com', 'co.nz'],
+]);
+
 export function canonicalJobUrl(input: string): CanonicalJobUrl {
   let url: URL;
   try {
@@ -23,10 +33,10 @@ export function canonicalJobUrl(input: string): CanonicalJobUrl {
 
   const host = url.hostname.toLowerCase();
 
-  const seekHost = host.match(/^(?:www\.)?seek\.(com\.au|co\.nz)$/);
-  if (seekHost) {
+  const seekCountry = SEEK_HOSTS.get(host.replace(/^www\./, ''));
+  if (seekCountry) {
     const id = url.pathname.match(/^\/job\/(\d+)/)?.[1] ?? digitsOnly(url.searchParams.get('jobId'));
-    if (id) return { canonicalUrl: `https://www.seek.${seekHost[1]}/job/${id}`, sourceSite: 'seek', externalId: id };
+    if (id) return { canonicalUrl: `https://www.seek.${seekCountry}/job/${id}`, sourceSite: 'seek', externalId: id };
     return { canonicalUrl: genericUrl(url, host), sourceSite: 'seek', externalId: null };
   }
 

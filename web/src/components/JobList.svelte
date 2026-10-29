@@ -35,7 +35,12 @@
 <style>
   table {
     width: 100%;
-    border-collapse: collapse;
+    /* Separate borders, so the card's corners can be round. */
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--sheet);
   }
 
   th {
@@ -45,6 +50,15 @@
     color: var(--ink-2);
     padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--rule);
+    background: var(--sheet-2);
+  }
+
+  th:first-child {
+    border-top-left-radius: var(--radius);
+  }
+
+  th:last-child {
+    border-top-right-radius: var(--radius);
   }
 
   td {
@@ -53,12 +67,16 @@
     vertical-align: top;
   }
 
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
   tr {
     position: relative;
   }
 
   tbody tr:hover {
-    background: var(--sheet);
+    background: var(--sheet-2);
   }
 
   .row-link {

@@ -15,6 +15,7 @@ const site: SiteExtractor = {
     const ad = doc.querySelector('p')?.textContent?.trim() ?? title;
     return { sourceUrl: url.href, canonicalUrl: url.href, sourceSite: 'seek', externalId: url.searchParams.get('id'), title, jdText: ad, capturedAt: now.toISOString() } as Capture;
   },
+  readCards: () => [],
 };
 
 let href = 'https://example.com/jobs?id=1';

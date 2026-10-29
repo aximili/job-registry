@@ -1,6 +1,6 @@
 # The Job Registry browser extension
 
-It shows a small panel on Seek, LinkedIn and Indeed job pages: whether you've saved the job, a one-click **Save**, and how well the job fits you. The toolbar button (or `Alt+Shift+J`) saves a job ad from any other website. It only talks to Job Registry on your own computer.
+It shows a small panel on Seek, LinkedIn and Indeed job pages: whether you've saved the job, a one-click **Save**, and how well the job fits you. On their search lists, each job card gets a small mark with a quick rating. The toolbar button (or `Alt+Shift+J`) saves a job ad from any other website. It only talks to Job Registry on your own computer.
 
 ## Build it
 
@@ -43,15 +43,16 @@ After an update, press the reload button on the extension's card.
 Right-click the toolbar button → **Manage extension** → **Options** (Firefox: **Preferences**):
 - **Server address:** where Job Registry runs. Usually `http://127.0.0.1:4777`.
 - **Rate jobs automatically on job pages:** on by default. Ratings need your master profile in Job Registry.
+- **Rate the jobs in search results (a quick rating from each card):** on by default. Each job card on a Seek, LinkedIn or Indeed search list gets a small mark after its title, such as "Good 68 · quick", from what the card shows. It never opens the ad. Only the tab in front is rated, one card at a time. A job you saved says "Saved" instead.
 
 If the options page says the extension isn't allowed to reach Job Registry, press **Allow access**.
 
 ## When a site changes its layout
 
-The panel will say it couldn't read the job (you can still save the selected text or the whole page). To help fix it, save the page from your browser (**File → Save Page As**, "Web Page, HTML only"), then run:
+The panel will say it couldn't read the job (you can still save the selected text or the whole page), or a search list's cards get no marks. To help fix it, save the page from your browser (**File → Save Page As**, "Web Page, HTML only"), then run:
 
 ```
-npm run ext:check -- path\to\saved-page.html "https://www.seek.com.au/job/81234567"
+npm run ext:check -- path\to\saved-page.html "https://au.seek.com/job/81234567"
 ```
 
-with the page's real address. It prints what the extension found. Each site's reader is one small file in `extension\src\sites\`.
+with the page's real address. It prints what the extension found: the job, then `Cards: N` and one line per job card. Each site's reader is one small file in `extension\src\sites\`.

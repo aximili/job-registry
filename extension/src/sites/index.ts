@@ -2,12 +2,12 @@
 // here, before generic (see docs/architecture.md §16).
 
 import { generic } from './generic.ts';
-import type { SiteExtractor } from './helpers.ts';
+import type { FoundCard, SiteExtractor } from './helpers.ts';
 import { indeed } from './indeed.ts';
 import { linkedin } from './linkedin.ts';
 import { seek } from './seek.ts';
 
-export type { SiteExtractor };
+export type { FoundCard, SiteExtractor };
 
 const SITES: SiteExtractor[] = [seek, linkedin, indeed];
 

@@ -2,7 +2,7 @@ import type { HttpModule } from '../../core/http/module.ts';
 import { aiRoutes } from './routes.ts';
 import { createAiService, type AiOptions, type AiService } from './service.ts';
 
-export type { AiService, ClassifyInput, Priority, RateInput, WriteInput } from './service.ts';
+export type { AiService, CardInput, ClassifyInput, Priority, RateInput, WriteInput } from './service.ts';
 export type { AiProvider, ChatRequest, ChatChunk } from './provider.ts';
 export type { ModelRuntime } from './runtime.ts';
 // Adapters and runtimes, for app.ts to wire. Nothing else imports these.

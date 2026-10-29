@@ -4,14 +4,9 @@
 
 import { mount, unmount } from 'svelte';
 import Panel from './Panel.svelte';
+import { SHADOW_MODE } from './shadow.ts';
 import { removeStalePanels } from './stale.ts';
 import type { PanelActions, PanelView } from './types.ts';
-
-// "closed" keeps the job site's scripts from reading the panel (your saved
-// status, your match rating). Only the browser tests' build opens it, so the
-// tests can look inside.
-declare const __PANEL_SHADOW__: ShadowRootMode | undefined;
-const SHADOW_MODE: ShadowRootMode = typeof __PANEL_SHADOW__ === 'string' ? __PANEL_SHADOW__ : 'closed';
 
 export type { PanelActions, PanelView };
 

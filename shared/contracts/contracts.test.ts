@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { Capture, DEFAULT_SETTINGS, IsoDateTime, Rating, SaveJobRequest, SetFollowUpRequest, Settings, Status } from './index.ts';
+import {
+  AiSettings,
+  Capture,
+  DEFAULT_SETTINGS,
+  IsoDateTime,
+  JobCard,
+  Rating,
+  SaveJobRequest,
+  SetFollowUpRequest,
+  Settings,
+  Status,
+} from './index.ts';
 
 const capturedAt = '2026-10-28T03:15:00.000Z';
 
@@ -83,6 +94,43 @@ describe('contracts: AI', () => {
     const rating = { verdict: 'good', score: 70, why: ['a', 'b', 'c', 'd'], whyNot: [], dealBreakers: [], salaryNote: null };
     expect(Rating.safeParse(rating).success).toBe(true);
     expect(Rating.safeParse({ ...rating, why: ['a', 'b', 'c', 'd', 'e'] }).success).toBe(false);
+  });
+});
+
+describe('contracts: job cards', () => {
+  // A Seek card from a private advertiser: no company name.
+  const card = {
+    canonicalUrl: 'https://www.seek.com.au/job/81234567',
+    sourceSite: 'seek',
+    externalId: '81234567',
+    title: 'Senior Engineer',
+    company: null,
+    location: 'Sydney NSW',
+    text: 'Private advertiser. $150,000 - $170,000. Build developer tools in TypeScript.',
+  };
+
+  it('a Seek card with no company is fine', () => {
+    expect(JobCard.safeParse(card).success).toBe(true);
+  });
+
+  it('a card needs a title', () => {
+    expect(JobCard.safeParse({ ...card, title: '' }).success).toBe(false);
+  });
+
+  it("a card's text is 4000 characters at most", () => {
+    expect(JobCard.safeParse({ ...card, text: 'x'.repeat(4000) }).success).toBe(true);
+    expect(JobCard.safeParse({ ...card, text: 'x'.repeat(4001) }).success).toBe(false);
+  });
+
+  it('quick ratings from cards have their own AI settings: short, with thinking off', () => {
+    expect(AiSettings.parse({}).tasks.card).toEqual({
+      model: null,
+      temperature: 0.2,
+      maxTokens: 512,
+      thinking: false,
+      thinkingEffort: 'medium',
+      extra: {},
+    });
   });
 });
 

@@ -5,6 +5,7 @@
 > - **Phase 0** (architecture document) is in review. See [architecture.md](architecture.md).
 > - **Updated:** small refinements from the architecture work. They are listed in architecture.md §18 and already applied below.
 > - **Phases 1–6** are built and tested on macOS (Phase 5, Gmail, and Phase 6, follow-up reminders and the board, on 29 Oct 2026). From Phase 6 you chose follow-up reminders and the Kanban board, not phone access or the Windows-wide hotkey. See CLAUDE.md for the current status.
+> - **Phase 7** (quick marks on search lists) was added at your request on 29 Oct 2026, and built and tested on macOS on 29–30 Oct 2026.
 
 ## Context
 
@@ -116,6 +117,7 @@ These rules keep each part replaceable and easy to change. The Phase 0 document 
 - `documents`: job, kind (resume or cover letter), markdown, version, `is_sent`, `sent_css` (the template frozen when sent), when. Rows are only ever added, never overwritten.
 - `attachments`: job, kind, file name, path in `data/files/`, when.
 - `rating_cache`: canonical URL + profile hash → rating. It covers jobs you rated but didn't save.
+- `card_rating_cache` (Phase 7): a job card (its link and a hash of what it shows) + profile hash → quick rating.
 - `email_suggestions` (Phase 5).
 - `search_index`: one FTS5 table, updated by app code on every write. It covers company, agency, title, contact names, phones and emails, notes and the ad text.
 
@@ -169,6 +171,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 - Runs automatically on job pages, with an on/off toggle. If you click through jobs quickly, it cancels the stale request.
 - Results are cached by the ad (its link and a short hash of its text) and the profile version.
 - The profile comes first in the prompt, so llama-server reuses its cache and each rating takes a few seconds.
+- On Seek, LinkedIn and Indeed search lists (Phase 7), each job card gets a quick mark from the card alone, such as "Good 68 · quick". Only the tab in front is rated, one card at a time.
 
 **Resume and cover letter**
 - Your files: `profile/master-profile.md` (paste your existing doc), `preferences.md`, `resume-guide.md`, `cover-letter-guide.md`. Styling: `templates/resume.css` and `templates/cover-letter.css`. You can edit them in the app or in any text editor. Starter versions are included.
@@ -200,17 +203,19 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 
 - `server/modules/ai/adapters/openai-compatible.ts`: OpenAI-style chat calls through `fetch`. It handles streaming, JSON-schema output (`response_format`), cancelling and timeouts.
 - `server/modules/ai/runtime/llama-server.ts`: the managed llama-server process. It starts on demand, checks `/health`, stops when the app closes, and stops after the idle time if that's turned on. Default arguments come from PrismML's docs: `-ngl 99 -fa on -c 32768 --jinja --port 8080`. The 27B model uses about 6 GB plus about 2 GB for its working memory at 32K context, so it fits beside your other apps.
-- `server/modules/ai/queue.ts`: one AI job at a time, because there's one GPU. Priority order: rating (you're waiting) > parse > background email work.
+- `server/modules/ai/queue.ts`: one AI job at a time, because there's one GPU. Priority order: rating (you're waiting) > quick marks on the search list you're looking at (Phase 7) > parse > background email work.
 - `server/modules/ai/tasks/`:
   - `parse-job.ts`
   - `rate-job.ts`
+  - `rate-card.ts` (Phase 7)
   - `write-resume.ts`
   - `write-cover-letter.ts`
   - `classify-email.ts`
 
   Each task is a prompt plus a zod schema (turned into JSON Schema for constrained output), with validation and one retry. The prompts are text files in `server/modules/ai/prompts/`.
 - Each task can have its own settings in `settings.json`: model, temperature, thinking on or off, extra request fields.
-  - Default: thinking **off** for parsing, rating and email (`reasoning_effort: "none"`), and **on** for resume and cover letter (`reasoning_effort: "medium"`).
+  - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on** for resume and cover letter (`reasoning_effort: "medium"`).
+  - Settings → AI shows each task's settings, except the extra request fields (Phase 7).
   - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
 - A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached.
 
@@ -311,6 +316,15 @@ tests/
    - a Windows-wide hotkey through the Desktop shortcut's "Shortcut key" setting
    - a Kanban board view
    - follow-up reminders.
+7. **Quick marks on search lists** (added 29 Oct 2026, at your request: "only read the job cards, no need to go into each details").
+   - On Seek, LinkedIn (signed in and signed out) and Indeed search lists, each job card gets a small mark after its title: "Strong 84", "Good 68 · quick", or "Saved · Applied 12 Oct". Its tooltip gives the AI's one-line reason.
+   - A quick mark reads only what the card shows: title, company, location, salary and the teaser. It never opens the ad. Opening a job still gives the full rating, and its card then shows that one.
+   - Jobs you saved and jobs rated before are marked at once, without the AI. The rest go to the AI one card at a time, the cards on screen first, and only in the tab in front.
+   - A new AI priority, `list`, sits between the open job's rating and reading saved ads. The two rating prompts share their start, so llama-server's cache serves both.
+   - On by default, with an off switch in the extension's options.
+   - Settings → AI shows each AI task's settings (thinking, longest answer, temperature, model), so quick marks can use less effort than resumes.
+   - Jora and CareerOne are left for later. Jora refused a download, and CareerOne's saved page had no search results, so neither could be tested.
+   - *Done when:* on a Seek search list, every card on screen gets a mark one after another, without opening any ad. A job you saved says so at once. The marks come back after you scroll or the site redraws the list, never two on one card. Only the tab in front is rated, and turning the option off shows no marks.
 
 ## Choices I made (override any of them)
 

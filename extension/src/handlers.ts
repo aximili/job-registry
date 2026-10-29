@@ -3,7 +3,7 @@
 
 import { ApiError, type ApiClient } from '../../shared/api-client.ts';
 import type { Capture } from '../../shared/contracts/index.ts';
-import { OFFLINE, type Reply, type ReplyFor, type Request } from './messages.ts';
+import { OFFLINE, type CardsInfo, type Reply, type ReplyFor, type Request } from './messages.ts';
 
 // The few browser calls this needs.
 export interface ChromeLike {
@@ -40,6 +40,25 @@ export const NOT_ANSWERING = "Job Registry isn't answering. Try again in a momen
 // Ratings can take a while (the AI may be starting); everything else is quick.
 const QUICK_MS = 15_000;
 
+// The most cards the app looks up in one request.
+const MAX_CARDS = 100;
+
+// One at a time per tab: a newer one cancels the older one.
+async function latestPerTab<T>(
+  running: Map<number, AbortController>,
+  tab: number,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  running.get(tab)?.abort();
+  const controller = new AbortController();
+  running.set(tab, controller);
+  try {
+    return await work(controller.signal);
+  } finally {
+    if (running.get(tab) === controller) running.delete(tab);
+  }
+}
+
 export function createHandlers(deps: {
   api: () => ApiClient | Promise<ApiClient>;
   chrome: ChromeLike;
@@ -47,8 +66,10 @@ export function createHandlers(deps: {
   timeoutMs?: number;
 }) {
   const quick = () => AbortSignal.timeout(deps.timeoutMs ?? QUICK_MS);
-  // One rating at a time per tab: a newer one cancels the older one.
+  // The open job's rating and a card's rating are kept apart, so neither
+  // cancels the other.
   const ratings = new Map<number, AbortController>();
+  const cardRatings = new Map<number, AbortController>();
 
   async function run(req: Request, sender: Sender): Promise<unknown> {
     const api = await deps.api();
@@ -70,14 +91,21 @@ export function createHandlers(deps: {
       }
       case 'rate': {
         const tab = sender.tabId ?? -1;
-        ratings.get(tab)?.abort();
-        const controller = new AbortController();
-        ratings.set(tab, controller);
-        try {
-          return await api.rate({ capture: req.capture, key: `tab-${tab}` }, { signal: controller.signal });
-        } finally {
-          if (ratings.get(tab) === controller) ratings.delete(tab);
-        }
+        return latestPerTab(ratings, tab, (signal) => api.rate({ capture: req.capture, key: `tab-${tab}` }, { signal }));
+      }
+      case 'cards': {
+        const cards = req.cards.slice(0, MAX_CARDS);
+        if (cards.length === 0) return { saved: [], marks: [], reason: null } satisfies CardsInfo;
+        const items = cards.map((c) => ({ canonicalUrl: c.canonicalUrl, sourceSite: c.sourceSite, externalId: c.externalId }));
+        const [saved, known] = await Promise.all([
+          api.checkMany({ items }, { signal: quick() }),
+          api.lookupCards({ cards }, { signal: quick() }),
+        ]);
+        return { saved: saved.results, marks: known.results, reason: known.reason } satisfies CardsInfo;
+      }
+      case 'rateCard': {
+        const tab = sender.tabId ?? -1;
+        return latestPerTab(cardRatings, tab, (signal) => api.rateCard({ card: req.card, key: `cards-tab-${tab}` }, { signal }));
       }
       case 'save': {
         const res = await api.saveJob(

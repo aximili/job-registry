@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS } from '../../../shared/contracts/index.ts';
 import { FakeAiProvider, defaultReply } from '../../../tests/fakes/fake-ai-provider.ts';
 import { AiUnavailableError } from '../../core/errors.ts';
 import { FakeRuntime } from '../../../tests/fakes/fake-runtime.ts';
+import { FAKE_CARD_RATING, createSmartFake } from '../../../tests/fakes/smart-fake-ai.ts';
 import { fileURLToPath } from 'node:url';
 import { createTestApp, freePort, type TestApp } from '../../../tests/helpers/test-app.ts';
 
@@ -182,6 +183,58 @@ describe('AI service', () => {
     expect(await eventually(async () => !(await answers(port)))).toBe(true);
     await app.services.ai.parseJob('An ad.');
     expect(app.services.ai.status()).toMatchObject({ state: 'ready', preset: 'ollama' });
+  });
+});
+
+describe('AI service: quick ratings from job cards', () => {
+  const card = 'Senior Engineer\nAtlassian\nSydney NSW\n$150,000 - $170,000. Build developer tools in TypeScript.';
+
+  it("rateCard sends the card last, with the card task's settings, and returns the rating", async () => {
+    const { provider } = createSmartFake();
+    app = await createTestApp({
+      fakes: { ai: provider },
+      settings: { ai: { tasks: { card: { temperature: 0.4, maxTokens: 300 } } } } as never,
+    });
+    const rating = await app.services.ai.rateCard({ profile: 'I write TypeScript.', preferences: null, card });
+    expect(rating).toEqual(FAKE_CARD_RATING);
+    const req = provider.calls[0]!;
+    expect(req.jsonSchema?.name).toBe('card_rating');
+    expect(req.temperature).toBe(0.4);
+    expect(req.maxTokens).toBe(300);
+    const last = req.messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.content.trim().endsWith(card)).toBe(true);
+  });
+
+  // llama-server reuses its cache only when the start of the prompt is the
+  // same, so a full rating and a quick one must send the same system message.
+  it('rateJob and rateCard send the same system message for the same profile and preferences', async () => {
+    const { provider } = createSmartFake();
+    app = await createTestApp({ fakes: { ai: provider } });
+    const ai = app.services.ai;
+    const profile = '\n  I write TypeScript.\nI led a team of four.  \n';
+    for (const preferences of ['  Sydney or remote. No agencies.\n', null, '   ']) {
+      provider.calls.length = 0;
+      await ai.rateJob({ profile, preferences, ad: 'We need TypeScript.' });
+      await ai.rateCard({ profile, preferences, card });
+      const [full, quick] = provider.calls;
+      expect(full!.jsonSchema?.name).toBe('rating');
+      expect(quick!.jsonSchema?.name).toBe('card_rating');
+      expect(full!.messages[0]!.role).toBe('system');
+      expect(quick!.messages[0]).toEqual(full!.messages[0]);
+    }
+  });
+
+  it('a rateCard with no priority waits for an interactive rateJob that was queued after it', async () => {
+    const { provider } = createSmartFake();
+    app = await createTestApp({ fakes: { ai: provider } });
+    const ai = app.services.ai;
+    // Reading an ad takes the AI first. The other two wait behind it.
+    const running = ai.parseJob('An ad.');
+    const quick = ai.rateCard({ profile: 'I write TypeScript.', preferences: null, card });
+    const full = ai.rateJob({ profile: 'I write TypeScript.', preferences: null, ad: 'We need TypeScript.' });
+    await Promise.all([running, quick, full]);
+    expect(provider.calls.map((c) => c.jsonSchema?.name)).toEqual(['parsed_job', 'rating', 'card_rating']);
   });
 });
 

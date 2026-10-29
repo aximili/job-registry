@@ -94,3 +94,37 @@ test('the AI problem is written out in Settings, not only in the pill', async ({
   await expect(page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'AI, Problem' })).toBeVisible();
 });
 
+
+test('idle minutes are checked only while that box is on screen', async ({ page }) => {
+  type AiSaved = { ai: { preset: string; stopWhenIdle: boolean; idleMinutes: number } };
+  const before = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai.idleMinutes;
+  await page.goto('/settings#ai');
+  const ai = page.getByRole('region', { name: 'AI', exact: true });
+  const save = () => ai.getByRole('button', { name: 'Save AI settings' }).click();
+  const stop = ai.getByLabel("Stop it when it's idle");
+  const minutes = ai.getByLabel('Stop it after this many idle minutes');
+
+  // While the box is there, a bad number stops the save.
+  await stop.check();
+  await minutes.fill('0');
+  await save();
+  await expect(ai.getByRole('alert')).toHaveText('Stop it after this many idle minutes: use a whole number, 1 or more.');
+
+  // Untick it, and the hidden box no longer counts: the saved minutes stay.
+  await stop.uncheck();
+  await save();
+  await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+  let saved = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai;
+  expect(saved).toMatchObject({ stopWhenIdle: false, idleMinutes: before });
+
+  // The same when you switch to another AI server.
+  await stop.check();
+  await minutes.fill('0');
+  await ai.getByLabel('AI server').selectOption('ollama');
+  await ai.getByLabel('Model', { exact: true }).fill('qwen3:8b');
+  await save();
+  await expect(ai.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai.preset).toBe('ollama');
+  saved = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai;
+  expect(saved.idleMinutes).toBe(before);
+});

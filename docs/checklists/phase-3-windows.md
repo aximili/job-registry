@@ -12,7 +12,7 @@ Before you start: stop the app with `stop.bat`, run `setup.bat` (it now builds t
 
 ## Seek (signed in)
 
-- [ ] **A job page** (`seek.com.au/job/…`): the panel appears in the bottom-right corner within a few seconds, with the job's title and company. It offers **Save**.
+- [ ] **A job page** (`au.seek.com/job/…`): the panel appears in the bottom-right corner within a few seconds, with the job's title and company. It offers **Save**.
 - [ ] **Save in one click:** choose Applied and press **Save**. It says "Saved · Applied {today}". The dashboard has the job, with the salary from the ad.
 - [ ] **The search page with a job open on the right:** click through 5 results, quickly. The panel follows each job: its title, then "Good match · …" (with your master profile) or a note that ratings need one. It never shows one job's title or rating while another is open.
 - [ ] **Open a job you saved:** the panel says "Saved · Applied …" and the toolbar button shows ✓.

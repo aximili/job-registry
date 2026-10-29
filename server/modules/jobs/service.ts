@@ -3,6 +3,7 @@
 
 import type {
   Capture,
+  CheckManyRequest,
   EditableJobFields,
   FieldSource,
   FollowUpsResponse,
@@ -36,6 +37,8 @@ import type { JobChanges, JobsRepo } from './repo.ts';
 export interface JobsService {
   save(req: SaveJobRequest): SaveJobResponse;
   check(req: JobCheckRequest): JobCheckResponse;
+  // Exact matches only, one per item, in the same order. No "likely" matches.
+  checkMany(items: CheckManyRequest['items']): (ExactMatch | null)[];
   get(id: number): Job;
   getSummaries(ids: number[]): JobSummary[];
   list(q: ListJobsQuery): JobSummary[];
@@ -171,9 +174,15 @@ export function createJobsService(opts: JobsOptions): JobsService {
     return { jobId: job.id, title: job.title, company: job.company, status: job.status, dateApplied: job.dateApplied };
   }
 
+  // The saved job for this ad, if there is one. check() and checkMany() both use it.
+  function exactMatch(ad: Pick<Capture, 'canonicalUrl' | 'sourceSite' | 'externalId'>): ExactMatch | null {
+    const posting = findExact(ad);
+    return posting ? toExact(get(posting.jobId)) : null;
+  }
+
   function check(req: JobCheckRequest): JobCheckResponse {
-    const posting = findExact(req);
-    if (posting) return { exact: toExact(get(posting.jobId)), candidates: [] };
+    const exact = exactMatch(req);
+    if (exact) return { exact, candidates: [] };
     const since = new Date(opts.now().getTime() - MATCH_WINDOW_DAYS * DAY_MS).toISOString();
     const open = opts.statuses().filter((s) => !s.closed).map((s) => s.id);
     const input = {
@@ -338,6 +347,7 @@ export function createJobsService(opts: JobsOptions): JobsService {
     },
 
     check,
+    checkMany: (items) => items.map((item) => exactMatch(item)),
     get,
 
     getSummaries: (ids) => repo.getSummaries(ids),

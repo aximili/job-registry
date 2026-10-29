@@ -54,11 +54,21 @@ describe('extension build', () => {
       'http://localhost/*',
       'https://www.seek.com.au/*',
       'https://www.seek.co.nz/*',
+      'https://au.seek.com/*',
+      'https://nz.seek.com/*',
       'https://*.linkedin.com/*',
       'https://*.indeed.com/*',
     ]);
     // All of LinkedIn (and its country sites): it moves to job pages without reloading.
-    expect(m.content_scripts[0].matches).toEqual(['https://www.seek.com.au/*', 'https://www.seek.co.nz/*', 'https://*.linkedin.com/*', 'https://*.indeed.com/*']);
+    // Seek now uses au.seek.com and nz.seek.com. The older addresses stay too.
+    expect(m.content_scripts[0].matches).toEqual([
+      'https://www.seek.com.au/*',
+      'https://www.seek.co.nz/*',
+      'https://au.seek.com/*',
+      'https://nz.seek.com/*',
+      'https://*.linkedin.com/*',
+      'https://*.indeed.com/*',
+    ]);
     expect(m.commands._execute_action.suggested_key.default).toBe('Alt+Shift+J');
   });
 
@@ -86,6 +96,12 @@ describe('ext:check', () => {
     expect(stdout).toContain('Reader: seek');
     expect(stdout).toContain('Title:    Senior Software Engineer');
     expect(stdout).toContain('Company:  Atlassian');
+  }, 60_000);
+
+  it('prints the job cards it finds on a search list', async () => {
+    const { stdout } = await run(process.execPath, [join(root, 'scripts', 'ext-check.ts'), join(root, 'tests', 'fixtures', 'sites', 'seek-search-real.html'), 'https://au.seek.com/full-stack-developer-jobs/in-All-Melbourne-VIC'], { cwd: root });
+    expect(stdout).toContain('Cards: 10');
+    expect(stdout).toContain('95571906  Full-Stack Software Developer · Soniq Digital Media Pty Ltd · Richmond, Melbourne VIC');
   }, 60_000);
 });
 

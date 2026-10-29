@@ -115,6 +115,8 @@ export function createApiClient(opts: ApiClientOptions) {
 
     checkJob: (req: C.JobCheckRequest, o: { signal?: AbortSignal } = {}) =>
       call(C.JobCheckResponse, 'POST', '/jobs/check', req, o.signal),
+    checkMany: (req: C.CheckManyRequest, o: { signal?: AbortSignal } = {}) =>
+      call(C.CheckManyResponse, 'POST', '/jobs/check-many', req, o.signal),
     saveJob: (req: z.input<typeof C.SaveJobRequest>, o: { signal?: AbortSignal } = {}) =>
       call(C.SaveJobResponse, 'POST', '/jobs', req, o.signal),
     listJobs: (q: Partial<C.ListJobsQuery> = {}) => call(z.array(C.JobSummary), 'GET', `/jobs${queryString(q)}`),
@@ -165,6 +167,10 @@ export function createApiClient(opts: ApiClientOptions) {
     testAi: () => call(C.AiTestResult, 'POST', '/ai/test', {}),
     rate: (req: z.input<typeof C.RateRequest>, o: { signal?: AbortSignal } = {}) =>
       call(C.RateResponse, 'POST', '/ratings', req, o.signal),
+    rateCard: (req: z.input<typeof C.RateCardRequest>, o: { signal?: AbortSignal } = {}) =>
+      call(C.RateCardResponse, 'POST', '/ratings/card', req, o.signal),
+    lookupCards: (req: C.CardsLookupRequest, o: { signal?: AbortSignal } = {}) =>
+      call(C.CardsLookupResponse, 'POST', '/ratings/cards/lookup', req, o.signal),
     ratingsStatus: () => call(C.RatingsStatus, 'GET', '/ratings/status'),
     reparseJob: (id: number) => call(C.Job, 'POST', `/jobs/${id}/reparse`, {}),
 

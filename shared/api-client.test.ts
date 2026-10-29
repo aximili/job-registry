@@ -194,3 +194,54 @@ describe('api client: follow-ups', () => {
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ on: '2026-11-05', note: 'Chase' });
   });
 });
+
+describe('api client: job cards', () => {
+  const card = {
+    canonicalUrl: 'https://www.seek.com.au/job/1',
+    sourceSite: 'seek' as const,
+    externalId: '1',
+    title: 'Senior Engineer',
+    company: null,
+    location: 'Sydney NSW',
+    text: 'Build developer tools.',
+  };
+
+  it('rateCard and lookupCards POST to their routes and pass the abort signal', async () => {
+    const rating = { verdict: 'good', score: 68, reason: 'Your TypeScript work fits the role.' };
+    const { fetch, calls } = fakeFetch(200, { rating, cached: false, reason: null });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    const controller = new AbortController();
+    expect(await api.rateCard({ card, key: 'cards-tab-7' }, { signal: controller.signal })).toEqual({ rating, cached: false, reason: null });
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/ratings/card');
+    expect(calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ card, key: 'cards-tab-7' });
+    expect(calls[0]!.init.signal).toBe(controller.signal);
+
+    const marks = fakeFetch(200, { results: [{ kind: 'quick', ...rating }, null], reason: null });
+    const lookup = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch: marks.fetch });
+    expect(await lookup.lookupCards({ cards: [card, card] }, { signal: controller.signal })).toEqual({
+      results: [{ kind: 'quick', ...rating }, null],
+      reason: null,
+    });
+    expect(marks.calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/ratings/cards/lookup');
+    expect(marks.calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(marks.calls[0]!.init.body))).toEqual({ cards: [card, card] });
+    expect(marks.calls[0]!.init.signal).toBe(controller.signal);
+  });
+
+  it('checkMany POSTs to /jobs/check-many and passes the abort signal', async () => {
+    const saved = { jobId: 1, title: 'Senior Engineer', company: 'Atlassian', status: 'saved', dateApplied: null };
+    const { fetch, calls } = fakeFetch(200, { results: [saved, null] });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    const controller = new AbortController();
+    const items = [
+      { canonicalUrl: 'https://www.seek.com.au/job/1', sourceSite: 'seek' as const, externalId: '1' },
+      { canonicalUrl: 'https://www.seek.com.au/job/2', sourceSite: 'seek' as const, externalId: '2' },
+    ];
+    expect(await api.checkMany({ items }, { signal: controller.signal })).toEqual({ results: [saved, null] });
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/jobs/check-many');
+    expect(calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ items });
+    expect(calls[0]!.init.signal).toBe(controller.signal);
+  });
+});

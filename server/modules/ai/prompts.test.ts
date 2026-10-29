@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { fillPrompt, loadPrompt } from './prompts.ts';
+import { fillPrompt, loadPrompt, PROMPTS_DIR } from './prompts.ts';
 
 const dir = fileURLToPath(new URL('./prompts/', import.meta.url));
 
@@ -9,13 +9,14 @@ const dir = fileURLToPath(new URL('./prompts/', import.meta.url));
 const VALUES: Record<string, string[]> = {
   'parse-job': ['today', 'ad'],
   'rate-job': ['profile', 'preferences', 'ad'],
+  'rate-card': ['profile', 'preferences', 'card'],
   'write-resume': ['profile', 'guide', 'job', 'ad'],
   'write-cover-letter': ['profile', 'guide', 'today', 'job', 'ad'],
   'classify-email': ['candidates', 'from', 'subject', 'date', 'email'],
 };
 
 // What each prompt ends with: the long, changing part, so the fixed part can be cached.
-const LAST: Record<string, string> = { 'classify-email': '{{email}}' };
+const LAST: Record<string, string> = { 'classify-email': '{{email}}', 'rate-card': '{{card}}' };
 
 describe('prompts', () => {
   it('every prompt file has a system part and a user part, and every placeholder is filled', () => {
@@ -31,11 +32,23 @@ describe('prompts', () => {
     }
   });
 
-  it('the ad, or the email, comes last in every prompt', () => {
+  it('the ad, the card or the email comes last in every prompt', () => {
     for (const name of Object.keys(VALUES)) {
       const { user } = loadPrompt(dir, name);
       expect(user.trim().endsWith(LAST[name] ?? '{{ad}}')).toBe(true);
     }
+  });
+
+  // So llama-server's cache serves both: moving between a full rating and
+  // quick marks doesn't read the whole profile again.
+  it('the two rating prompts share their system part word for word', () => {
+    const job = loadPrompt(PROMPTS_DIR, 'rate-job');
+    const card = loadPrompt(PROMPTS_DIR, 'rate-card');
+    expect(job.system).toBe(card.system);
+    expect(job.system).toContain('{{profile}}');
+    expect(job.system).toContain('{{preferences}}');
+    expect(job.system).not.toContain('{{ad}}');
+    expect(job.system).not.toContain('{{card}}');
   });
 
   it('fillPrompt refuses a missing value', () => {

@@ -2,7 +2,7 @@
 // some text, or an Error to throw. It can be slow, it records every request,
 // and it honours cancelling, like a real server.
 
-import type { EmailClassification, ParsedJob, Rating } from '../../shared/contracts/index.ts';
+import type { CardRating, EmailClassification, ParsedJob, Rating } from '../../shared/contracts/index.ts';
 import type { AiProvider, ChatChunk, ChatRequest, ChatResult, ProviderHealth } from '../../server/modules/ai/provider.ts';
 
 export type FakeReplyFn = (req: ChatRequest) => string | Error | Promise<string | Error>;
@@ -32,6 +32,9 @@ export const FAKE_RATING: Rating = {
   salaryNote: null,
 };
 
+// The quick rating the fake gives every job card in a search list.
+export const FAKE_CARD_RATING: CardRating = { verdict: 'good', score: 68, reason: 'Your TypeScript work fits the role.' };
+
 export const FAKE_CLASSIFICATION: EmailClassification = {
   event: 'rejected',
   jobId: null,
@@ -45,6 +48,7 @@ export const FAKE_CLASSIFICATION: EmailClassification = {
 export const defaultReply: FakeReplyFn = (req) => {
   if (req.jsonSchema?.name === 'parsed_job') return JSON.stringify(FAKE_PARSED);
   if (req.jsonSchema?.name === 'rating') return JSON.stringify(FAKE_RATING);
+  if (req.jsonSchema?.name === 'card_rating') return JSON.stringify(FAKE_CARD_RATING);
   if (req.jsonSchema?.name === 'email_classification') return JSON.stringify(FAKE_CLASSIFICATION);
   return 'OK';
 };
@@ -96,7 +100,7 @@ export class FakeAiProvider implements AiProvider {
   }
 
   // Calls for one task only, by its schema name. Writing a document has no schema.
-  callsFor(name: 'parsed_job' | 'rating' | 'email_classification' | 'write'): ChatRequest[] {
+  callsFor(name: 'parsed_job' | 'rating' | 'card_rating' | 'email_classification' | 'write'): ChatRequest[] {
     return this.calls.filter((c) => (c.jsonSchema?.name ?? 'write') === name);
   }
 }

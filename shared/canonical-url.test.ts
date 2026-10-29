@@ -18,8 +18,16 @@ describe('canonicalJobUrl', () => {
     ['https://www.seek.com.au/job/81234567?type=standard&ref=search', seek],
     ['https://www.seek.com.au/software-engineer-jobs/in-All-Sydney-NSW?jobId=81234567&type=standard', seek],
     ['https://seek.com.au/job/81234567', seek],
+    // Seek's newer addresses keep the older stable form, so a job saved from
+    // either address is the same job.
+    ['https://au.seek.com/job/81234567?type=standard&ref=search', seek],
+    ['https://au.seek.com/software-engineer-jobs/in-All-Sydney-NSW?jobId=81234567&type=standard', seek],
     [
       'https://www.seek.co.nz/job/123',
+      { canonicalUrl: 'https://www.seek.co.nz/job/123', sourceSite: 'seek', externalId: '123' },
+    ],
+    [
+      'https://nz.seek.com/job/123',
       { canonicalUrl: 'https://www.seek.co.nz/job/123', sourceSite: 'seek', externalId: '123' },
     ],
     ['https://www.linkedin.com/jobs/view/4012345678/?trk=abc', linkedin],

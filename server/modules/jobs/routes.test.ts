@@ -68,6 +68,22 @@ describe('duplicate routes', () => {
     expect(lookup.body.match.jobId).toBe(id);
   });
 
+  it('POST /jobs/check-many takes 1 to 100 items and answers each in order', async () => {
+    const seek = (id: number) => ({ canonicalUrl: `https://www.seek.com.au/job/${id}`, sourceSite: 'seek', externalId: String(id) });
+    const created = await app.request('POST', '/api/v1/jobs', {
+      capture: { ...pastedCapture(), ...seek(5), sourceUrl: 'https://www.seek.com.au/job/5' },
+    });
+    const items = Array.from({ length: 100 }, (_, i) => seek(i + 1));
+    const ok = await app.request('POST', '/api/v1/jobs/check-many', { items });
+    expect(ok.status).toBe(200);
+    expect(ok.body.results).toHaveLength(100);
+    expect(ok.body.results[4].jobId).toBe(created.body.job.id);
+    expect(ok.body.results.filter((r: unknown) => r !== null)).toHaveLength(1);
+
+    expect((await app.request('POST', '/api/v1/jobs/check-many', { items: [...items, seek(101)] })).status).toBe(400);
+    expect((await app.request('POST', '/api/v1/jobs/check-many', { items: [] })).status).toBe(400);
+  });
+
   it('PUT /jobs/:id/follow-up sets one, refuses a bad date, and GET /jobs/follow-ups lists it', async () => {
     const created = await app.request('POST', '/api/v1/jobs', { capture: pastedCapture(), fields: { title: 'Engineer' } });
     const id = created.body.job.id;

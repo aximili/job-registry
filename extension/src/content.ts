@@ -1,8 +1,10 @@
 // The content script on Seek, LinkedIn and Indeed. It watches for the job on
 // screen, asks the background script whether it's saved (never the server
-// itself), shows the panel, and rates the job if you've left that on.
+// itself), shows the panel, and rates the job if you've left that on. On a
+// search list, it marks each job card with what's known, or a quick rating.
 
 import type { Capture, SaveDecision } from '../../shared/contracts/index.ts';
+import { watchCards } from './cards.ts';
 import { fallbackCapture } from './capture.ts';
 import { ask } from './messages.ts';
 import { mountPanel, type PanelView } from './panel/mount.ts';
@@ -86,6 +88,9 @@ async function rate(mine: number): Promise<void> {
     return;
   }
   show({ rating: res.data.rating ? { kind: 'done', rating: res.data.rating } : { kind: 'none', reason: res.data.reason ?? 'No rating.' } });
+  // If the job's card is on the page too (a split view), it shows this
+  // full rating instead of its quick one.
+  if (res.data.rating && capture?.canonicalUrl) cards.showFull(capture.canonicalUrl, res.data.rating);
 }
 
 async function save(status: string, note: string, decision?: SaveDecision): Promise<void> {
@@ -107,6 +112,10 @@ async function save(status: string, note: string, decision?: SaveDecision): Prom
   }
   const job = res.data.job;
   show({ state: { kind: 'saved', jobId: job.id, status: job.status, dateApplied: job.dateApplied } });
+  // If the job's card is on the page too (a split view), it says Saved now.
+  if (capture.canonicalUrl) {
+    cards.showSaved(capture.canonicalUrl, { jobId: job.id, title: job.title, company: job.company, status: job.status, dateApplied: job.dateApplied });
+  }
 }
 
 function fallback(from: 'selection' | 'page'): void {
@@ -147,6 +156,17 @@ async function onJob(found: Capture | null, id: string | null): Promise<void> {
   show({ rating: { kind: 'off' }, job: { title: found.title ?? null, company: found.company ?? null }, jobKey: id });
   await check(mine);
 }
+
+// The job cards on a search list: once per page, with the same reader as
+// the job on screen. Started first, so rate() can always reach it.
+const cards = watchCards({
+  doc: document,
+  location: siteLocation,
+  extractor: () => pickExtractor(siteLocation()),
+  ask,
+  enabled: async () => (await loadSettings()).rateLists,
+  visible: () => document.visibilityState === 'visible',
+});
 
 watchJobs({
   doc: document,

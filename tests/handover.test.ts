@@ -334,6 +334,7 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
       'PASS stopping the app stops llama-server too',
       "PASS a llama-server the app didn't start is left running",
       'PASS the AI rates a job against the profile',
+      'PASS the AI gives a job card a quick mark',
     ]) {
       expect(out).toContain(check);
     }
@@ -372,6 +373,7 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
         'PASS the app reaches your AI server and it answers',
         'PASS the AI reads a saved ad',
         'PASS the AI rates a job against the profile',
+        'PASS the AI gives a job card a quick mark',
         'PASS the AI writes a resume',
         'PASS no thinking text in the resume',
         'PASS the resume exports as a .docx file',

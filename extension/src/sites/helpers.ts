@@ -1,10 +1,15 @@
 // What every site extractor shares: finding things on the page, and turning
-// what it found into a Capture the server understands.
+// what it found into a Capture (a job) or a JobCard (a card in a search list)
+// the server understands.
 
 import { canonicalJobUrl } from '../../../shared/canonical-url.ts';
-import type { Capture, ParsedJob } from '../../../shared/contracts/index.ts';
+import type { Capture, JobCard, ParsedJob } from '../../../shared/contracts/index.ts';
 import { readJobPosting } from '../jsonld.ts';
 import { elementText, htmlToText } from '../text.ts';
+
+// A job card in a search list: the card itself, the element its mark goes
+// right after, and what the card says.
+export type FoundCard = { element: Element; anchor: Element; card: JobCard };
 
 export interface SiteExtractor {
   id: 'seek' | 'linkedin' | 'indeed' | 'generic';
@@ -13,6 +18,8 @@ export interface SiteExtractor {
   currentJobId(url: URL, doc: Document): string | null;
   // null while the job's details haven't appeared yet.
   extract(doc: Document, url: URL, now: Date): Capture | null;
+  // The job cards in a search list, in page order. [] on other pages.
+  readCards(doc: Document, url: URL): FoundCard[];
 }
 
 export function firstElement(root: ParentNode, selectors: string[]): Element | null {
@@ -42,9 +49,13 @@ export function linkedJobId(pane: ParentNode, pattern: RegExp): string | null {
   return null;
 }
 
+// Text on one line: each run of spaces and line breaks becomes one space.
+export function squash(text: string | null | undefined): string {
+  return (text ?? '').replace(/\s+/g, ' ').trim();
+}
+
 export function firstText(root: ParentNode, selectors: string[]): string | undefined {
-  const text = firstElement(root, selectors)?.textContent?.replace(/\s+/g, ' ').trim();
-  return text || undefined;
+  return squash(firstElement(root, selectors)?.textContent) || undefined;
 }
 
 const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
@@ -90,6 +101,85 @@ export function siteCapture(opts: {
     ...(structured && Object.keys(structured).length > 0 ? { structured: structured as Partial<ParsedJob> } : {}),
     capturedAt: opts.now.toISOString(),
   };
+}
+
+const CARD_TEXT_MAX = 4000;
+const CARD_FIELD_MAX = 300;
+// Never part of a card's text: buttons ("Save", "Easy Apply") and dates.
+const NOT_CARD_TEXT = new Set(['BUTTON', 'TIME', 'SCRIPT', 'STYLE', 'SVG', 'TEMPLATE']);
+
+function shownText(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? '';
+  if (node.nodeType !== 1 || NOT_CARD_TEXT.has((node as Element).tagName.toUpperCase())) return '';
+  return Array.from(node.childNodes, shownText).join('');
+}
+
+// The text of each element that matches, in page order, without buttons or dates.
+export function textsOf(root: ParentNode, selector: string): string[] {
+  return Array.from(root.querySelectorAll(selector), (el) => squash(shownText(el))).filter(Boolean);
+}
+
+// One job card, ready for its mark. null for a card with no job link the app
+// can read (an advert, a banner) or no title yet.
+export function foundCard(opts: {
+  element: Element;
+  // The title link (or the title itself). The mark goes after its heading.
+  titleEl: Element | null;
+  title: string | undefined;
+  // The job's link, built the same way as the job page reader builds it, so
+  // the card and the job share one stable link.
+  jobUrl: string | null;
+  company: string | undefined;
+  location: string | undefined;
+  // What else the card shows, one line each: salary, work type, the teaser.
+  parts: string[];
+}): FoundCard | null {
+  const { element, titleEl, title, jobUrl } = opts;
+  if (!titleEl || !title || !jobUrl) return null;
+  let canonical: ReturnType<typeof canonicalJobUrl>;
+  try {
+    canonical = canonicalJobUrl(jobUrl);
+  } catch {
+    return null;
+  }
+  if (!canonical.externalId) return null;
+  // Each line once, and not the title, company or location again.
+  const seen = new Set([title, opts.company, opts.location].filter((f): f is string => !!f).map((f) => f.toLowerCase()));
+  const lines: string[] = [];
+  for (const part of opts.parts) {
+    if (!part || seen.has(part.toLowerCase())) continue;
+    seen.add(part.toLowerCase());
+    lines.push(part);
+  }
+  const heading = titleEl.closest('h1, h2, h3, h4');
+  return {
+    element,
+    anchor: heading && element.contains(heading) ? heading : titleEl,
+    card: {
+      canonicalUrl: canonical.canonicalUrl,
+      sourceSite: canonical.sourceSite,
+      externalId: canonical.externalId,
+      title: title.slice(0, CARD_FIELD_MAX),
+      company: opts.company?.slice(0, CARD_FIELD_MAX) ?? null,
+      location: opts.location?.slice(0, CARD_FIELD_MAX) ?? null,
+      text: lines.join('\n').slice(0, CARD_TEXT_MAX),
+    },
+  };
+}
+
+// The cards that match, in page order, each job once: a site can draw the
+// same job twice (LinkedIn's list item and the card inside it), and the
+// first one wins.
+export function cardsIn(doc: Document, selector: string, read: (el: Element) => FoundCard | null): FoundCard[] {
+  const seen = new Set<string>();
+  const cards: FoundCard[] = [];
+  for (const el of Array.from(doc.querySelectorAll(selector))) {
+    const found = read(el);
+    if (!found || seen.has(found.card.canonicalUrl)) continue;
+    seen.add(found.card.canonicalUrl);
+    cards.push(found);
+  }
+  return cards;
 }
 
 export { htmlToText };

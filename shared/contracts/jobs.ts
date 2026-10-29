@@ -120,6 +120,17 @@ export const JobCheckResponse = z.object({
 });
 export type JobCheckResponse = z.infer<typeof JobCheckResponse>;
 
+// Which of a search list's jobs you've already saved, in one request.
+// Exact matches only: the same link, or the same job id on the same site.
+export const CheckManyRequest = z.object({
+  items: z.array(JobCheckRequest.pick({ canonicalUrl: true, sourceSite: true, externalId: true })).min(1).max(100),
+});
+export type CheckManyRequest = z.infer<typeof CheckManyRequest>;
+
+// One answer per item, in the same order: the saved job, or null.
+export const CheckManyResponse = z.object({ results: z.array(ExactMatch.nullable()) });
+export type CheckManyResponse = z.infer<typeof CheckManyResponse>;
+
 export const SaveDecision = z.union([z.literal('new'), z.object({ linkTo: Id })]);
 export type SaveDecision = z.infer<typeof SaveDecision>;
 
