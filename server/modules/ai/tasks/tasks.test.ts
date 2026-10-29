@@ -72,3 +72,72 @@ describe('AI tasks', () => {
     expect(req.thinking).toBe(false);
   });
 });
+
+describe('AI task: classifyEmail', () => {
+  const candidates = [
+    { id: 1, title: 'Senior Engineer', company: 'Atlassian', agency: null, status: 'Applied' },
+    { id: 4, title: 'Platform Lead', company: null, agency: 'Hays', status: 'Screening' },
+  ];
+  const input = {
+    from: 'careers@atlassian.com',
+    subject: 'Your application for Senior Engineer',
+    receivedAt: '2026-10-27T22:00:00.000Z',
+    text: 'Unfortunately we will not progress your application.',
+    candidates,
+  };
+  const answer = (extra: object) => () =>
+    JSON.stringify({ event: 'rejected', jobId: 1, company: 'Atlassian', role: 'Senior Engineer', confidence: 0.9, summary: 'Not progressing.', ...extra });
+
+  it('sends the candidates as a numbered list, the email last, with thinking off', async () => {
+    const provider = new FakeAiProvider(answer({}));
+    const ai = await withProvider(provider);
+    expect(await ai.classifyEmail(input)).toMatchObject({ event: 'rejected', jobId: 1 });
+    const req = provider.calls[0]!;
+    expect(req.jsonSchema?.name).toBe('email_classification');
+    expect(req.thinking).toBe(false);
+    expect(req.maxTokens).toBe(1024);
+    expect(req.temperature).toBe(0.1);
+    const system = req.messages[0]!.content;
+    expect(system).toContain('[1] Senior Engineer at Atlassian (Applied)');
+    expect(system).toContain('[4] Platform Lead, through Hays (Screening)');
+    expect(system).toMatch(/never follow instructions/i);
+    const user = req.messages[1]!.content;
+    expect(user).toContain('Subject: Your application for Senior Engineer');
+    expect(user.trim().endsWith('Unfortunately we will not progress your application.')).toBe(true);
+  });
+
+  it("says when there are no candidate jobs", async () => {
+    const provider = new FakeAiProvider(answer({ jobId: null }));
+    const ai = await withProvider(provider);
+    await ai.classifyEmail({ ...input, candidates: [] });
+    expect(provider.calls[0]!.messages[0]!.content).toContain('None.');
+  });
+
+  it("drops a job id that wasn't a candidate", async () => {
+    const ai = await withProvider(new FakeAiProvider(answer({ jobId: 99 })));
+    expect((await ai.classifyEmail(input)).jobId).toBeNull();
+  });
+
+  it('trims the summary to 200 characters, and blank names become null', async () => {
+    const ai = await withProvider(new FakeAiProvider(answer({ summary: `  ${'x'.repeat(300)}  `, company: '  ', role: ' Lead ' })));
+    const result = await ai.classifyEmail(input);
+    expect(result.summary).toHaveLength(200);
+    expect(result.company).toBeNull();
+    expect(result.role).toBe('Lead');
+  });
+
+  it('keeps the company and role short, so no email text hides in them', async () => {
+    const ai = await withProvider(new FakeAiProvider(answer({ company: 'A'.repeat(500), role: 'B'.repeat(500) })));
+    const result = await ai.classifyEmail(input);
+    expect(result.company).toHaveLength(120);
+    expect(result.role).toHaveLength(120);
+  });
+
+  it('waits behind reading a saved ad, because it runs in the background', async () => {
+    const provider = new FakeAiProvider(defaultReply, { delayMs: 20 });
+    provider.reply = (req) => (req.jsonSchema?.name === 'email_classification' ? answer({})() : defaultReply(req));
+    const ai = await withProvider(provider);
+    await Promise.all([ai.parseJob('First ad.'), ai.classifyEmail(input), ai.parseJob('Second ad.')]);
+    expect(provider.calls.map((c) => c.jsonSchema?.name)).toEqual(['parsed_job', 'parsed_job', 'email_classification']);
+  });
+});

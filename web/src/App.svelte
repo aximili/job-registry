@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import Header from './components/Header.svelte';
   import NewJobDialog from './components/NewJobDialog.svelte';
+  import BoardPage from './pages/BoardPage.svelte';
   import DocEditorPage from './pages/DocEditorPage.svelte';
   import HomePage from './pages/HomePage.svelte';
+  import InboxPage from './pages/InboxPage.svelte';
   import JobPage from './pages/JobPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
   import { loadSettings, watchSettings } from './lib/app-state.svelte.ts';
@@ -70,6 +72,10 @@
   {/key}
 {:else if router.route.name === 'settings'}
   <SettingsPage />
+{:else if router.route.name === 'inbox'}
+  <InboxPage />
+{:else if router.route.name === 'board'}
+  <BoardPage />
 {:else}
   <main class="page">
     <h1>There's no page at this address.</h1>

@@ -11,7 +11,11 @@ const VALUES: Record<string, string[]> = {
   'rate-job': ['profile', 'preferences', 'ad'],
   'write-resume': ['profile', 'guide', 'job', 'ad'],
   'write-cover-letter': ['profile', 'guide', 'today', 'job', 'ad'],
+  'classify-email': ['candidates', 'from', 'subject', 'date', 'email'],
 };
+
+// What each prompt ends with: the long, changing part, so the fixed part can be cached.
+const LAST: Record<string, string> = { 'classify-email': '{{email}}' };
 
 describe('prompts', () => {
   it('every prompt file has a system part and a user part, and every placeholder is filled', () => {
@@ -27,10 +31,10 @@ describe('prompts', () => {
     }
   });
 
-  it('the ad comes last in every prompt', () => {
+  it('the ad, or the email, comes last in every prompt', () => {
     for (const name of Object.keys(VALUES)) {
       const { user } = loadPrompt(dir, name);
-      expect(user.trim().endsWith('{{ad}}')).toBe(true);
+      expect(user.trim().endsWith(LAST[name] ?? '{{ad}}')).toBe(true);
     }
   });
 

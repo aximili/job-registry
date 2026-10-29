@@ -42,6 +42,9 @@ export const Job = EditableJobFields.extend({
   matchScore: z.number().int().nullable(),
   match: Rating.nullable(),
   archived: z.boolean(),
+  // A follow-up reminder: the day to chase this job, and why.
+  followUpOn: LocalDate.nullable().default(null),
+  followUpNote: z.string().nullable().default(null),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -56,6 +59,8 @@ export const JobSummary = z.object({
   status: z.string(),
   dateApplied: LocalDate.nullable(),
   archived: z.boolean(),
+  followUpOn: LocalDate.nullable().default(null),
+  followUpNote: z.string().nullable().default(null),
   updatedAt: IsoDateTime,
 });
 export type JobSummary = z.infer<typeof JobSummary>;
@@ -156,3 +161,14 @@ export type AddPostingRequest = z.infer<typeof AddPostingRequest>;
 
 export const PostingLookupResponse = z.object({ match: ExactMatch.nullable() });
 export type PostingLookupResponse = z.infer<typeof PostingLookupResponse>;
+
+// on: null clears the follow-up, and its reason with it.
+export const SetFollowUpRequest = z.strictObject({
+  on: LocalDate.nullable(),
+  note: z.string().trim().max(200, 'Keep the reason to 200 characters or fewer.').nullable().optional(),
+});
+export type SetFollowUpRequest = z.infer<typeof SetFollowUpRequest>;
+
+// due: today or late, oldest first. soon: the next 7 days, soonest first.
+export const FollowUpsResponse = z.object({ today: LocalDate, due: z.array(JobSummary), soon: z.array(JobSummary) });
+export type FollowUpsResponse = z.infer<typeof FollowUpsResponse>;

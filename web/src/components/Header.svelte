@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { inbox, watchInbox } from '../lib/inbox.svelte.ts';
   import AiPill from './AiPill.svelte';
   import SearchBox from './SearchBox.svelte';
 
   let { onNewJob }: { onNewJob?: () => void } = $props();
+
+  const pending = $derived(inbox.status?.pending ?? 0);
+
+  onMount(() => watchInbox());
 </script>
 
 <header>
@@ -13,6 +19,10 @@
       {#if onNewJob}
         <button type="button" class="button primary" onclick={onNewJob}>New job <kbd>N</kbd></button>
       {/if}
+      <a href="/board" class="button quiet">Board</a>
+      <a href="/inbox" class="button quiet" aria-label={pending > 0 ? `Inbox, ${pending} to check` : 'Inbox'}>
+        Inbox{#if pending > 0}<span class="count" aria-hidden="true">{pending}</span>{/if}
+      </a>
       <a href="/settings" class="button quiet">Settings</a>
     </nav>
   </div>
@@ -45,6 +55,16 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+  }
+
+  .count {
+    min-width: 1.4em;
+    padding: 0 var(--space-1);
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: var(--step--1);
+    text-align: center;
   }
 
   .primary kbd {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CallSheet } from '../../../shared/contracts/index.ts';
   import { sentParts } from '../lib/documents.ts';
+  import { lateness, today } from '../lib/follow-up.ts';
   import { displayCompany, displayTitle, EMPLOYMENT_LABEL, formatDate, formatSalary, WORK_MODE_LABEL } from '../lib/format.ts';
   import MatchPanel from './MatchPanel.svelte';
   import NotesPanel from './NotesPanel.svelte';
@@ -15,6 +16,8 @@
     onEdit,
     onArchive,
     onChanged,
+    onFollowUp,
+    onFollowUpDone,
   }: {
     sheet: CallSheet;
     onStatusChange: (status: string) => void;
@@ -22,6 +25,8 @@
     onEdit: () => void;
     onArchive: () => void;
     onChanged: () => void;
+    onFollowUp: () => void;
+    onFollowUpDone: () => void;
   } = $props();
 
   const job = $derived(sheet.job);
@@ -30,6 +35,7 @@
   const fromAi = $derived(Object.values(job.fieldSources).includes('ai'));
   // "What did I send them?", answered during the call.
   const sent = $derived(sentParts(sheet.sent));
+  const late = $derived(job.followUpOn ? lateness(job.followUpOn, today()) : '');
 
   // Only facts we know are shown. An empty row helps no one mid-call.
   const facts = $derived(
@@ -67,6 +73,18 @@
       {/each}
     </dl>
   {/if}
+  {#if job.followUpOn}
+    <p class="follow-up" class:due={late !== ''}>
+      <span>
+        <strong>Follow up:</strong>
+        {formatDate(job.followUpOn)}{job.followUpNote ? ` · ${job.followUpNote}` : ''}{late ? ` (${late === 'Today' ? 'today' : late})` : ''}
+      </span>
+      <button type="button" class="button quiet" id="follow-up-change" aria-label="Change follow-up" onclick={onFollowUp}>
+        Change <kbd>F</kbd>
+      </button>
+      <button type="button" class="button quiet" aria-label="Done with the follow-up" onclick={onFollowUpDone}>Done</button>
+    </p>
+  {/if}
   {#if sent.length > 0}
     <p class="sent">
       <strong>Sent:</strong>
@@ -97,6 +115,7 @@
 
   <div class="actions">
     <button type="button" class="button" onclick={onEdit}>Edit <kbd>E</kbd></button>
+    {#if !job.followUpOn}<button type="button" class="button" id="follow-up-button" onclick={onFollowUp}>Follow up <kbd>F</kbd></button>{/if}
     <details class="more">
       <summary class="button quiet">More</summary>
       <div class="menu">
@@ -107,6 +126,18 @@
 </section>
 
 <style>
+  .follow-up {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .follow-up.due strong,
+  .follow-up.due span {
+    color: var(--danger);
+  }
+
   .sent {
     margin: calc(-1 * var(--space-3)) 0 0;
   }

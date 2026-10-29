@@ -1,6 +1,7 @@
 // "Is this the same role as one I've already saved?" This is plain code, not AI,
 // so it answers instantly and the same way every time. See decision 0010.
 
+import { normaliseCompany, words } from '../../../shared/company.ts';
 import type { Candidate, SourceSite } from '../../../shared/contracts/index.ts';
 
 export type MatchableJob = {
@@ -19,10 +20,6 @@ const LIKELY = 0.6;
 const POSSIBLE = 0.8;
 const MAX_CANDIDATES = 3;
 
-const COMPANY_SUFFIXES = new Set([
-  'pty', 'ltd', 'limited', 'inc', 'llc', 'plc', 'corp', 'corporation', 'co', 'group', 'holdings', 'australia', 'aust',
-]);
-
 const TITLE_EXPANSIONS: Record<string, string> = {
   sr: 'senior',
   snr: 'senior',
@@ -36,25 +33,6 @@ const TITLE_NOISE = new Set([
   'a', 'an', 'the', 'of', 'and', 'at', 'for', 'in', 'to', 'with',
   'remote', 'hybrid', 'contract', 'permanent', 'full', 'part', 'time', 'fte',
 ]);
-
-function words(text: string): string[] {
-  return (
-    text
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
-      .match(/[a-z0-9]+/g) ?? []
-  );
-}
-
-// "The Commonwealth Bank of Australia" → "commonwealth bank". "Atlassian Pty Ltd" → "atlassian".
-export function normaliseCompany(name: string): string {
-  let list = words(name);
-  if (list[0] === 'the' && list.length > 1) list = list.slice(1);
-  while (list.length > 1 && COMPANY_SUFFIXES.has(list.at(-1)!)) list.pop();
-  while (list.length > 1 && (list.at(-1) === 'of' || list.at(-1) === 'and')) list.pop();
-  return list.join(' ');
-}
 
 export function titleTokens(title: string): Set<string> {
   return new Set(words(title).map((w) => TITLE_EXPANSIONS[w] ?? w).filter((w) => !TITLE_NOISE.has(w)));

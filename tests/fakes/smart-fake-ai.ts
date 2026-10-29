@@ -5,7 +5,7 @@
 // Modes: "smart" (the default), "fail" (the AI can't be reached), "slow",
 // and "bad" (an answer that never fits).
 
-import type { ParsedJob } from '../../shared/contracts/index.ts';
+import type { EmailClassification, EmailEvent, ParsedJob } from '../../shared/contracts/index.ts';
 import { AiUnavailableError } from '../../server/core/errors.ts';
 import { FAKE_RATING, FakeAiProvider } from './fake-ai-provider.ts';
 
@@ -79,6 +79,33 @@ export function readAdLikeAPerson(ad: string): ParsedJob {
   };
 }
 
+// Reads an email the way a person skims it: a word or two decides the event,
+// and the first candidate job is the one it's about.
+export function readEmailLikeAPerson(system: string, user: string): EmailClassification {
+  const email = user.toLowerCase();
+  const event: EmailEvent = /unfortunately|not progress|unsuccessful/.test(email)
+    ? 'rejected'
+    : /interview/.test(email)
+      ? 'interview'
+      : /offer/.test(email)
+        ? 'offer'
+        : /assessment|challenge/.test(email)
+          ? 'assessment'
+          : /thank you for applying|thanks for applying|received your application/.test(email)
+            ? 'received'
+            : 'other';
+  const first = /^\[(\d+)\]/m.exec(system);
+  const subject = /^Subject: (.*)$/m.exec(user)?.[1] ?? '';
+  return {
+    event,
+    jobId: first ? Number(first[1]) : null,
+    company: null,
+    role: null,
+    confidence: event === 'other' ? 0.3 : 0.9,
+    summary: `About: ${subject}`.slice(0, 200),
+  };
+}
+
 export function createSmartFake() {
   let mode: SmartMode = 'smart';
   const provider = new FakeAiProvider((req) => {
@@ -90,6 +117,9 @@ export function createSmartFake() {
       return JSON.stringify(readAdLikeAPerson(ad));
     }
     if (req.jsonSchema?.name === 'rating') return JSON.stringify(FAKE_RATING);
+    if (req.jsonSchema?.name === 'email_classification') {
+      return JSON.stringify(readEmailLikeAPerson(req.messages[0]?.content ?? '', req.messages[1]?.content ?? ''));
+    }
     if (!req.jsonSchema) return /cover letter/i.test(req.messages[0]?.content ?? '') ? FAKE_COVER_LETTER : FAKE_RESUME;
     return 'OK';
   });

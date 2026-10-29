@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findCandidates, normaliseCompany, titleSimilarity, type MatchableJob } from './match.ts';
+import { findCandidates, titleSimilarity, type MatchableJob } from './match.ts';
 
 function job(id: number, extra: Partial<MatchableJob>): MatchableJob {
   return {
@@ -15,17 +15,6 @@ function job(id: number, extra: Partial<MatchableJob>): MatchableJob {
     ...extra,
   };
 }
-
-describe('normaliseCompany', () => {
-  it.each([
-    ['Atlassian Pty Ltd', 'atlassian'],
-    ['Atlassian Australia', 'atlassian'],
-    ['The Commonwealth Bank of Australia', 'commonwealth bank'],
-    ['Canva Group Holdings', 'canva'],
-  ])('%s → %s', (input, expected) => {
-    expect(normaliseCompany(input)).toBe(expected);
-  });
-});
 
 describe('titleSimilarity', () => {
   it.each([

@@ -133,7 +133,25 @@
         "thinking": true,
         "thinkingEffort": "medium",
         "extra": {}
+      },
+      "email": {
+        "model": null,
+        "temperature": 0.1,
+        "maxTokens": 1024,
+        "thinking": false,
+        "thinkingEffort": "medium",
+        "extra": {}
       }
     }
+  },
+  "email": {
+    "enabled": false,
+    "address": "",
+    "host": "imap.gmail.com",
+    "port": 993,
+    "mailbox": "INBOX",
+    "pollMinutes": 10,
+    "firstCheckDays": 14,
+    "maxPerCheck": 100
   }
 }

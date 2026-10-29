@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Capture, DEFAULT_SETTINGS, IsoDateTime, Rating, SaveJobRequest, Settings, Status } from './index.ts';
+import { Capture, DEFAULT_SETTINGS, IsoDateTime, Rating, SaveJobRequest, SetFollowUpRequest, Settings, Status } from './index.ts';
 
 const capturedAt = '2026-10-28T03:15:00.000Z';
 
@@ -88,3 +88,48 @@ describe('contracts: times', () => {
   });
 });
 
+
+describe('contracts: email', () => {
+  it('an empty settings file gets the email defaults, with email off', () => {
+    expect(Settings.parse({}).email).toEqual({
+      enabled: false,
+      address: '',
+      host: 'imap.gmail.com',
+      port: 993,
+      mailbox: 'INBOX',
+      pollMinutes: 10,
+      firstCheckDays: 14,
+      maxPerCheck: 100,
+    });
+  });
+
+  it('checking more often than every 5 minutes is refused', () => {
+    expect(Settings.safeParse({ email: { pollMinutes: 1 } }).success).toBe(false);
+    expect(Settings.safeParse({ email: { pollMinutes: 5 } }).success).toBe(true);
+  });
+
+  it('checking less often than once a day is refused, so the timer never overflows', () => {
+    expect(Settings.safeParse({ email: { pollMinutes: 1440 } }).success).toBe(true);
+    expect(Settings.safeParse({ email: { pollMinutes: 100_000 } }).success).toBe(false);
+  });
+
+  it('reading emails has its own AI settings, with thinking off', () => {
+    expect(DEFAULT_SETTINGS.ai.tasks.email).toEqual({
+      model: null,
+      temperature: 0.1,
+      maxTokens: 1024,
+      thinking: false,
+      thinkingEffort: 'medium',
+      extra: {},
+    });
+  });
+});
+
+describe('contracts: follow-ups', () => {
+  it('a reason of 200 characters is fine, and a longer one says so plainly', () => {
+    expect(SetFollowUpRequest.safeParse({ on: '2026-11-05', note: 'x'.repeat(200) }).success).toBe(true);
+    const long = SetFollowUpRequest.safeParse({ on: '2026-11-05', note: 'x'.repeat(201) });
+    expect(long.success).toBe(false);
+    expect(long.error?.issues[0]?.message).toBe('Keep the reason to 200 characters or fewer.');
+  });
+});

@@ -376,3 +376,66 @@ describe('jobs: what the AI read', () => {
     expect(res.result).toBe('needs_decision');
   });
 });
+
+describe('jobs service: follow-ups', () => {
+  it('sets, changes and clears a follow-up', () => {
+    const job = create({ capture: pastedCapture(), fields: { title: 'Engineer' } });
+    expect(job).toMatchObject({ followUpOn: null, followUpNote: null });
+    expect(jobs.setFollowUp(job.id, { on: '2026-11-05', note: 'Chase Sam' })).toMatchObject({ followUpOn: '2026-11-05', followUpNote: 'Chase Sam' });
+    expect(events.at(-1)).toEqual(['job.updated', { jobId: job.id, fields: ['followUpOn', 'followUpNote'] }]);
+    expect(jobs.setFollowUp(job.id, { on: '2026-11-07' })).toMatchObject({ followUpOn: '2026-11-07', followUpNote: null });
+    expect(jobs.setFollowUp(job.id, { on: null, note: 'ignored' })).toMatchObject({ followUpOn: null, followUpNote: null });
+  });
+
+  it('a blank reason is no reason', () => {
+    const job = create({ capture: pastedCapture() });
+    expect(jobs.setFollowUp(job.id, { on: '2026-11-05', note: '   ' }).followUpNote).toBeNull();
+  });
+
+  it("lists what's due and coming up, and leaves out archived jobs and later ones", () => {
+    const make = (title: string, on: string) => {
+      const job = create({ capture: pastedCapture(title), fields: { title } });
+      jobs.setFollowUp(job.id, { on });
+      return job;
+    };
+    // The clock is 28 Oct 2026, 2:15 pm in Sydney.
+    make('Late', '2026-10-20');
+    make('Today', '2026-10-28');
+    make('Soon', '2026-11-04');
+    make('Later', '2026-11-05');
+    const archived = make('Archived', '2026-10-27');
+    jobs.update(archived.id, { archived: true });
+    const list = jobs.listFollowUps();
+    expect(list.today).toBe('2026-10-28');
+    expect(list.due.map((j) => j.title)).toEqual(['Late', 'Today']);
+    expect(list.soon.map((j) => j.title)).toEqual(['Soon']);
+    expect(list.due[0]).toMatchObject({ followUpOn: '2026-10-20' });
+  });
+
+  it('today is the local date, not the UTC one', () => {
+    const job = create({ capture: pastedCapture(), fields: { title: 'Engineer' } });
+    jobs.setFollowUp(job.id, { on: '2026-10-30' });
+    // 1:30 pm UTC on 29 Oct is 12:30 am on 30 Oct in Sydney.
+    clock = new Date('2026-10-29T13:30:00.000Z');
+    expect(jobs.listFollowUps()).toMatchObject({ today: '2026-10-30', due: [expect.objectContaining({ id: job.id })] });
+  });
+
+  it('a follow-up survives status changes, edits and the AI', () => {
+    const job = create({ capture: pastedCapture('An ad.') });
+    jobs.setFollowUp(job.id, { on: '2026-11-05', note: 'Chase Sam' });
+    jobs.changeStatus(job.id, 'rejected', 'manual');
+    jobs.update(job.id, { company: 'Xero' });
+    jobs.applyParsed(job.id, {
+      title: 'Engineer', company: 'Xero', agency: null, location: null, workMode: 'unknown', employmentType: 'unknown',
+      salary: { min: null, max: null, currency: null, period: null, text: null }, closingDate: null, summary: 'S',
+      requirements: [], niceToHave: [], responsibilities: [], adContact: null,
+    });
+    jobs.update(job.id, { archived: true });
+    jobs.update(job.id, { archived: false });
+    expect(jobs.get(job.id)).toMatchObject({ followUpOn: '2026-11-05', followUpNote: 'Chase Sam' });
+  });
+
+  it('an unknown job is not found', () => {
+    expect(() => jobs.setFollowUp(999, { on: '2026-11-05' })).toThrow(NotFoundError);
+  });
+});

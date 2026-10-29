@@ -121,6 +121,8 @@ export function createApiClient(opts: ApiClientOptions) {
     getJob: (id: number) => call(C.Job, 'GET', `/jobs/${id}`),
     updateJob: (id: number, patch: C.UpdateJobRequest) => call(C.Job, 'PATCH', `/jobs/${id}`, patch),
     changeStatus: (id: number, status: string) => call(C.Job, 'POST', `/jobs/${id}/status`, { status }),
+    setFollowUp: (id: number, req: z.input<typeof C.SetFollowUpRequest>) => call(C.Job, 'PUT', `/jobs/${id}/follow-up`, req),
+    followUps: () => call(C.FollowUpsResponse, 'GET', '/jobs/follow-ups'),
     addPosting: (id: number, capture: C.Capture) => call(C.Job, 'POST', `/jobs/${id}/postings`, { capture }),
     lookupPosting: (url: string) => call(C.PostingLookupResponse, 'GET', `/postings/lookup${queryString({ url })}`),
     getCallSheet: (id: number) => call(C.CallSheet, 'GET', `/jobs/${id}/callsheet`),
@@ -147,6 +149,16 @@ export function createApiClient(opts: ApiClientOptions) {
     getSettings: () => call(C.Settings, 'GET', '/settings'),
     updateSettings: (patch: z.input<typeof C.UpdateSettingsRequest>) =>
       call(C.Settings, 'PATCH', '/settings', patch),
+    secretsStatus: () => call(C.SecretsStatus, 'GET', '/settings/secrets'),
+    updateSecrets: (req: C.UpdateSecretsRequest) => call(C.SecretsStatus, 'PUT', '/settings/secrets', req),
+
+    emailStatus: () => call(C.EmailStatus, 'GET', '/email/status'),
+    checkEmail: () => call(C.EmailStatus, 'POST', '/email/check', {}),
+    testEmail: () => call(C.EmailTestResult, 'POST', '/email/test', {}),
+    emailSuggestions: () => call(z.array(C.EmailSuggestion), 'GET', '/email/suggestions'),
+    confirmSuggestion: (id: number, req: C.ConfirmSuggestionRequest = {}) =>
+      call(C.EmailSuggestion, 'POST', `/email/suggestions/${id}/confirm`, req),
+    dismissSuggestion: (id: number) => call(C.EmailSuggestion, 'POST', `/email/suggestions/${id}/dismiss`, {}),
     backupNow: () => call(C.BackupResponse, 'POST', '/system/backup'),
 
     aiStatus: () => call(C.AiStatus, 'GET', '/ai/status'),

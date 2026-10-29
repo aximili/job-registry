@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AiSettings } from './ai.ts';
+import { EmailSettings } from './email.ts';
 
 export const Status = z.strictObject({
   id: z.string().regex(/^[a-z0-9_]+$/, 'A status id may only use a–z, 0–9 and _.'),
@@ -62,6 +63,7 @@ export const Settings = z.strictObject({
   backups: BackupSettings.prefault({}),
   statuses: StatusList.default(() => DEFAULT_STATUSES.map((s) => ({ ...s }))),
   ai: AiSettings.prefault({}),
+  email: EmailSettings.prefault({}),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -73,5 +75,6 @@ export const UpdateSettingsRequest = z.strictObject({
   backups: BackupSettings.optional(),
   statuses: StatusList.optional(),
   ai: AiSettings.optional(),
+  email: EmailSettings.optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;

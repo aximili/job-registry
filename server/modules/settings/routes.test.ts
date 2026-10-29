@@ -41,3 +41,32 @@ it("only the dashboard can change settings, so an extension can't pick which pro
   expect((await app.request('PATCH', '/api/v1/settings', { ai: { model: 'qwen3:8b' } })).status).toBe(200);
   expect((await app.request('GET', '/api/v1/settings', undefined, fromExtension)).status).toBe(200);
 });
+
+it('the app password is never sent back, and only the dashboard can set it', async () => {
+  const settings = await app.request('GET', '/api/v1/settings');
+  expect(settings.body.email).toEqual({
+    enabled: false,
+    address: '',
+    host: 'imap.gmail.com',
+    port: 993,
+    mailbox: 'INBOX',
+    pollMinutes: 10,
+    firstCheckDays: 14,
+    maxPerCheck: 100,
+  });
+  expect((await app.request('GET', '/api/v1/settings/secrets')).body).toEqual({ emailPassword: false });
+
+  const fromExtension = await app.request('PUT', '/api/v1/settings/secrets', { emailPassword: 'abcdefghijklmnop' }, {
+    origin: 'moz-extension://8f2c1a7e-0000-4000-8000-000000000000',
+  });
+  expect(fromExtension.status).toBe(403);
+  expect(app.services.settings.emailPassword()).toBeNull();
+
+  const saved = await app.request('PUT', '/api/v1/settings/secrets', { emailPassword: 'abcdefghijklmnop' });
+  expect(saved.status).toBe(200);
+  expect(saved.body).toEqual({ emailPassword: true });
+  expect(JSON.stringify(saved.body)).not.toContain('abcdefghijklmnop');
+  const again = await app.request('GET', '/api/v1/settings');
+  expect(JSON.stringify(again.body)).not.toContain('abcdefghijklmnop');
+  expect((await app.request('GET', '/api/v1/settings/secrets')).body).toEqual({ emailPassword: true });
+});

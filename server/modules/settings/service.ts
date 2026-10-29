@@ -1,10 +1,18 @@
-// Owns config/settings.json. You can also edit that file by hand, so a mistake
-// in it stops the app with a clear message, and the file is never overwritten.
+// Owns config/settings.json and config/secrets.json. You can also edit them
+// by hand, so a mistake in one stops with a clear message, and a file is
+// never overwritten with a guess. Secrets never leave this module except
+// through emailPassword(), which app.ts hands to the email module.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import { Settings, UpdateSettingsRequest, type Status } from '../../../shared/contracts/index.ts';
+import {
+  Settings,
+  UpdateSecretsRequest,
+  UpdateSettingsRequest,
+  type SecretsStatus,
+  type Status,
+} from '../../../shared/contracts/index.ts';
 import { ValidationError } from '../../core/errors.ts';
 import type { EventBus } from '../../core/events.ts';
 import { replaceFile } from '../../core/files.ts';
@@ -13,10 +21,26 @@ export interface SettingsService {
   get(): Settings;
   update(patch: UpdateSettingsRequest): Settings;
   statuses(): Status[];
+  // Whether each secret is set. The secrets themselves are never sent out.
+  secrets(): SecretsStatus;
+  emailPassword(): string | null;
+  updateSecrets(req: UpdateSecretsRequest): SecretsStatus;
 }
 
-export function createSettingsService(opts: { file: string; bus: EventBus }): SettingsService {
+const Secrets = z.strictObject({ emailPassword: z.string().nullable().default(null) });
+type Secrets = z.infer<typeof Secrets>;
+
+export type SettingsOptions = {
+  file: string;
+  // Defaults to secrets.json next to settings.json.
+  secretsFile?: string;
+  bus: EventBus;
+};
+
+export function createSettingsService(opts: SettingsOptions): SettingsService {
   let current = load(opts.file);
+  const secretsFile = opts.secretsFile ?? join(dirname(opts.file), 'secrets.json');
+  const status = (secrets: Secrets): SecretsStatus => ({ emailPassword: secrets.emailPassword !== null });
 
   return {
     get: () => current,
@@ -37,7 +61,37 @@ export function createSettingsService(opts: { file: string; bus: EventBus }): Se
     },
 
     statuses: () => [...current.statuses].sort((a, b) => a.order - b.order),
+
+    // Read from disk each time, so a hand edit counts at once.
+    secrets: () => status(loadSecrets(secretsFile)),
+    emailPassword: () => loadSecrets(secretsFile).emailPassword,
+
+    updateSecrets(req) {
+      const parsed = UpdateSecretsRequest.safeParse(req);
+      if (!parsed.success) throw new ValidationError(z.prettifyError(parsed.error));
+      // Google shows an app password in groups of four letters; the spaces aren't part of it.
+      const password = parsed.data.emailPassword?.replace(/\s+/g, '') || null;
+      const next: Secrets = { ...loadSecrets(secretsFile), emailPassword: password };
+      writeJson(secretsFile, next);
+      opts.bus.emit('settings.changed', { keys: ['secrets'] });
+      return status(next);
+    },
   };
+}
+
+function loadSecrets(file: string): Secrets {
+  if (!existsSync(file)) return Secrets.parse({});
+  const text = readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    // JSON.parse quotes the text near the mistake, which may be the password.
+    throw new ValidationError(`${file} isn't valid JSON. Check the quotes around the password.`);
+  }
+  const result = Secrets.safeParse(raw);
+  if (!result.success) throw new ValidationError(`${file} has a problem:\n${z.prettifyError(result.error)}`);
+  return result.data;
 }
 
 function load(file: string): Settings {
@@ -59,10 +113,14 @@ function load(file: string): Settings {
   return result.data;
 }
 
-// Write to a temporary file, then rename it, so a crash never leaves half a file.
 function write(file: string, settings: Settings): void {
+  writeJson(file, settings);
+}
+
+// Write to a temporary file, then rename it, so a crash never leaves half a file.
+function writeJson(file: string, value: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`);
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
   replaceFile(tmp, file);
 }

@@ -43,6 +43,8 @@ const ParseTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 4096, thin
 const RateTaskSettings = taskSettings({ temperature: 0.3, maxTokens: 2048, thinking: false });
 // Resumes and cover letters: the model thinks first, and writes at length.
 const WriteTaskSettings = taskSettings({ temperature: 0.6, maxTokens: 8192, thinking: true });
+// Reading an email: short, and no thinking.
+const EmailTaskSettings = taskSettings({ temperature: 0.1, maxTokens: 1024, thinking: false });
 export type TaskSettings = z.infer<typeof ParseTaskSettings>;
 
 const ManagedSettings = z.strictObject({
@@ -80,6 +82,7 @@ export const AiSettings = z.strictObject({
       parse: ParseTaskSettings,
       rate: RateTaskSettings,
       write: WriteTaskSettings,
+      email: EmailTaskSettings,
     })
     .prefault({}),
 });

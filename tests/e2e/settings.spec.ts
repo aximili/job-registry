@@ -46,7 +46,7 @@ test("the settings page says so when it can't load", async ({ page }) => {
 });
 
 test.describe('AI settings', () => {
-  const section = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'AI' });
+  const section = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'AI', exact: true });
 
   test('choosing Ollama fills in its address, and saving keeps it after a reload', async ({ page }) => {
     await page.goto('/settings#ai');

@@ -37,6 +37,8 @@ const job = {
   matchScore: null,
   match: null,
   archived: false,
+  followUpOn: null,
+  followUpNote: null,
   createdAt: '2026-10-28T03:15:00.000Z',
   updatedAt: '2026-10-28T03:15:00.000Z',
 };
@@ -166,5 +168,29 @@ describe('generateDocument: a stream that just stops', () => {
     };
     await expect(run()).rejects.toThrow('The AI stopped before the draft was finished. The text so far is still here. Try again.');
     expect(chunks).toEqual([{ kind: 'text', text: '# Sam' }]);
+  });
+});
+
+describe('api client: secrets', () => {
+  it('sends the app password with PUT and reads back only whether it is set', async () => {
+    const { fetch, calls } = fakeFetch(200, { emailPassword: true });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    expect(await api.updateSecrets({ emailPassword: 'abcdefghijklmnop' })).toEqual({ emailPassword: true });
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/settings/secrets');
+    expect(calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ emailPassword: 'abcdefghijklmnop' });
+    expect(await api.secretsStatus()).toEqual({ emailPassword: true });
+    expect(calls[1]!.init.method).toBe('GET');
+  });
+});
+
+describe('api client: follow-ups', () => {
+  it('sets a follow-up with PUT', async () => {
+    const { fetch, calls } = fakeFetch(200, { ...job, followUpOn: '2026-11-05', followUpNote: 'Chase' });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    expect((await api.setFollowUp(1, { on: '2026-11-05', note: 'Chase' })).followUpOn).toBe('2026-11-05');
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/jobs/1/follow-up');
+    expect(calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ on: '2026-11-05', note: 'Chase' });
   });
 });

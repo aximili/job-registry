@@ -9,11 +9,15 @@ export type Route =
   // docId is null for a new document; kind comes from ?kind= then.
   | { name: 'document'; jobId: number; docId: number | null; kind: DocumentKind | null }
   | { name: 'settings' }
+  | { name: 'inbox' }
+  | { name: 'board' }
   | { name: 'not-found' };
 
 function match(path: string, search = ''): Route {
   if (path === '/' || path === '') return { name: 'home' };
   if (path === '/settings') return { name: 'settings' };
+  if (path === '/inbox') return { name: 'inbox' };
+  if (path === '/board') return { name: 'board' };
   const job = /^\/jobs\/(\d+)$/.exec(path);
   if (job) return { name: 'job', id: Number(job[1]) };
   const doc = /^\/jobs\/(\d+)\/documents\/(new|\d+)$/.exec(path);

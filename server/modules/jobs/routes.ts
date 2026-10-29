@@ -6,6 +6,7 @@ import {
   JobCheckRequest,
   ListJobsQuery,
   SaveJobRequest,
+  SetFollowUpRequest,
   UpdateJobRequest,
 } from '../../../shared/contracts/index.ts';
 import { IdParams, parseOrThrow } from '../../core/http/validate.ts';
@@ -31,7 +32,14 @@ export function jobsRoutes(service: JobsService): FastifyPluginAsync {
 
     http.get('/jobs', async (req) => service.list(parseOrThrow(ListJobsQuery, req.query)));
 
+    http.get('/jobs/follow-ups', async () => service.listFollowUps());
+
     http.get('/jobs/:id', async (req) => service.get(parseOrThrow(IdParams, req.params).id));
+
+    http.put('/jobs/:id/follow-up', async (req) => {
+      const { id } = parseOrThrow(IdParams, req.params);
+      return service.setFollowUp(id, parseOrThrow(SetFollowUpRequest, req.body));
+    });
 
     http.patch('/jobs/:id', async (req) => {
       const { id } = parseOrThrow(IdParams, req.params);

@@ -4,6 +4,7 @@
 > - **Approved:** 28 Oct 2026.
 > - **Phase 0** (architecture document) is in review. See [architecture.md](architecture.md).
 > - **Updated:** small refinements from the architecture work. They are listed in architecture.md §18 and already applied below.
+> - **Phases 1–6** are built and tested on macOS (Phase 5, Gmail, and Phase 6, follow-up reminders and the board, on 29 Oct 2026). From Phase 6 you chose follow-up reminders and the Kanban board, not phone access or the Windows-wide hotkey. See CLAUDE.md for the current status.
 
 ## Context
 

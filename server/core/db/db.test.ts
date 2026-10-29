@@ -30,7 +30,7 @@ function v1Migrations(): string {
   return dir;
 }
 
-const LATEST = 3;
+const LATEST = 5;
 
 describe('database', () => {
   it('migrates an empty database to the latest version with all tables', () => {
@@ -38,7 +38,7 @@ describe('database', () => {
     expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
     const names = tableNames(db);
-    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache', 'documents', 'attachments']) {
+    for (const t of ['jobs', 'postings', 'status_history', 'notes', 'contacts', 'job_contacts', 'interactions', 'search_index', 'rating_cache', 'documents', 'attachments', 'email_suggestions', 'email_state']) {
       expect(names).toContain(t);
     }
   });
@@ -105,12 +105,61 @@ describe('database', () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
     expect(db.prepare('SELECT title FROM jobs').all()).toEqual([{ title: 'Engineer' }]);
     db.prepare(
       "INSERT INTO documents (job_id, kind, version, markdown, origin, created_at) VALUES (1, 'resume', 1, '# Me', 'edited', 'now')",
     ).run();
     expect(db.prepare('SELECT version FROM documents').all()).toEqual([{ version: 1 }]);
+    db.close();
+  });
+
+  it('upgrades a version 3 database to version 4, keeps the data, and adds the email tables', () => {
+    const dir = tempDir();
+    for (const name of ['001_init.sql', '002_rating_cache.sql', '003_documents.sql']) copyFileSync(join(realMigrations, name), join(dir, name));
+    const file = join(tempDir(), 'jobs.db');
+    const old = openDb(file, { migrationsDir: dir });
+    old
+      .prepare("INSERT INTO jobs (title, status, created_at, updated_at) VALUES ('Engineer', 'applied', '2026-10-28T00:00:00Z', '2026-10-28T00:00:00Z')")
+      .run();
+    expect(old.pragma('user_version', { simple: true })).toBe(3);
+    old.close();
+
+    const db = openDb(file);
+    expect(db.pragma('user_version', { simple: true })).toBe(LATEST);
+    expect(db.prepare('SELECT title FROM jobs').all()).toEqual([{ title: 'Engineer' }]);
+    const insert = db.prepare(
+      'INSERT INTO email_suggestions (message_id, job_id, received_at, state, created_at) VALUES (?, ?, ?, ?, ?)',
+    );
+    insert.run('<a@x>', 1, '2026-10-28T00:00:00Z', 'pending', '2026-10-28T00:00:00Z');
+    // The same email twice, a state that doesn't exist, and a job that doesn't exist are all refused.
+    expect(() => insert.run('<a@x>', 1, '2026-10-28T00:00:00Z', 'pending', 'now')).toThrow(/UNIQUE/);
+    expect(() => insert.run('<b@x>', 1, '2026-10-28T00:00:00Z', 'maybe', 'now')).toThrow(/CHECK/);
+    expect(() => insert.run('<c@x>', 99, '2026-10-28T00:00:00Z', 'pending', 'now')).toThrow(/FOREIGN KEY/);
+    db.prepare("INSERT INTO email_state (key, value) VALUES ('cursor', '{}')").run();
+    db.close();
+  });
+
+  it('upgrades a version 4 database to version 5, keeps the data, and adds the follow-up columns', () => {
+    const dir = tempDir();
+    for (const name of ['001_init.sql', '002_rating_cache.sql', '003_documents.sql', '004_email.sql']) {
+      copyFileSync(join(realMigrations, name), join(dir, name));
+    }
+    const file = join(tempDir(), 'jobs.db');
+    const old = openDb(file, { migrationsDir: dir });
+    old
+      .prepare("INSERT INTO jobs (title, status, created_at, updated_at) VALUES ('Engineer', 'applied', '2026-10-28T00:00:00Z', '2026-10-28T00:00:00Z')")
+      .run();
+    expect(old.pragma('user_version', { simple: true })).toBe(4);
+    old.close();
+
+    const db = openDb(file);
+    expect(db.pragma('user_version', { simple: true })).toBe(5);
+    expect(db.prepare('SELECT title, follow_up_on, follow_up_note FROM jobs').all()).toEqual([
+      { title: 'Engineer', follow_up_on: null, follow_up_note: null },
+    ]);
+    db.prepare("UPDATE jobs SET follow_up_on = '2026-11-05', follow_up_note = 'Chase Sam'").run();
+    expect(db.prepare('SELECT follow_up_on FROM jobs').get()).toEqual({ follow_up_on: '2026-11-05' });
     db.close();
   });
 

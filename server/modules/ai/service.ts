@@ -8,6 +8,7 @@ import {
   type AiState,
   type AiStatus,
   type AiTestResult,
+  type EmailClassification,
   type ParsedJob,
   type Rating,
 } from '../../../shared/contracts/index.ts';
@@ -19,11 +20,12 @@ import { loadPrompt, PROMPTS_DIR } from './prompts.ts';
 import type { AiProvider } from './provider.ts';
 import { createAiQueue, type Priority } from './queue.ts';
 import type { ModelRuntime } from './runtime.ts';
+import { classifyEmailTask, type ClassifyInput } from './tasks/classify-email.ts';
 import { parseJobTask } from './tasks/parse-job.ts';
 import { rateJobTask, type RateInput } from './tasks/rate-job.ts';
 import { writeDocumentTask, type WriteInput } from './tasks/write-document.ts';
 
-export type { Priority, RateInput, WriteInput };
+export type { ClassifyInput, Priority, RateInput, WriteInput };
 
 export interface AiService {
   parseJob(adText: string, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<ParsedJob>;
@@ -31,6 +33,8 @@ export interface AiService {
   // A resume or cover letter, as it's written. It holds the AI until the
   // stream ends, is cancelled, or the reader stops early.
   writeDocument(input: WriteInput, opts?: { signal?: AbortSignal; key?: string }): AsyncIterable<string>;
+  // What one email means. Background work, so anything you're waiting for goes first.
+  classifyEmail(input: ClassifyInput, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<EmailClassification>;
   status(): AiStatus;
   test(): Promise<AiTestResult>;
   stop(): Promise<void>;
@@ -59,6 +63,7 @@ export function createAiService(opts: AiOptions): AiService {
     rate: loadPrompt(dir, 'rate-job'),
     resume: loadPrompt(dir, 'write-resume'),
     cover_letter: loadPrompt(dir, 'write-cover-letter'),
+    email: loadPrompt(dir, 'classify-email'),
   };
 
   let busy = 0;
@@ -144,6 +149,12 @@ export function createAiService(opts: AiOptions): AiService {
     rateJob(input, o = {}) {
       return run(o.priority ?? 'interactive', o.key, o.signal, (signal) =>
         rateJobTask({ provider: opts.provider, prompt: prompts.rate, config: opts.getConfig(), input, signal }),
+      );
+    },
+
+    classifyEmail(input, o = {}) {
+      return run(o.priority ?? 'background', undefined, o.signal, (signal) =>
+        classifyEmailTask({ provider: opts.provider, prompt: prompts.email, config: opts.getConfig(), input, signal }),
       );
     },
 

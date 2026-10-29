@@ -26,6 +26,9 @@ export type AppEvents = {
   'ai.stateChanged': { state: AiState; detail: string | null };
   'enrich.done': { jobId: number; step: 'parse' | 'rate' };
   'enrich.failed': { jobId: number; step: 'parse' | 'rate'; error: string };
+  'email.suggestionsAdded': { count: number };
+  'email.suggestionHandled': { suggestionId: number; state: 'confirmed' | 'dismissed' };
+  'email.checked': { ok: boolean; error: string | null };
 };
 
 export type EventName = keyof AppEvents;

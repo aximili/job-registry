@@ -12,6 +12,7 @@ import { pino } from 'pino';
 import { DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
 import { buildApp } from '../../server/app.ts';
 import { resolvePaths } from '../../server/core/config.ts';
+import { FakeMailSource, type FakeMail } from '../fakes/fake-mail-source.ts';
 import { FakeRuntime } from '../fakes/fake-runtime.ts';
 import { createSmartFake, E2E_PROFILE, type SmartMode } from '../fakes/smart-fake-ai.ts';
 
@@ -35,9 +36,11 @@ const STARTER_FILES = [
 
 const smart = createSmartFake();
 const runtime = new FakeRuntime();
+// A mailbox in memory: tests add emails with POST /__test/mail.
+const mail = new FakeMailSource();
 const app = await buildApp(
   { paths, port: E2E_PORT, logger: pino({ level: 'warn' }), version: 'e2e' },
-  { ai: smart.provider, runtime },
+  { ai: smart.provider, runtime, mail },
 );
 
 // Test-only: empty every table between tests, and put the settings back.
@@ -49,11 +52,15 @@ app.http.post('/__test/reset', async () => {
   smart.provider.finished.length = 0;
   await app.services.ai.stop();
   await app.services.enrich.onIdle();
+  mail.messages = [];
+  mail.fail = null;
   app.db.exec(`
+    DELETE FROM email_suggestions; DELETE FROM email_state;
     DELETE FROM documents; DELETE FROM attachments;
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
     DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;`);
   app.services.settings.update(DEFAULT_SETTINGS);
+  app.services.settings.updateSecrets({ emailPassword: null });
   // Your profile and templates as a fresh install has them.
   app.services.profile.write('master-profile', E2E_PROFILE);
   app.services.profile.write('preferences', '');
@@ -67,6 +74,15 @@ app.http.get('/__test/ai-calls', async () => ({
   ratings: smart.provider.callsFor('rating').length,
   ratingsFinished: smart.provider.finished.filter((c) => c.jsonSchema?.name === 'rating').length,
 }));
+
+// Test-only: the fake mailbox. { messages } adds emails (received now unless
+// they say otherwise); { fail } makes Gmail fail with that message, or not.
+app.http.post('/__test/mail', async (req) => {
+  const body = req.body as { messages?: Omit<FakeMail, 'uid'>[]; fail?: string | null };
+  for (const m of body.messages ?? []) mail.add({ receivedAt: new Date().toISOString(), ...m });
+  if (body.fail !== undefined) mail.fail = body.fail === null ? null : new Error(body.fail);
+  return { ok: true };
+});
 
 // Test-only: how the fake AI behaves: { mode: 'smart' | 'fail' | 'slow' | 'bad' }.
 app.http.post('/__test/ai', async (req) => {

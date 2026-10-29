@@ -32,6 +32,7 @@ import {
   createPrintHtmlExporter,
   type DocumentsService,
 } from './modules/documents/index.ts';
+import { createEmailModule, createImapMailSource, type EmailService, type MailSource } from './modules/email/index.ts';
 import { createEnrichModule, type EnrichService } from './modules/enrich/index.ts';
 import { createJobsModule, type JobsService } from './modules/jobs/index.ts';
 import { createLiveModule, type LiveService } from './modules/live/index.ts';
@@ -56,7 +57,7 @@ export type AppOptions = {
 const STARTERS_DIR = fileURLToPath(new URL('../starters/', import.meta.url));
 
 // Stand-ins for the outside world, for tests.
-export type Fakes = { ai: AiProvider; runtime: ModelRuntime };
+export type Fakes = { ai: AiProvider; runtime: ModelRuntime; mail: MailSource };
 
 export type AppServices = {
   settings: SettingsService;
@@ -72,6 +73,7 @@ export type AppServices = {
   contacts: ContactsService;
   search: SearchService;
   callsheet: CallsheetService;
+  email: EmailService;
   live: LiveService;
 };
 
@@ -93,7 +95,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   const now = opts.now ?? (() => new Date());
   const bus = createEventBus(logger);
 
-  const settings = createSettingsModule({ file: opts.paths.settings, bus });
+  const settings = createSettingsModule({ file: opts.paths.settings, secretsFile: opts.paths.secrets, bus });
   const port = opts.port ?? settings.service.get().server.port;
   const backupDir = () => resolve(opts.paths.root, settings.service.get().backups.dir);
 
@@ -170,6 +172,24 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     notes: notes.service,
     documents: documents.service,
   });
+  // Gmail over IMAP, read-only. Email is off until you turn it on in Settings.
+  const mail =
+    fakes.mail ??
+    createImapMailSource(() => ({ ...settings.service.get().email, password: settings.service.emailPassword() }));
+  const email = createEmailModule({
+    db,
+    bus,
+    mail,
+    ai: ai.service,
+    jobs: jobs.service,
+    contacts: contacts.service,
+    notes: notes.service,
+    statuses: () => settings.service.statuses(),
+    getConfig: () => settings.service.get().email,
+    password: () => settings.service.emailPassword(),
+    now,
+    logger,
+  });
   const live = createLiveModule({ bus });
 
   const http: FastifyInstance = Fastify({
@@ -180,7 +200,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   });
   registerSecurity(http, { port });
   registerErrorHandler(http, logger);
-  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, documents, search, callsheet, live]) {
+  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, documents, search, callsheet, email, live]) {
     await http.register(module.routes, { prefix: '/api/v1' });
   }
   await serveDashboard(http, opts.paths.webDist);
@@ -204,6 +224,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
       contacts: contacts.service,
       search: search.service,
       callsheet: callsheet.service,
+      email: email.service,
       live: live.service,
     },
     stopChildrenNow() {
@@ -212,12 +233,15 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     startBackgroundWork() {
       const waiting = enrich.service.sweep();
       if (waiting > 0) logger.info(`Reading ${waiting} saved ads with the AI, one at a time`);
+      email.service.start();
     },
     async close() {
       // AI work first, so nothing writes to the database after it closes,
       // and a llama-server the app started is never left running.
+      email.service.stop();
       await ai.service.stop().catch((err: unknown) => logger.error({ err }, 'Stopping the AI failed'));
       await enrich.service.onIdle();
+      await email.service.onIdle();
       await http.close();
       db.close();
     },

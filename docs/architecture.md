@@ -140,11 +140,11 @@ The server is split **by feature**. Each module owns its own data. No other modu
 | Module | Owns | Public functions (examples) | Depends on |
 |--------|------|-----------------------------|------------|
 | `system` | backups, health check, shutdown, logs | `health()`, `backupNow()`, `shutdown()` | — |
-| `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `statuses()` | — |
+| `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `statuses()`, `secrets()` (only whether each is set), `emailPassword()`, `updateSecrets()` | — |
 | `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `file(name)`, `write(name, text)`, `hash()`, `installStarters()` | — |
 | `capture` | nothing (stateless) | `fromUrl(url)`, `fromText(text)` | — |
-| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `writeDocument()` (streamed), `status()`, `test()`, `stop()`; `classifyEmail()` (Phase 5) | — |
-| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()` | — |
+| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()`, `writeDocument()` (streamed), `status()`, `test()`, `stop()`, `classifyEmail()` | — |
+| `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()`, `setFollowUp()`, `listFollowUps()` | — |
 | `contacts` | `contacts`, `job_contacts`, `interactions` | `create()`, `update()`, `linkToJob()`, `logInteraction()`, `listForJob()`, `findByPhoneDigits()` | — |
 | `notes` | `notes` | `add()`, `update()`, `remove()`, `listForJob()` | — |
 | `ratings` | `rating_cache` | `rate(input, { signal, key })` | `ai`, `profile` |
@@ -152,7 +152,7 @@ The server is split **by feature**. Each module owns its own data. No other modu
 | `documents` | `documents`, `attachments`, `data/files/` | `list()`, `listAll()`, `get()`, `saveVersion()`, `copyFrom()`, `markSent()`, `latestSent()`, `render()`, `exporters()`, `export()`, `generate()`, `attach()`, `listAttachments()`, `attachmentFile()` | `ai`, `profile`, `jobs` |
 | `search` | `search_index` | `query(q)`, `reindexJob(id)`, `rebuild()` | `jobs`, `contacts`, `notes` |
 | `callsheet` | nothing (read-only view) | `get(jobId)`: everything for the one-screen view | `jobs`, `contacts`, `notes`, `documents` |
-| `email` | `email_suggestions`, `email_state` | `checkNow()`, `listSuggestions()`, `confirm()`, `dismiss()` | `ai`, `jobs`, `contacts`, `notes` |
+| `email` | `email_suggestions`, `email_state` | `checkNow()`, `status()`, `test()`, `listSuggestions()`, `confirm()`, `dismiss()`, `start()` / `stop()` (the timer) | `ai`, `jobs`, `contacts`, `notes` |
 | `live` | open dashboard connections | forwards chosen events to the dashboard | — |
 
 Every module also uses `core` (config, database connection, events, errors, logger) and `shared` (contracts and pure helpers).
@@ -248,8 +248,10 @@ export function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}) {
   const search = createSearchModule({ db, bus, jobs: jobs.service, contacts: contacts.service, notes: notes.service });
   const callsheet = createCallsheetModule({ jobs: jobs.service, contacts: contacts.service,
                                             notes: notes.service, documents: documents.service });
-  const email = createEmailModule({ db, bus, mail: fakes.mail ?? pickMailSource(() => settings.get().email),
-                                    ai: ai.service, jobs: jobs.service, contacts: contacts.service, notes: notes.service });
+  const mail = fakes.mail ?? createImapMailSource(() => ({ ...settings.get().email, password: settings.emailPassword() }));
+  const email = createEmailModule({ db, bus, mail, ai: ai.service, jobs: jobs.service, contacts: contacts.service,
+                                    notes: notes.service, statuses: () => settings.statuses(),
+                                    getConfig: () => settings.get().email, password: () => settings.emailPassword() });
   const live = createLiveModule({ bus });
 
   const http = Fastify({ logger });
@@ -285,10 +287,12 @@ Events let modules react to each other without calling each other. All event nam
 | `document.saved` / `document.sent` | `{ jobId, documentId }` | documents | live |
 | `attachment.added` | `{ jobId, attachmentId }` | documents | live |
 | `profile.changed` | `{ name }` | profile, when a file is saved in Settings | live. Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
-| `settings.changed` | `{ keys }` | settings | ai (switch runtime and stop the old one), email (restart timer), live |
+| `settings.changed` | `{ keys }` (`secrets` when the app password changes, never its value) | settings | ai (switch runtime and stop the old one), email (on `email` or `secrets`: check at once when email was just turned on, otherwise restart the timer), live |
 | `ai.stateChanged` | `{ state, detail }` | ai | live; enrich (on `ready`, reads jobs that were waiting for the AI) |
 | `enrich.done` / `enrich.failed` | `{ jobId, step, error? }` | enrich | live |
-| `email.suggestionsAdded` | `{ count }` | email | live |
+| `email.suggestionsAdded` | `{ count }` | email, at the end of a check that added cards | live (the Inbox and the header's count) |
+| `email.suggestionHandled` | `{ suggestionId, state }` (`confirmed` or `dismissed`) | email | live |
+| `email.checked` | `{ ok, error }` | email, after every check | live |
 
 **Delivery rules**
 
@@ -351,18 +355,30 @@ interface ModelRuntime {
 | `LlamaServerRuntime` | The preset is "Bonsai 2 via llama-server" and `managed: true`. It spawns `llama-server.exe` with no console window and sends its logs to `data/logs/llama.log`. If something is already answering on the port, it uses that and won't kill a process it didn't start. On Windows the server can't outlive the app: Node puts child processes in a job object that ends them with it. On macOS and Linux, the app keeps the running server's pid and launch settings in `data/llama-server.pid`, so after a crash the next start knows the server is its own and stops it as usual. Windows ignores that file, so a reused pid can never point it at another program. A stop cancels a start in progress. A change to the program, arguments or address restarts it at the next task. |
 | `NoopRuntime` | Ollama, LM Studio or a custom server you run yourself. `ensureRunning` only checks that the server is there. |
 
-### 6.3 `MailSource` — reading email (Phase 5)
+### 6.3 `MailSource` — reading email
 
 ```ts
 interface MailSource {
-  fetchSince(cursor: MailCursor | null, opts: { maxMessages: number; sinceDays: number }):
-    Promise<{ messages: MailMessage[]; cursor: MailCursor }>;
-  test(): Promise<void>;
+  // Oldest first. With no cursor, or one from another UIDVALIDITY, it reads by date.
+  fetchSince(cursor: MailCursor | null, opts: { maxMessages: number; sinceDays: number; now: Date; signal?: AbortSignal }):
+    Promise<{ messages: MailMessage[]; cursor: MailCursor; more: boolean }>;
+  test(): Promise<void>;   // logs in and opens the mailbox; throws a sentence to show
 }
-type MailMessage = { id: string; from: string; to: string; subject: string; receivedAt: string; text: string };
+type MailCursor = { uidValidity: string; lastUid: number };
+type MailMessage = { id: string; from: string; fromName: string | null; to: string; subject: string;
+                     receivedAt: string; text: string; after: MailCursor };   // after: the cursor just past this email
 ```
 
-Adapters: `ImapMailSource` (Gmail over IMAP with an app password), `FakeMailSource` (tests), and later, if needed, `GmailApiMailSource`.
+Adapters: `ImapMailSource` (`email/adapters/imap.ts`, Gmail over IMAP with an app password, using imapflow), `FakeMailSource` (tests), and later, if needed, `GmailApiMailSource`.
+
+`ImapMailSource`:
+- **Read-only.** It opens the mailbox with EXAMINE (`readOnly: true`), so nothing is marked read, moved, flagged or deleted. imapflow's own logging is off.
+- **One login per round.** It logs in, reads at most `maxMessages` emails (oldest first), and logs out. `more` says there are newer ones.
+- **The cursor** is the mailbox's UIDVALIDITY (a string, because imapflow gives a BigInt) and the last UID read. With the same UIDVALIDITY, it reads `UID last+1:*` and drops UIDs it already had (a `*` range always includes the newest). Otherwise it searches by date (`SINCE` today − `sinceDays`). A round with no more mail ends at UIDNEXT − 1.
+- **Text:** the first plain-text part that isn't an attachment, else the first HTML part as text (`core/html-text.ts`), at most 64 KB. It reads every header first, then downloads each text part, because imapflow can't run a command inside a fetch.
+- **One bad email never blocks the rest.** A text that won't download gives empty text; a batch Gmail won't fetch is asked for one email at a time, and an email that still fails is left out; a broken date becomes the time it was read. The cursor still moves past them.
+- **A refused search** (imapflow answers `false`) fails the round, so the cursor never moves past mail it didn't read.
+- **Errors are sentences:** a wrong password (AUTHENTICATIONFAILED, or Gmail's "Invalid credentials" and "Application-specific password required"); any other refused login, with Gmail's words; can't connect; a certificate swapped by antivirus email scanning; no such mailbox; anything else as "Gmail said: …".
 
 ### 6.4 `DocumentExporter` — turning a document into a file
 
@@ -588,7 +604,7 @@ The fact-check is plain code in `shared/fact-check.ts`. The browser runs it 300 
 
 Generating streams NDJSON: one `GenerateChunk` per line (`text`, then `done`, or `error` with a sentence to show). So the editor can tell a finished draft from a cut-off one. Pressing **Stop** or closing the tab ends the request, which cancels the AI task. Nothing is saved until you press **Save version**. Text you haven't saved is kept in the browser's `localStorage` (`jr-draft:<jobId>:<kind>`) until you save or discard it.
 
-### 7.5 Email suggestion, then you confirm (Phase 5)
+### 7.5 Email suggestion, then you confirm
 
 ```mermaid
 sequenceDiagram
@@ -604,21 +620,39 @@ sequenceDiagram
 
   Timer->>Email: checkNow()
   Email->>Mail: fetchSince(cursor)
-  Mail-->>Email: New messages
-  Email->>Jobs: listOpen()
-  Email->>Contacts: listForJobs(open job ids)
-  Email->>Email: First filter on domain, names and keywords
+  Mail-->>Email: New messages, oldest first
+  Email->>Jobs: list(all statuses, not archived)
+  Email->>Contacts: listForJob(each job), for their addresses
+  Email->>Email: First filter: contact, domain, name, then application words
   loop Each message that passed the filter
-    Email->>AI: classifyEmail (background priority)
-    AI-->>Email: Event, job, suggested status, confidence
+    Email->>AI: classifyEmail with up to 5 candidate jobs (background priority)
+    AI-->>Email: Event, job (one of the candidates or none), company, role, confidence, summary
+    Email->>Email: Suggested status by plain code (shared/email-status.ts)
+    Email->>Email: Store the suggestion, summaries only, then move the cursor past it
   end
-  Email->>Email: Store suggestions, summaries only
   Email-->>UI: email.suggestionsAdded, through live events
-  You->>UI: Confirm "Mark as Rejected"
+  You->>UI: Confirm "Mark as Rejected?"
   UI->>Email: POST /email/suggestions/7/confirm
   Email->>Jobs: changeStatus(42, rejected, source email)
-  Email->>Notes: add(42, "Email: rejection, 3 Nov")
+  Email->>Notes: add(42, "Email, 3 Nov 2026 (rejection) from …: summary")
 ```
+
+The rules:
+- **Nothing changes without your OK.** A check, the timer and the AI only add suggestion rows. Only **Confirm** changes a status (source `email`) or adds a note. All `/email` writes are dashboard-only.
+- **The first filter** (`email/filter.ts`, plain code), first rule that applies:
+  1. never your own address
+  2. a contact's address
+  3. the company's, agency's or a contact's own domain (never free mail like gmail.com)
+  4. a company or agency named in the subject, or in the text next to a job word
+  5. an application phrase ("thank you for applying", "not progressing", "invitation to interview" …) from anyone, with no job.
+- **The AI only reads.** It may pick a job only from the candidates it was shown, or none. The suggested status is worked out by `suggestStatus`: received → Applied, rejected → Rejected, interview → the next interview stage, assessment → Screening, offer → Offer. It only moves forward, never repeats the status the job has, and a closed job reopens only for an interview or an offer. It's worked out again from the job's status when the card is shown and when you confirm, so a card that waited never moves a job backwards.
+- **Not about a job:** an answer of "other" with no job, or one that isn't sure (under 0.6), keeps only the message id and date (`ignored`), so it isn't read again.
+- **The AI can't be reached:** the check stops, the cursor stays before that email, and the Inbox says "Waiting for the AI: …". The next check carries on from there.
+- **The AI server refuses an email** (any HTTP error, or a timeout): the email is held back. If a later email in the same check is read, the refusal was about that one email, so it gets a card: "The AI couldn't read this email. Open Gmail to read it." If none is, the server refuses everything (a wrong model, say): the check stops before the first held email, with "Waiting for the AI: …". An email refused on three checks in a row gets the card anyway, so it never holds up the inbox. The count lives in `email_state` (`refused:<message id>`). An answer that never fits makes that card at once. Its note uses the email's subject.
+- **The cursor** is saved after each email, with the address and mailbox it belongs to. A new address or mailbox starts again by date. A check reads up to 10 rounds of `maxPerCheck` emails. The first check goes back `firstCheckDays` (14).
+- **Only summaries are kept:** sender, subject (300 characters at most), date, event, summary (200), company and role (120 each). Never the email. The body is in memory for one AI call. A check logs one line with counts, or the reason it stopped.
+- **One check at a time.** A second **Check now** joins the one running. Closing the app cancels a check, and the next one starts where it stopped.
+- **The timer** starts a minute after the app, then every `pollMinutes` (5 to 1,440), only while email is on, set up, and has an app password.
 
 ### 7.6 AI process states
 
@@ -683,6 +717,8 @@ erDiagram
     integer match_score
     text match_json
     integer archived
+    text follow_up_on "YYYY-MM-DD, a follow-up reminder"
+    text follow_up_note "why, 200 characters at most"
     text created_at
     text updated_at
   }
@@ -768,20 +804,24 @@ erDiagram
   }
   EMAIL_SUGGESTIONS {
     integer id PK
-    text message_id UK
+    text message_id UK "Message-ID header, or uid:<uidvalidity>:<uid>"
     integer job_id FK "optional"
     text from_addr
     text subject
     text received_at
-    text event
-    text suggested_status
+    text event "received, rejected, interview, assessment, offer, other"
+    text suggested_status "at check time; worked out again when shown"
     real confidence
-    text summary
-    text state "pending, confirmed, dismissed"
+    text summary "one sentence, 200 characters at most"
+    text company
+    text role
+    text state "pending, confirmed, dismissed, ignored"
+    text applied_status "what Confirm set, or null"
     text created_at
+    text handled_at
   }
   EMAIL_STATE {
-    text key PK
+    text key PK "cursor, lastCheckAt, lastError, lastAdded, refused:<message id>"
     text value
   }
   SEARCH_INDEX {
@@ -801,6 +841,7 @@ erDiagram
 - **Statuses** are stored by a stable **id**, such as `interview_1`, not by label. Renaming "Interview 1" to "First interview" in settings doesn't break history.
 - **Documents are append-only.** Each save adds a version. A sent version can't be changed. The repo has no update except marking a version as sent, once. Two triggers in `003_documents.sql` also make the database itself refuse to change a version's text, or a sent version at all.
 - **Attachments** are stored as `data/files/<jobId>/<8 hex>-<clean name>`, with `stored_path` relative to `data/files/`, so a moved data folder still works.
+- **Follow-ups** are one date and an optional reason per job, set only through `PUT /jobs/:id/follow-up`. Nothing else changes them: not a status change, an edit, the AI or archiving (archived jobs are just left out of the list).
 - **Jobs are archived, never deleted**, so history and links stay whole. Deleting for real is a separate, deliberate action in settings.
 - **Unique keys:**
   - `postings.canonical_url` is unique.
@@ -837,7 +878,8 @@ erDiagram
 | Capture | `POST /captures/preview` `{ url }` or `{ text }` | Build a Capture from a pasted URL or text |
 | Jobs | `POST /jobs/check` | Exact or likely duplicates for a Capture |
 | | `POST /jobs` `{ capture, fields?, status?, decision?, source? }` | Save. Replies `{ result }`: `created` (201), `linked`, `exists` or `needs_decision` (with candidates; resend with `decision` = `new` or `{ linkTo: jobId }`). `fields` are what you typed, and win over the ad. A note typed at save time is a second call, `POST /jobs/:id/notes`, so `jobs` never depends on `notes` |
-| | `GET /jobs?status=&archived=&sort=` · `GET /jobs/:id` · `PATCH /jobs/:id` | List · get · edit |
+| | `GET /jobs?status=&archived=&sort=` · `GET /jobs/:id` · `PATCH /jobs/:id` | List · get · edit (a follow-up can't be set here) |
+| | `PUT /jobs/:id/follow-up` `{ on, note? }` · `GET /jobs/follow-ups` | Set a follow-up (`on: null` clears it and its reason; a `note` left out or blank means no reason) · `{ today, due, soon }`: due is today or late (oldest first), soon is the next 7 days, both by the server's local date, archived jobs left out |
 | | `POST /jobs/:id/status` `{ status }` | Change status, which logs history |
 | | `POST /jobs/:id/postings` `{ capture }` | Link another ad to this job |
 | | `GET /postings/lookup?url=` | Fast "already saved?" check for the extension badge |
@@ -856,9 +898,9 @@ erDiagram
 | | `GET /documents/exporters` | Which export buttons to show |
 | Attachments | `POST /jobs/:id/attachments?kind=resume\|cover_letter\|other` (multipart, one `file`) · `GET /attachments/:id` | Attach (201): up to 15 MB, PDF, Word, RTF, text or OpenDocument only · download |
 | Profile | `GET /profile/:name` · `PUT /profile/:name` `{ text }` | `master-profile`, `preferences`, `resume-guide`, `cover-letter-guide` (Markdown in `profile/`) and `resume`, `cover-letter` (CSS in `templates/`), as `{ name, text, updatedAt }`. `PUT` is dashboard-only |
-| Settings | `GET /settings` · `PATCH /settings` | Secrets are never returned, only "set" or "not set". `PATCH` is accepted from the dashboard only, not from extensions (§13) |
+| Settings | `GET /settings` · `PATCH /settings` · `GET /settings/secrets` · `PUT /settings/secrets` `{ emailPassword }` | Secrets are never returned: `/settings/secrets` answers `{ emailPassword: true \| false }`. `PATCH` and `PUT` are accepted from the dashboard only, not from extensions (§13). A blank or null password removes it |
 | AI | `GET /ai/status` · `POST /ai/test` | `{ state, detail, preset, baseUrl }` · `{ ok, detail, models, replyMs }`, sent the way reading an ad is (the parse task's model, thinking and extra fields, and a small JSON schema); never an HTTP error. A failed test also shows in the pill |
-| Email | `POST /email/check` · `GET /email/suggestions` · `POST /email/suggestions/:id/confirm` · `POST /email/suggestions/:id/dismiss` | |
+| Email | `GET /email/status` · `POST /email/check` · `POST /email/test` · `GET /email/suggestions` · `POST /email/suggestions/:id/confirm` `{ jobId?, status? }` · `POST /email/suggestions/:id/dismiss` | `{ enabled, configured, checking, lastCheckAt, lastError, lastAdded, pending }` · check now (400 "Connect Gmail first: Settings → Email." until it's set up), then the status · `{ ok, detail }`, never an HTTP error · the pending cards, newest first · confirm: `jobId` picks another job, `status` null only adds the note; left out, both follow the card (409 when already handled) · dismiss. Every POST is dashboard-only |
 
 ---
 
@@ -868,14 +910,15 @@ erDiagram
 
 | Path | Page |
 |------|------|
-| `/` | Search box (focused on load) + job list with status filter chips |
+| `/` | Search box (focused on load), a **Follow up** section ("Due" with how late, "Coming up" for the next 7 days, a **Done** per job; shown only when there's something in it) + job list with status filter chips |
+| `/board` | Board: a column per status in your order (closed ones with **Show closed statuses**, remembered in `localStorage`), plus an "Other" column for a status your settings no longer have. Each card shows the role, company, date applied and any follow-up, and has a **Move to** menu with a **Move** button. Choosing in the menu never moves the card by itself (on Windows an arrow key changes a closed menu, and a typed letter does everywhere); **Move** does. Drag a card to another column (a drag carries its own data type, so dragged text never moves a job; nothing can be dropped on Other), or use **Move**: the card moves at once, the status change is sent (`POST /jobs/:id/status`, so it's in the history), the move is announced and the focus stays on the card's menu (or goes to the Board heading when its new column is hidden). A refused move puts the card back, says why, and keeps the focus on it |
 | `/jobs/:id` | Call sheet at the top. Then the full ad, documents, attachments and a timeline |
 | `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker, Generate and Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
-| `/settings` | Statuses, AI (preset, test), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
-| `/inbox` | Email suggestions (Phase 5) |
+| `/settings` | Statuses, AI (preset, test), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), backups |
+| `/inbox` | Inbox: the last check ("Last checked 5 min ago · 2 new emails", or why it failed), **Check now**, and one card per email: what it is ("Rejection", "Not sure" when the AI wasn't), sender and date, subject, summary, the job ("Senior Engineer at Atlassian · now Applied") or "No job matched", the question ("Mark as Rejected?"), a status picker with "Don't change the status", **Confirm** (**Add note** when the status won't change), **Pick another job** ("Pick a job" when none matched; a search that Escape closes) and **Dismiss**. The last-check line is announced when a check ends, and the focus moves to the next card after Confirm or Dismiss, and to the status after a pick. Nothing changes until you confirm. The header's **Inbox** link shows how many wait |
 
 **Structure**
-- **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiPill`.
+- **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiPill`, `EmailSettingsSection`, `SuggestionCard`, `JobPicker`, `FollowUps`, `FollowUpDialog`, `BoardCard`. `InboxPage` is the Inbox and `BoardPage` the board.
 - **The preview** is an iframe with `sandbox=""` whose `srcdoc` is `documentPage(...)` from `shared/document-page.ts`, the same page the print view serves. It's redrawn 300 ms after you stop typing. A sent version uses its frozen CSS. Fact-check flags are `<mark>`ed in the preview only, never in print.
 - **API calls:** `web/src/lib/api.ts` creates the shared typed API client. Pages load data when they open.
 - **Live updates:** `web/src/lib/live.svelte.ts` listens to `GET /events`. A page reloads its data only when an event is about what's on screen, such as `job.updated` for the open job. There's no global state library.
@@ -893,6 +936,7 @@ erDiagram
 | `L` | Log a call (on a job page) |
 | `S` | Change status (on a job page) |
 | `E` | Edit fields (on a job page) |
+| `F` | Follow up: set, change or clear the job's follow-up (on a job page) |
 
 ---
 
@@ -949,7 +993,7 @@ flowchart LR
 | `parseJob` | ad text (the page's `JobPosting` fields are already on the job, and the AI never overwrites them) | `ParsedJob` (JSON schema) | parse (background for the start-up sweep) | off | no |
 | `rateJob` | master profile, preferences, ad | `Rating` (JSON schema) | interactive | off | no |
 | `writeDocument` | kind, master profile, guide, the job's fields as plain text, its newest ad, today's date (cover letters) | Markdown | interactive, key `doc-<jobId>-<kind>` | on (`ai.tasks.write`: temperature 0.6, 8192 tokens, effort medium) | yes: it holds the queue until the stream ends, is cancelled, or the reader stops |
-| `classifyEmail` | trimmed email, list of candidate jobs | `{ event, jobId, suggestedStatus, confidence, summary }` | background | off | no |
+| `classifyEmail` | sender, subject, date, the email's new text (quoted history cut, a forward kept, 4,000 characters at most), up to 5 candidate jobs as `[id] Title at Company (Status)` | `{ event, jobId, company, role, confidence, summary }`: a `jobId` that wasn't a candidate becomes null; summary 200 and names 120 characters at most. The suggested status is plain code, not the AI (§7.5) | background | off (`ai.tasks.email`: temperature 0.1, 1024 tokens) | no |
 
 - **Settings per task:** each task has its own block in `settings.json` (`ai.tasks.parse`, `ai.tasks.rate`, …), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings.
 - **Thinking off** is `reasoning_effort: "none"` (§6.1). Bonsai 2 thinks at length by default, so tasks that don't need it turn it off.
@@ -991,9 +1035,13 @@ flowchart LR
 - statuses
 - AI preset and tasks
 - auto-rate
-- email polling.
+- email (`enabled`, `address`, `host`, `port`, `mailbox`, `pollMinutes`, `firstCheckDays`, `maxPerCheck`; off by default).
 
-`config/secrets.json` holds the IMAP app password. It's never sent to the browser, and both files are git-ignored. Paths in settings may be relative to the app folder.
+`config/secrets.json` holds the IMAP app password (`{ "emailPassword": "…" }`). Both files are git-ignored. Paths in settings may be relative to the app folder.
+- **Never sent out:** the API only says whether it's set. Only `app.ts` hands it to the email module, as a function.
+- **Read fresh each time,** so a hand edit counts at once. A broken file gives a fixed sentence that never quotes the file's text.
+- **Spaces are removed,** because Google shows an app password in groups of four.
+- **Not backed up:** backups copy the database, attachments, profile and templates, never `config/`.
 
 Each status has these settings:
 - `id`
@@ -1007,7 +1055,7 @@ Each status has these settings:
 - One Fastify error handler maps them to the error shape in §9.
 - Unknown errors are logged with a stack trace and returned as `internal`, without leaking details.
 
-**Logging:** pino, through Fastify. In development it logs to the console. Otherwise it logs to `data/logs/app-YYYY-MM-DD.log` and keeps 14 days. The AI process logs to `data/logs/llama.log`. Logs never include email bodies or secrets.
+**Logging:** pino, through Fastify. In development it logs to the console. Otherwise it logs to `data/logs/app-YYYY-MM-DD.log` and keeps 14 days. The AI process logs to `data/logs/llama.log`. Logs never include email bodies or secrets: imapflow's logging is off, and an email check logs only counts or the reason it stopped.
 
 **Security** (local only, by design):
 - The server listens on `127.0.0.1` only.
@@ -1017,7 +1065,8 @@ Each status has these settings:
 - **nosniff:** every reply says `X-Content-Type-Options: nosniff`.
 - **Dashboard-only writes:** a route can declare `config: dashboardOnly(message)`, and then refuses extension origins too. `PATCH /settings` does: settings choose which program the app runs and where your profile and ads are sent, so no installed extension may change them.
 - **Markdown:** escaped and sandboxed (see §10).
-- **Phase 6 phone access** would add a passcode and a session cookie before listening on the home network. It stays off by default.
+- **Email:** read-only over IMAP with TLS. Every `/email` write and the secrets endpoint are dashboard-only, so no installed extension can confirm a suggestion or read the password. An email's text is only data: the AI may only pick a candidate job, and the status comes from plain code.
+- **Phone access over the home network** was offered in Phase 6 and not chosen, so the server still listens on `127.0.0.1` only. Adding it would need a passcode and a session cookie first.
 
 **Backups**
 - On each start, and every 24 hours while running, the app uses SQLite's online backup (safe while the app runs). Copies go to `backupDir`. The newest copy from each of the last 14 days that have one is kept (`backups.keep`). One backup runs at a time, so a second request joins the one already running.
@@ -1047,7 +1096,8 @@ Each status has these settings:
 | Dashboard | paste, search, status, call log, document edit and preview, print view | Playwright against the built app, started with `JR_FAKE_AI=1` | fake AI wired by `app.ts` |
 | AI quality | parsing accuracy per field on 8–10 real ads | `npm run eval:parse` against the real model. A report, not a pass/fail test | none |
 | Architecture | the dependency rules in §15 | `npm run check:deps` | — |
-| Windows scripts | `setup.bat`, `start.bat`, `stop.bat`, shortcuts | Manual checklist on your PC, each phase | — |
+| Email | the first filter, `suggestStatus`, email text; the service (checks, cursor, confirm, the timer); the IMAP adapter | Vitest, table-driven; the service through `buildApp`; the adapter against hoodiecrow-imap (a strict IMAP server for tests, dev only) on a free port, without TLS | `FakeMailSource`, fake AI |
+| Windows scripts | `setup.bat`, `start.bat`, `stop.bat`, `download-ai.bat`, shortcuts, llama-server on Windows | The handover checks (`scripts/handover/`, run by Bonsai 2 from `docs/handover/runbook.md`) on a test copy of the app; their logic and HTTP checks are tested on the Mac in `tests/handover.test.ts`, against a fake llama-server | fake llama-server (Mac only) |
 
 **When the site fixtures need refreshing:** if a job site changes its layout, save a new copy of the page into the fixtures. The failing test then shows exactly which field broke.
 
@@ -1089,6 +1139,8 @@ Each status has these settings:
 
 **Add a new kind of AI service** (for example, one that doesn't speak the OpenAI API): write an adapter that implements `AiProvider`, and choose it in `app.ts` by preset name.
 
+**Read mail another way** (say, the Gmail API): implement `MailSource` in `email/adapters/` and choose it in `app.ts`. The cursor is the adapter's to define.
+
 **Add an export format:** implement `DocumentExporter` and add it to the `exporters` list in `app.ts`. The button appears in the editor by itself.
 
 **Add or rename a status:** Settings → Statuses. History stays valid because it stores status ids.
@@ -1110,9 +1162,10 @@ Each status has these settings:
 | Small-model quality varies | Wrong fields or weak drafts | JSON-schema output with checks, a per-field eval set, model choice per task, edit-before-save everywhere, fact-check highlights |
 | `better-sqlite3` has no prebuilt binary for a very new Node version | `npm ci` fails on Windows | Setup checks for a supported Node LTS version, and `.nvmrc` and `engines` pin it |
 | Firefox signing needs an addons.mozilla.org account | Extension disappears after a restart | One-time setup, documented. Temporary loading still works for testing |
-| Gmail app passwords might get restricted | Email reading stops | Recheck this at the start of Phase 5. `MailSource` lets us switch to the Gmail API adapter |
+| Gmail app passwords might get restricted | Email reading stops | Rechecked on 28 Oct 2026: still offered with 2-Step Verification, no end date (work and school accounts may not offer them). `MailSource` lets us switch to a Gmail API adapter |
 | Thinking tokens leaking into documents | Garbage in the resume | The adapter separates `thinking` chunks, including `<think>` tags split across stream chunks. Tests cover this |
 | Firefox doesn't grant (or you take away) the extension's permission to reach `127.0.0.1` | The extension can't save or rate | It says so in plain words, and its options page has **Allow access**. If Firefox proves unreliable here, CORS can come back for the extension's own routes only |
+| Antivirus software that scans email swaps Gmail's certificate | Email reading stops with a certificate error | The error says so in plain words. Node's `--use-system-ca` would trust the Windows certificate store; it's checked on the PC first (handover) |
 | A Chrome service worker may be stopped while a fetch waits more than about 30 seconds | A first rating while the AI loads could be lost | The panel then asks you to reload the page; the Windows checklist checks a first rating with Bonsai in Chrome. If it happens, ratings can move to a long-lived port (`runtime.connect`) |
 | A server refuses a request field (for example `reasoning_effort`) | Every AI task fails | The error names the server and shows its message. A task's `extra` can remove the field, and Test connection sends what reading an ad sends |
 

@@ -56,3 +56,20 @@ it('drops the client when the connection closes', async () => {
   controller.abort();
   await waitFor(() => app!.services.live.clientCount() === 0);
 });
+
+it('streams email events, so the Inbox and its count update', async () => {
+  const port = await freePort();
+  app = await createTestApp({ port });
+  await app.http.listen({ host: '127.0.0.1', port });
+  const controller = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${port}/api/v1/events`, { signal: controller.signal });
+  const reader = res.body!.getReader();
+  await waitFor(() => app!.services.live.clientCount() === 1);
+  app.bus.emit('email.suggestionsAdded', { count: 2 });
+  app.bus.emit('email.suggestionHandled', { suggestionId: 3, state: 'dismissed' });
+  app.bus.emit('email.checked', { ok: true, error: null });
+  const text = await readUntil(reader, 'email.checked');
+  expect(text).toContain('event: email.suggestionsAdded\ndata: {"count":2}\n\n');
+  expect(text).toContain('event: email.suggestionHandled\ndata: {"suggestionId":3,"state":"dismissed"}\n\n');
+  controller.abort();
+});

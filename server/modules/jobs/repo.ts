@@ -30,6 +30,8 @@ export type JobChanges = Partial<
     matchScore: number | null;
     match: Rating | null;
     archived: boolean;
+    followUpOn: string | null;
+    followUpNote: string | null;
   }
 >;
 
@@ -65,6 +67,8 @@ const PLAIN_COLUMNS: Record<string, string> = {
   parseError: 'parse_error',
   matchVerdict: 'match_verdict',
   matchScore: 'match_score',
+  followUpOn: 'follow_up_on',
+  followUpNote: 'follow_up_note',
 };
 const JSON_COLUMNS: Record<string, string> = {
   requirements: 'requirements',
@@ -130,12 +134,14 @@ function rowToJob(row: Row): Job {
     matchScore: row.match_score,
     match: parseJsonColumn(row.match_json),
     archived: row.archived === 1,
+    followUpOn: row.follow_up_on,
+    followUpNote: row.follow_up_note,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
 }
 
-const SUMMARY_COLUMNS = 'id, title, company, agency, location, status, date_applied, archived, updated_at';
+const SUMMARY_COLUMNS = 'id, title, company, agency, location, status, date_applied, archived, follow_up_on, follow_up_note, updated_at';
 
 function rowToSummary(row: Row): JobSummary {
   return JobSummary.parse({
@@ -147,6 +153,8 @@ function rowToSummary(row: Row): JobSummary {
     status: row.status,
     dateApplied: row.date_applied,
     archived: row.archived === 1,
+    followUpOn: row.follow_up_on,
+    followUpNote: row.follow_up_note,
     updatedAt: row.updated_at,
   });
 }
@@ -229,6 +237,17 @@ export function createJobsRepo(db: Db) {
         .prepare(sql)
         .all({ archived: filter.archived ? 1 : 0, ...(filter.statusIds ? { statusIds: JSON.stringify(filter.statusIds) } : {}) });
       return (rows as Row[]).map(rowToSummary);
+    },
+
+    // Unarchived jobs with a follow-up on or before `until`, soonest first.
+    listFollowUps(until: string): JobSummary[] {
+      const rows = db
+        .prepare(
+          `SELECT ${SUMMARY_COLUMNS} FROM jobs WHERE archived = 0 AND follow_up_on IS NOT NULL AND follow_up_on <= ?
+           ORDER BY follow_up_on, id`,
+        )
+        .all(until) as Row[];
+      return rows.map(rowToSummary);
     },
 
     // Unarchived jobs in one parse state, oldest first.

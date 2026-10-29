@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import type { Status } from '../../../shared/contracts/index.ts';
   import AiSettingsSection from '../components/AiSettingsSection.svelte';
+  import EmailSettingsSection from '../components/EmailSettingsSection.svelte';
   import ProfileFilesSection from '../components/ProfileFilesSection.svelte';
   import { api } from '../lib/api.ts';
   import { friendlyError } from '../lib/errors.ts';
@@ -40,6 +41,12 @@
     if (location.hash === '#ai') {
       await tick();
       focusAiSettings();
+    } else if (location.hash === '#email') {
+      // The Inbox links to /settings#email.
+      await tick();
+      const heading = document.getElementById('email-heading');
+      heading?.scrollIntoView();
+      heading?.focus();
     }
   });
 
@@ -145,6 +152,8 @@
   </section>
 
   {#if loaded}<AiSettingsSection />{/if}
+
+  {#if loaded}<EmailSettingsSection />{/if}
 
   <ProfileFilesSection />
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { JobSummary } from '../../../shared/contracts/index.ts';
+  import FollowUps from '../components/FollowUps.svelte';
   import JobList from '../components/JobList.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { api } from '../lib/api.ts';
@@ -108,6 +109,7 @@
     {/if}
     {#if search.error}<p class="error" role="alert">{search.error}</p>{/if}
   {:else}
+    <FollowUps />
     <div class="toolbar">
       <div class="groups">
         {#each GROUPS as g (g.id)}

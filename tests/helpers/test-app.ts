@@ -8,7 +8,9 @@ import { pino } from 'pino';
 import type { Settings } from '../../shared/contracts/index.ts';
 import { buildApp, type App, type Fakes } from '../../server/app.ts';
 import { resolvePaths, type Clock } from '../../server/core/config.ts';
+import type { Logger } from '../../server/core/logger.ts';
 import { FakeAiProvider } from '../fakes/fake-ai-provider.ts';
+import { FakeMailSource } from '../fakes/fake-mail-source.ts';
 import { FakeRuntime } from '../fakes/fake-runtime.ts';
 
 export const TEST_PORT = 4777;
@@ -40,11 +42,15 @@ export async function createTestApp(
     now?: Clock;
     fetch?: typeof fetch;
     settings?: Partial<Settings>;
+    // Written to config/secrets.json, as you'd save them in Settings.
+    secrets?: { emailPassword: string | null };
     port?: number;
     fakes?: Partial<Fakes>;
     // Use the app's own runtime choice (llama-server or a server you run),
     // for the tests of that choice. The AI provider is still a fake.
     realRuntime?: boolean;
+    // To read what the app logs. Silent unless given.
+    logger?: Logger;
   } = {},
 ): Promise<TestApp> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'jr-app-')));
@@ -53,13 +59,21 @@ export async function createTestApp(
     mkdirSync(paths.config, { recursive: true });
     writeFileSync(paths.settings, JSON.stringify(opts.settings));
   }
-  // Tests never talk to a real AI: a fake provider and runtime unless given others.
-  const fakes: Fakes = { ai: opts.fakes?.ai ?? new FakeAiProvider(), runtime: opts.fakes?.runtime ?? new FakeRuntime() };
-  const wiring: Partial<Fakes> = opts.realRuntime ? { ai: fakes.ai } : fakes;
+  if (opts.secrets) {
+    mkdirSync(paths.config, { recursive: true });
+    writeFileSync(paths.secrets, JSON.stringify(opts.secrets));
+  }
+  // Tests never talk to a real AI or a real mailbox: fakes unless given others.
+  const fakes: Fakes = {
+    ai: opts.fakes?.ai ?? new FakeAiProvider(),
+    runtime: opts.fakes?.runtime ?? new FakeRuntime(),
+    mail: opts.fakes?.mail ?? new FakeMailSource(),
+  };
+  const wiring: Partial<Fakes> = opts.realRuntime ? { ai: fakes.ai, mail: fakes.mail } : fakes;
   const app = await buildApp({
     paths,
     port: opts.port ?? TEST_PORT,
-    logger: pino({ level: 'silent' }),
+    logger: opts.logger ?? pino({ level: 'silent' }),
     now: opts.now,
     fetch: opts.fetch,
     version: '0.0.0-test',

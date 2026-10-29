@@ -25,14 +25,23 @@ If the code and these documents disagree, stop and ask. Don't quietly follow one
 - **Phase 4** (resume and cover letter): built and tested on macOS on 28–29 Oct 2026, against a fake AI ([plan](docs/superpowers/plans/2026-10-28-phase-4-resume-cover-letter.md), ledger `.superpowers/sdd/2026-10-28-phase-4-resume-cover-letter/progress.md`). Both reviews (checkpoint and final) are closed, and their deferred minors are in the ledger.
   - **Windows checklist:** [docs/checklists/phase-4-windows.md](docs/checklists/phase-4-windows.md). Not run yet: Bonsai writing real drafts (timing, invented facts), Firefox's Save to PDF, a .docx in Word for the web or ONLYOFFICE, Windows file names.
   - The starter guides and templates live in `starters/` (tracked). The app copies them into `profile/` and `templates/` (both git-ignored) at start-up, wherever a file is missing. There's no starter master profile or preferences file.
-- **Phase 5** (Gmail): not started. Write its plan first; nothing is drafted.
-- **Phase 6** (nice-to-haves): not started. At its start, ask the user one question: which of them they still want.
-- **How the user wants to work** (28 Oct 2026): "I just want the app finished the best you can." Build phase after phase without stopping for plan reviews or Windows tests. The user tests each phase's Windows checklist later and fixes things then. Don't ask about details; make the call and record it in the phase's ledger.
+- **Phase 5** (Gmail): built and tested on macOS on 29 Oct 2026, against a test IMAP server (hoodiecrow-imap), a fake mailbox and a fake AI ([plan](docs/superpowers/plans/2026-10-29-phase-5-gmail.md), ledger `.superpowers/sdd/2026-10-29-phase-5-gmail/progress.md`).
+  - **Windows checks:** [docs/checklists/phase-5-windows.md](docs/checklists/phase-5-windows.md). Not run yet: a real Gmail login with an app password, TLS through antivirus email scanning, Bonsai reading real emails, the timer over 30 minutes.
+  - The app password lives in `config/secrets.json` (git-ignored, never sent to the browser). Email is off until it's turned on in Settings → Email.
+  - Both reviews (checkpoint and final) are closed. Their fixes are in, and the deferred minors are in the ledger.
+- **Phase 6** (nice-to-haves): built and tested on macOS on 29 Oct 2026 ([plan](docs/superpowers/plans/2026-10-29-phase-6-nice-to-haves.md), ledger `.superpowers/sdd/2026-10-29-phase-6-nice-to-haves/progress.md`). The user picked **follow-up reminders** and the **Kanban board view** (asked once, as agreed). Not wanted: phone access over Wi-Fi, the Windows-wide hotkey.
+  - **Windows checks:** [docs/checklists/phase-6-windows.md](docs/checklists/phase-6-windows.md). Not run yet: drag and drop in real Firefox on Windows, the Windows date picker, a follow-up across midnight.
+  - Both reviews (checkpoint and final) are closed. Their fixes are in, and the deferred minors are in the ledger (including one timing flake in the extension's "five quick clicks" test).
+- **Windows handover:** written 29 Oct 2026, in [docs/handover/](docs/handover/README.md): the runbook for Bonsai 2, the bug-list format, and the user's do-by-hand list. Its checks are `scripts/handover/*.ts` (tested in `tests/handover.test.ts`), plus `start-bonsai-server.bat` (Bonsai 2 on port 8080 for the agent and the app) and `setup.bat -Quiet`. Not run on Windows yet. When the user brings back `handover-results\` (summary.md, results.txt, the bugs folder, the logs), fix the bugs with tests that fail first.
+- **How the user wants to work:**
+  - (28 Oct 2026) "I just want the app finished the best you can." Build phase after phase, through Phase 6, without stopping for plan reviews or Windows tests. Don't ask about details: make the call and record it in the phase's ledger.
+  - (29 Oct 2026) The user won't run checklists by hand. When everything is built, write a **Windows handover for Bonsai 2**, the local model, which is less capable. It's a step-by-step runbook it can follow on the Windows PC.
+    - Each step has an exact command, the expected output, and what to do if the output differs. Prefer scripted PASS/FAIL checks over judgement.
+    - It may fix only "very simple" things, defined in the runbook. Everything else goes into a bug list in a fixed format, which the user brings back to Claude.
+    - Also give the user a short list of what only they can do by hand: start Bonsai 2 and the agent tool, paste the master profile, the AMO keys, the Gmail app password, and signing in to the job sites.
+  - The `docs/checklists/phase-N-windows.md` files are input for that handover, not tasks for the user.
 - **Deferred minors from Phase 3** (in its ledger): the popup's save doesn't set the badge; the panel is last in the tab order; a rating keeps running after you leave a job for an unreadable page; the badge can lag when replies arrive out of order.
-- **Notes for Phase 5** (rechecked 28 Oct 2026, unchanged):
-  - Google still offers app passwords for accounts with 2-Step Verification, with no end date (support.google.com/accounts/answer/185833). They're "not recommended", they're revoked when the Google password changes, and work or school accounts may not offer them. IMAP is always on for personal Gmail since January 2025.
-  - New, but not relevant to this app: Gmail is retiring Gmailify and its own POP fetching of other accounts (no new users after early 2026; existing ones until January 2027; support.google.com/mail/answer/16604719). Reading Gmail over IMAP isn't affected.
-  - Already in place for Phase 5: `MailSource` in architecture §6.3, the `email` module in §4.1 and §4.2 (`ai`, `jobs`, `contacts`, `notes`; already in `.dependency-cruiser.cjs`), `EMAIL_SUGGESTIONS` and `EMAIL_STATE` in §8, and `classifyEmail` in §12.1. Migration 004 comes next. The AI queue already has a `background` priority. A streamed task holds the queue until it ends, so email work waits behind a draft being written.
+- **Deferred minors from Phase 5** (in its ledger): a first check over about 300 seconds can make Firefox give up on Check now (it corrects itself); zod's own wording for a bad number in Settings → Email; card headings are h3 under the h1; secrets.json is 0644 on macOS; small timer gaps (saving a setting restarts it, turning email off doesn't stop a running check); a no-Message-ID email can repeat after a UIDVALIDITY reset.
 
 Update this section when a phase starts or finishes.
 
@@ -47,9 +56,10 @@ Update this section when a phase starts or finishes.
 | `npm start` | Run the server (`node server/main.ts`). |
 | `npm run ext:build` | Build the browser extension into `extension/dist/{firefox,chrome}` (`--e2e` also builds `chrome-e2e` for the browser tests). |
 | `npm run ext:lint` / `ext:sign` / `ext:check -- page.html URL` | Mozilla's checks; sign the Firefox build (needs `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`); run a site reader on a saved page. |
+| `node scripts/handover/<check>.ts` | The Windows handover checks (prereqs, make-test-copy, app-smoke, ai-smoke, eval-report, run-tests, sign, real-checks, cleanup, collect-logs, summary). See docs/handover/runbook.md. |
 | `npm run eval:parse` | How well the AI in your settings reads job ads (a report, not a test). Uses `tests/fixtures/ads/`. `-- --settings FILE` uses another settings file. |
 
-**Windows scripts:** `setup.bat`, `start.bat`, `stop.bat` and `download-ai.bat`, plus `scripts/setup.ps1` and `scripts/download-ai.ps1`, must stay plain ASCII with CRLF line endings (`.gitattributes` enforces CRLF). Windows PowerShell 5.1 misreads UTF-8 that has no byte-order mark.
+**Windows scripts:** `setup.bat`, `start.bat`, `stop.bat`, `download-ai.bat` and `start-bonsai-server.bat`, plus `scripts/setup.ps1` and `scripts/download-ai.ps1`, must stay plain ASCII with CRLF line endings (`.gitattributes` enforces CRLF). Windows PowerShell 5.1 misreads UTF-8 that has no byte-order mark.
 
 ## Architecture rules (summary; full detail in architecture.md §4 and §15)
 

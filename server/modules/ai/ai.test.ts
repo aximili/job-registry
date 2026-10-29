@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../../shared/contracts/index.ts';
 import { FakeAiProvider, defaultReply } from '../../../tests/fakes/fake-ai-provider.ts';
 import { AiUnavailableError } from '../../core/errors.ts';
 import { FakeRuntime } from '../../../tests/fakes/fake-runtime.ts';
@@ -145,7 +146,15 @@ describe('AI service', () => {
   });
 
   it('with the default settings and no llama-server installed, it says how to install it', async () => {
-    app = await createTestApp({ realRuntime: true });
+    // The default program, on a port nothing else uses: on the Windows PC,
+    // Bonsai 2 may already be answering on the default port 8080.
+    const port = await freePort();
+    const ai = DEFAULT_SETTINGS.ai;
+    const args = ai.managed.args.map((a, i, all) => (all[i - 1] === '--port' ? String(port) : a));
+    app = await createTestApp({
+      realRuntime: true,
+      settings: { ai: { ...ai, baseUrl: `http://127.0.0.1:${port}/v1`, managed: { ...ai.managed, args } } },
+    });
     await expect(app.services.ai.parseJob('An ad.')).rejects.toThrow(
       "The AI program isn't installed: ai/llama.cpp/llama-server.exe is missing. Run download-ai.bat, or pick another AI in Settings.",
     );

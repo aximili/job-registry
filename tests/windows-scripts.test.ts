@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const SCRIPTS = ['setup.bat', 'start.bat', 'stop.bat', 'download-ai.bat', 'scripts/setup.ps1', 'scripts/download-ai.ps1'];
+const SCRIPTS = ['setup.bat', 'start.bat', 'stop.bat', 'download-ai.bat', 'start-bonsai-server.bat', 'scripts/setup.ps1', 'scripts/download-ai.ps1'];
 
 describe('Windows scripts', () => {
   it.each(SCRIPTS)('%s is plain ASCII with Windows line endings', (path) => {
@@ -92,5 +92,46 @@ describe('Windows scripts', () => {
     expect(setup).toContain('& npm run ext:build');
     expect(setup.indexOf('& npm run ext:build')).toBeGreaterThan(setup.indexOf('& npm run build'));
   });
-});
 
+  it('setup.ps1 -Quiet asks nothing, so the handover checks can run it', () => {
+    const setup = read('scripts/setup.ps1');
+    const lines = setup.split('\r\n').filter((l) => l.trim() && !l.trim().startsWith('#'));
+    expect(lines[0]).toBe('param([switch]$Quiet)');
+    const quiet = setup.indexOf('if ($Quiet)');
+    expect(quiet).toBeGreaterThan(-1);
+    // Every question comes after the quiet branch, inside its else.
+    for (const at of [...setup.matchAll(/Read-Host/g)].map((m) => m.index!)) expect(at).toBeGreaterThan(quiet);
+  });
+
+  it('setup.bat passes its arguments on, and only pauses when someone is there to read it', () => {
+    const bat = read('setup.bat');
+    expect(bat).toContain('scripts\\setup.ps1" %*');
+    expect(bat).toContain('if /i not "%~1"=="-Quiet" pause');
+  });
+
+  it('start-bonsai-server.bat runs Bonsai 2 for the agent and the app together, on this computer only', () => {
+    const bat = read('start-bonsai-server.bat');
+    expect(bat).toContain('ai\\llama.cpp\\llama-server.exe');
+    expect(bat).toContain('ai\\models\\Ternary-Bonsai-2-27B-PQ2_0.gguf');
+    for (const arg of ['-ngl 99', '-fa on', '-c 65536', '-np 2', '--jinja', '--host 127.0.0.1', '--port 8080']) expect(bat).toContain(arg);
+    expect(bat).toContain('download-ai.bat');
+  });
+
+  it('setup.ps1 lets npm print warnings to stderr without stopping, and checks its exit code instead', () => {
+    const setup = read('scripts/setup.ps1');
+    const relax = setup.indexOf("$ErrorActionPreference = 'Continue'");
+    const npmCi = setup.indexOf('& npm ci');
+    const strict = setup.indexOf("$ErrorActionPreference = 'Stop'", npmCi);
+    expect(relax).toBeGreaterThan(-1);
+    expect(relax).toBeLessThan(npmCi);
+    expect(strict).toBeGreaterThan(setup.indexOf('& npm run ext:build'));
+  });
+
+  it('start-bonsai-server.bat says so when something already answers on port 8080', () => {
+    const bat = read('start-bonsai-server.bat');
+    const check = bat.indexOf('127.0.0.1:8080/health');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(bat.indexOf('llama-server.exe" -m'));
+    expect(bat).toContain('stop.bat');
+  });
+});

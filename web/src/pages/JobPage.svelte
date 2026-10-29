@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { CallSheet as Sheet } from '../../../shared/contracts/index.ts';
   import { ApiError } from '../../../shared/api-client.ts';
   import AdText from '../components/AdText.svelte';
   import CallSheet from '../components/CallSheet.svelte';
   import DocumentsPanel from '../components/DocumentsPanel.svelte';
   import EditJobDialog from '../components/EditJobDialog.svelte';
+  import FollowUpDialog from '../components/FollowUpDialog.svelte';
   import LogCallDialog from '../components/LogCallDialog.svelte';
   import Timeline from '../components/Timeline.svelte';
   import { api } from '../lib/api.ts';
@@ -15,6 +16,7 @@
   import { JOB_EVENTS, onLive, onReconnect } from '../lib/live.svelte.ts';
   import { navigate } from '../lib/router.svelte.ts';
   import { buildTimeline } from '../lib/timeline.ts';
+  import { showToast } from '../lib/toast.svelte.ts';
 
   let { id }: { id: number } = $props();
 
@@ -23,6 +25,7 @@
   let error = $state<string | null>(null);
   let logCall = $state<LogCallDialog>();
   let editJob = $state<EditJobDialog>();
+  let followUp = $state<FollowUpDialog>();
 
   async function load() {
     try {
@@ -60,6 +63,24 @@
     }
   }
 
+  // The follow-up's buttons change with it, so the focus moves to the one
+  // that's there now: Change when one is set, Follow up when not.
+  async function focusFollowUp() {
+    await tick();
+    (document.getElementById('follow-up-change') ?? document.getElementById('follow-up-button'))?.focus();
+  }
+
+  async function followUpDone() {
+    try {
+      await api.setFollowUp(id, { on: null });
+      await load();
+      showToast('Follow-up done.');
+      await focusFollowUp();
+    } catch (err) {
+      error = friendlyError(err);
+    }
+  }
+
   async function archive() {
     if (!confirm('Archive this job? It will be hidden from your lists and from search.')) return;
     try {
@@ -81,6 +102,9 @@
     } else if (isShortcut(event, 'e')) {
       event.preventDefault();
       editJob?.open();
+    } else if (isShortcut(event, 'f')) {
+      event.preventDefault();
+      followUp?.open();
     } else if (event.key === 'Escape' && !isTypingTarget(document.activeElement)) {
       navigate('/');
     }
@@ -102,6 +126,8 @@
       onEdit={() => editJob?.open()}
       onArchive={archive}
       onChanged={load}
+      onFollowUp={() => followUp?.open()}
+      onFollowUpDone={followUpDone}
     />
     <DocumentsPanel jobId={id} documents={sheet.documents} attachments={sheet.attachments} onChanged={load} />
     <div class="below">
@@ -110,6 +136,15 @@
     </div>
     <LogCallDialog bind:this={logCall} jobId={id} people={sheet.people} onSaved={load} />
     <EditJobDialog bind:this={editJob} job={sheet.job} onSaved={load} />
+    <FollowUpDialog
+      bind:this={followUp}
+      job={sheet.job}
+      onSaved={async (message) => {
+        showToast(message);
+        await load();
+        await focusFollowUp();
+      }}
+    />
   {:else if error}
     <p class="error" role="alert">{error}</p>
   {/if}

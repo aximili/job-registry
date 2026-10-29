@@ -5,6 +5,7 @@ import type {
   Capture,
   EditableJobFields,
   FieldSource,
+  FollowUpsResponse,
   Job,
   JobCheckRequest,
   JobCheckResponse,
@@ -18,6 +19,7 @@ import type {
   Rating,
   SaveJobRequest,
   SaveJobResponse,
+  SetFollowUpRequest,
   Status,
   StatusChange,
   StatusSource,
@@ -50,6 +52,18 @@ export interface JobsService {
   setParseState(jobId: number, state: 'pending' | 'failed', error?: string): Job;
   setRating(jobId: number, rating: Rating): Job;
   listIdsByParseState(state: ParseState): number[];
+  // A follow-up reminder. on: null clears it.
+  setFollowUp(id: number, req: SetFollowUpRequest): Job;
+  // Due (today or late) and coming up (the next 7 days), by your local date.
+  listFollowUps(): FollowUpsResponse;
+}
+
+const SOON_DAYS = 7;
+
+// A local date (YYYY-MM-DD) plus some calendar days.
+function addDays(local: string, days: number): string {
+  const [y, m, d] = local.split('-').map(Number);
+  return localDate(new Date(y!, m! - 1, d! + days));
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -410,6 +424,26 @@ export function createJobsService(opts: JobsOptions): JobsService {
     },
 
     listIdsByParseState: (state) => repo.listIdsByParseState(state),
+
+    setFollowUp(id, req) {
+      get(id);
+      const on = req.on;
+      const note = on === null ? null : req.note?.trim() || null;
+      repo.updateJob(id, { followUpOn: on, followUpNote: note }, opts.now().toISOString());
+      bus.emit('job.updated', { jobId: id, fields: ['followUpOn', 'followUpNote'] });
+      return get(id);
+    },
+
+    listFollowUps() {
+      // The local date, never the UTC one: in Sydney, the UTC date is a day behind every morning.
+      const today = localDate(opts.now());
+      const all = repo.listFollowUps(addDays(today, SOON_DAYS));
+      return {
+        today,
+        due: all.filter((j) => j.followUpOn! <= today),
+        soon: all.filter((j) => j.followUpOn! > today),
+      };
+    },
   };
 }
 

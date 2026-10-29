@@ -67,4 +67,26 @@ describe('duplicate routes', () => {
     const lookup = await app.request('GET', `/api/v1/postings/lookup?url=${encodeURIComponent('https://www.seek.com.au/job/9?ref=x')}`);
     expect(lookup.body.match.jobId).toBe(id);
   });
+
+  it('PUT /jobs/:id/follow-up sets one, refuses a bad date, and GET /jobs/follow-ups lists it', async () => {
+    const created = await app.request('POST', '/api/v1/jobs', { capture: pastedCapture(), fields: { title: 'Engineer' } });
+    const id = created.body.job.id;
+    const bad = await app.request('PUT', `/api/v1/jobs/${id}/follow-up`, { on: '5/11/2026' });
+    expect(bad.status).toBe(400);
+    const set = await app.request('PUT', `/api/v1/jobs/${id}/follow-up`, { on: '2000-01-01', note: 'Chase' });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ followUpOn: '2000-01-01', followUpNote: 'Chase' });
+    const list = await app.request('GET', '/api/v1/jobs/follow-ups');
+    expect(list.status).toBe(200);
+    expect(list.body.due.map((j: { id: number }) => j.id)).toEqual([id]);
+    expect(list.body.soon).toEqual([]);
+    expect(list.body.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("PATCH /jobs/:id can't set a follow-up", async () => {
+    const created = await app.request('POST', '/api/v1/jobs', { capture: pastedCapture() });
+    const id = created.body.job.id;
+    await app.request('PATCH', `/api/v1/jobs/${id}`, { followUpOn: '2026-11-05', company: 'Xero' });
+    expect((await app.request('GET', `/api/v1/jobs/${id}`)).body).toMatchObject({ company: 'Xero', followUpOn: null });
+  });
 });
