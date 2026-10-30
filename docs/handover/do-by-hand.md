@@ -84,6 +84,8 @@ These need a person, a signed-in browser or Word. Skip any you don't care about.
   - Updated an older copy of the extension? Open `about:addons` → Job Registry → **Permissions**. Check that au.seek.com and nz.seek.com are allowed, and turn them on if not. Firefox may not grant new sites on an update.
   - Then open one search list on each site. Within a minute, the cards on screen get a mark after their title, one card after another (such as "Good 68 · quick"). A job you saved says "Saved". Scroll down: new cards get marks too, and no card has two. About how many seconds does each card take?
   - Open a job from a Seek search list (the split view). Wait for its full rating in the panel: its card's mark changes to the full one (no "· quick"). Then press **Save**: the card says "Saved".
+  - Drag the panel by its top bar ("Job Registry"), and make it bigger from its top-left corner. Open another job: the panel is where you left it. Double-click the bar: it goes back to the corner.
+  - Open three quite different jobs. Their match scores should differ, not all be 72.
 - **Print to PDF:** on a job, make a resume, press **Print / PDF**, then Ctrl+P → Save to PDF. It looks like the preview.
 - **.docx:** press **Export .docx** and open it in Word for the web. It looks tidy.
 - **Gmail:** after the app has run for 15 minutes with email on, open the Inbox. Do the cards make sense? Were the emails still unread in Gmail?

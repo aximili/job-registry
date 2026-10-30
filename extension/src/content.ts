@@ -8,6 +8,7 @@ import { watchCards } from './cards.ts';
 import { fallbackCapture } from './capture.ts';
 import { ask } from './messages.ts';
 import { mountPanel, type PanelView } from './panel/mount.ts';
+import { DEFAULT_PLACE, readPlace } from './panel/place.ts';
 import { loadSettings } from './settings.ts';
 import { pickExtractor } from './sites/index.ts';
 import { watchJobs } from './watcher.ts';
@@ -29,7 +30,7 @@ function siteLocation(): URL {
 }
 
 let panel: ReturnType<typeof mountPanel> | null = null;
-let view: PanelView = { state: { kind: 'loading' }, rating: { kind: 'off' }, minimised: false, job: null, jobKey: null };
+let view: PanelView = { state: { kind: 'loading' }, rating: { kind: 'off' }, minimised: false, place: DEFAULT_PLACE, job: null, jobKey: null };
 let capture: Capture | null = null;
 let jobId: string | null = null;
 // Each job on screen gets a number; replies for an older one are dropped.
@@ -53,6 +54,11 @@ const actions = {
   setMinimised: (minimised: boolean) => {
     show({ minimised });
     void chrome.storage.local.set({ panelMinimised: minimised });
+  },
+  // You let go of the panel after moving or resizing it.
+  setPlace: (place: PanelView['place']) => {
+    show({ place });
+    void chrome.storage.local.set({ panelPlace: place });
   },
 };
 
@@ -144,8 +150,8 @@ async function onJob(found: Capture | null, id: string | null): Promise<void> {
   capture = found;
   jobId = id;
   if (!panel) {
-    const stored = (await chrome.storage.local.get('panelMinimised')) as { panelMinimised?: boolean };
-    view = { ...view, minimised: stored.panelMinimised === true };
+    const stored = (await chrome.storage.local.get(['panelMinimised', 'panelPlace'])) as { panelMinimised?: boolean; panelPlace?: unknown };
+    view = { ...view, minimised: stored.panelMinimised === true, place: readPlace(stored.panelPlace) };
     panel = mountPanel(document, actions, view);
   }
   if (mine !== seq) return;

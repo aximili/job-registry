@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ParsedJob } from '../../../shared/contracts/index.ts';
+import type { z } from 'zod';
+import { CardRating, ParsedJob, Rating } from '../../../shared/contracts/index.ts';
 import { extractJson, toAiSchema } from './json.ts';
 
 describe('extractJson', () => {
@@ -25,5 +26,14 @@ describe('toAiSchema', () => {
     expect(text).not.toContain('"pattern"');
     expect(text).not.toContain('$schema');
     expect(text).toContain('"format":"date"');
+  });
+
+  // llama-server writes the fields in the schema's order. A model that gives
+  // the score first picks it before weighing anything, and a small one then
+  // gives nearly every job the same number.
+  it('asks for the reasons before the verdict and the score', () => {
+    const order = (schema: z.ZodType) => Object.keys((toAiSchema(schema) as { properties: object }).properties);
+    expect(order(Rating)).toEqual(['why', 'whyNot', 'dealBreakers', 'salaryNote', 'verdict', 'score']);
+    expect(order(CardRating)).toEqual(['reason', 'verdict', 'score']);
   });
 });

@@ -93,6 +93,40 @@ test('the panel can be tucked away, and stays that way', async ({ page }) => {
   await expect(panel(page).getByRole('button', { name: 'Show' })).toBeVisible();
 });
 
+test('the panel moves by its bar and resizes from a corner, stays that way, and a double-click puts it back', async ({ page }) => {
+  await page.goto(`${SITES}/seek/job/81234567`);
+  await expect(panel(page)).toContainText('Good match · 72');
+  const box = async () => {
+    const b = (await panel(page).boundingBox())!;
+    return { left: Math.round(b.x), top: Math.round(b.y), right: Math.round(b.x + b.width), bottom: Math.round(b.y + b.height), width: Math.round(b.width), height: Math.round(b.height) };
+  };
+  const drag = async (x: number, y: number, dx: number, dy: number) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 5 });
+    await page.mouse.up();
+  };
+  const start = await box();
+
+  // By the bar, "Job Registry": the whole panel moves.
+  await drag(start.left + 40, start.top + 16, -300, -200);
+  const moved = await box();
+  expect(moved).toMatchObject({ right: start.right - 300, bottom: start.bottom - 200, width: start.width, height: start.height });
+
+  // By its top-left corner: it grows up and left.
+  await drag(moved.left + 1, moved.top + 1, -100, -60);
+  const resized = await box();
+  expect(resized).toMatchObject({ right: moved.right, bottom: moved.bottom, width: moved.width + 100, height: moved.height + 60 });
+
+  await page.reload();
+  await expect(panel(page)).toContainText('Good match · 72');
+  expect(await box()).toEqual(resized);
+
+  await page.mouse.dblclick(resized.left + 40, resized.top + 16);
+  const back = await box();
+  expect(back).toMatchObject({ right: start.right, bottom: start.bottom, width: start.width });
+});
+
 test('the popup saves a job ad from any other website', async ({ context, page, background, request }) => {
   await page.goto(`${SITES}/other/article`);
   await page.bringToFront();

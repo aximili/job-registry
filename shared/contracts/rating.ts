@@ -5,13 +5,16 @@ import { Capture, SourceSite } from './capture.ts';
 export const Verdict = z.enum(['strong', 'good', 'stretch', 'weak']);
 export type Verdict = z.infer<typeof Verdict>;
 
+// The AI writes the fields in this order. The reasons come first, so the
+// verdict and score follow from them: a model asked for the score first
+// gives nearly every job the same one.
 export const Rating = z.object({
-  verdict: Verdict,
-  score: z.number().int().min(0).max(100),
   why: z.array(z.string()).max(4),
   whyNot: z.array(z.string()).max(4),
   dealBreakers: z.array(z.string()),
   salaryNote: z.string().nullable(),
+  verdict: Verdict,
+  score: z.number().int().min(0).max(100),
 });
 export type Rating = z.infer<typeof Rating>;
 
@@ -47,11 +50,12 @@ export const JobCard = z.object({
 });
 export type JobCard = z.infer<typeof JobCard>;
 
-// A quick rating from a card alone. reason is one sentence.
+// A quick rating from a card alone. reason is one sentence, and comes
+// first for the same reason as in Rating.
 export const CardRating = z.object({
+  reason: z.string(),
   verdict: Verdict,
   score: z.number().int().min(0).max(100),
-  reason: z.string(),
 });
 export type CardRating = z.infer<typeof CardRating>;
 

@@ -13,8 +13,9 @@ export type { PanelActions, PanelView };
 export function mountPanel(doc: Document, actions: PanelActions, initial: PanelView) {
   removeStalePanels(doc);
   const host = doc.createElement('job-registry-panel');
-  // "all: initial" stops the page's styles being inherited; the panel sets its own.
-  host.style.cssText = 'all: initial; position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;';
+  // "all: initial" stops the page's styles being inherited; the panel sets its
+  // own. The host takes no space: the panel inside places itself in the window.
+  host.style.cssText = 'all: initial; position: fixed; left: 0; top: 0; z-index: 2147483647;';
   const root = host.attachShadow({ mode: SHADOW_MODE });
   (doc.body ?? doc.documentElement).append(host);
   const app = mount(Panel, { target: root, props: { actions } }) as unknown as {

@@ -2,16 +2,69 @@
   // The small panel in the corner of Seek, LinkedIn and Indeed job pages. It
   // lives in a closed shadow root, so the site's styles can't change it.
   import { tick } from 'svelte';
+  import { DEFAULT_PLACE, fit, moved, resized, type Box, type Edge, type PanelPlace, type Size } from './place.ts';
   import { likelyText, ratingText, savedText } from './text.ts';
   import type { PanelActions, PanelView } from './types.ts';
 
   let { actions }: { actions: PanelActions } = $props();
 
   // The content script sets the real view straight after mounting.
-  let view = $state<PanelView>({ state: { kind: 'loading' }, rating: { kind: 'off' }, minimised: false, job: null, jobKey: null });
+  let view = $state<PanelView>({ state: { kind: 'loading' }, rating: { kind: 'off' }, minimised: false, place: DEFAULT_PLACE, job: null, jobKey: null });
   let status = $state('saved');
   let note = $state('');
   let toggleButton = $state<HTMLButtonElement>();
+  let panel = $state<HTMLDivElement>();
+
+  // Moving and resizing. While you drag, the panel follows the pointer;
+  // letting go keeps the new place for every page.
+  const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+  // Raw, not a Svelte proxy: it goes to the browser's storage, and Firefox
+  // can't store a proxy.
+  let dragging = $state.raw<PanelPlace | null>(null);
+  let drag: { kind: 'move' | Edge; x: number; y: number; box: Box; from: PanelPlace } | null = null;
+  let width = $state(0);
+  let height = $state(0);
+  let windowSize = $state<Size>(windowNow());
+  const place = $derived(dragging ?? view.place);
+  // Kept inside the window, however small it gets or tall the panel grows.
+  const shown = $derived(fit(place, { width, height }, windowSize));
+
+  // The part of the window a fixed box can use (without the scroll bars).
+  function windowNow(): Size {
+    const root = document.documentElement;
+    return { width: root.clientWidth, height: root.clientHeight };
+  }
+
+  function startDrag(event: PointerEvent, kind: 'move' | Edge) {
+    if (event.button !== 0 || !panel) return;
+    if (kind === 'move' && (event.target as Element).closest('button')) return;
+    // No text selected on the page, and no focus moved, while you drag.
+    event.preventDefault();
+    const r = panel.getBoundingClientRect();
+    drag = { kind, x: event.clientX, y: event.clientY, box: { left: r.left, top: r.top, width: r.width, height: r.height }, from: place };
+    (event.currentTarget as Element).setPointerCapture(event.pointerId);
+  }
+
+  function onDrag(event: PointerEvent) {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    const size = windowNow();
+    dragging = drag.kind === 'move' ? moved(drag.box, dx, dy, size, drag.from) : resized(drag.box, drag.kind, dx, dy, size, drag.from);
+  }
+
+  function endDrag() {
+    const done = dragging;
+    drag = null;
+    dragging = null;
+    if (done) actions.setPlace(done);
+  }
+
+  // A double-click on the bar puts the panel back in its corner, at its usual size.
+  function putBack(event: MouseEvent) {
+    if ((event.target as Element).closest('button')) return;
+    actions.setPlace(DEFAULT_PLACE);
+  }
 
   export function setView(next: PanelView) {
     // A different job starts with a fresh status and note; the same job
@@ -50,9 +103,26 @@
   </label>
 {/snippet}
 
-<div class="panel" class:min={view.minimised} role="complementary" aria-label="Job Registry">
-  <div class="bar">
-    <span class="brand">Job Registry</span>
+<svelte:window onresize={() => (windowSize = windowNow())} />
+
+<div
+  class="panel"
+  class:min={view.minimised}
+  role="complementary"
+  aria-label="Job Registry"
+  bind:this={panel}
+  bind:offsetWidth={width}
+  bind:offsetHeight={height}
+  style:right="{shown.right}px"
+  style:bottom="{shown.bottom}px"
+  style:width={!view.minimised && place.width !== null ? `${place.width}px` : null}
+  style:height={!view.minimised && place.height !== null ? `${place.height}px` : null}
+  style:max-height={!view.minimised && place.height !== null ? '100vh' : null}
+>
+  <!-- Dragging is for the mouse; the panel works the same where it starts. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="bar" onpointerdown={(e) => startDrag(e, 'move')} onpointermove={onDrag} onpointerup={endDrag} onpointercancel={endDrag} ondblclick={putBack}>
+    <span class="brand" title="Drag to move. Double-click to put it back in the corner.">Job Registry</span>
     <button type="button" class="quiet" bind:this={toggleButton} aria-expanded={!view.minimised} onclick={toggle}>{view.minimised ? 'Show' : 'Hide'}</button>
   </div>
 
@@ -132,6 +202,9 @@
         </div>
       {/if}
     </div>
+    {#each EDGES as edge (edge)}
+      <div class="grip {edge}" aria-hidden="true" onpointerdown={(e) => startDrag(e, edge)} onpointermove={onDrag} onpointerup={endDrag} onpointercancel={endDrag}></div>
+    {/each}
   {/if}
 </div>
 
@@ -144,10 +217,13 @@
     --accent: #2b44d1;
     --danger: #b3261e;
     --ok: #1a7f37;
+    position: fixed;
+    display: flex;
+    flex-direction: column;
     box-sizing: border-box;
     width: 320px;
+    max-width: 100vw;
     max-height: min(70vh, 560px);
-    overflow: auto;
     background: var(--paper);
     color: var(--ink);
     border: 1px solid var(--rule);
@@ -174,13 +250,18 @@
     width: auto;
   }
 
+  /* The bar stays in view while the rest scrolls, and is what you drag. */
   .bar {
+    flex: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--rule);
+    cursor: move;
+    user-select: none;
+    touch-action: none;
   }
 
   .min .bar {
@@ -192,9 +273,77 @@
   }
 
   .body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
     padding: 12px;
     display: grid;
+    align-content: start;
     gap: 10px;
+  }
+
+  /* Thin strips along each edge, and squares at the corners, for resizing. */
+  .grip {
+    position: absolute;
+    touch-action: none;
+  }
+
+  .grip.n,
+  .grip.s {
+    left: 8px;
+    right: 8px;
+    height: 6px;
+    cursor: ns-resize;
+  }
+
+  .grip.e,
+  .grip.w {
+    top: 8px;
+    bottom: 8px;
+    width: 6px;
+    cursor: ew-resize;
+  }
+
+  .grip.ne,
+  .grip.nw,
+  .grip.se,
+  .grip.sw {
+    width: 12px;
+    height: 12px;
+  }
+
+  .grip.n,
+  .grip.ne,
+  .grip.nw {
+    top: -3px;
+  }
+
+  .grip.s,
+  .grip.se,
+  .grip.sw {
+    bottom: -3px;
+  }
+
+  .grip.e,
+  .grip.ne,
+  .grip.se {
+    right: -3px;
+  }
+
+  .grip.w,
+  .grip.nw,
+  .grip.sw {
+    left: -3px;
+  }
+
+  .grip.nw,
+  .grip.se {
+    cursor: nwse-resize;
+  }
+
+  .grip.ne,
+  .grip.sw {
+    cursor: nesw-resize;
   }
 
   p {
