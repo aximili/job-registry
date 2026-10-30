@@ -3,6 +3,7 @@
 // /v1/models over fetch, and turns every failure into a plain sentence.
 
 import { AiRefusedError, AiUnavailableError } from '../../../core/errors.ts';
+import { THINKING_TOKENS } from '../../../../shared/contracts/index.ts';
 import type { AiProvider, ChatChunk, ChatRequest, ChatResult, ProviderHealth } from '../provider.ts';
 
 export type OpenAiConfig = { baseUrl: string; model: string; timeoutSec: number };
@@ -26,10 +27,24 @@ export function createOpenAiCompatibleProvider(
     if (req.jsonSchema) {
       out.response_format = { type: 'json_schema', json_schema: { name: req.jsonSchema.name, schema: req.jsonSchema.schema, strict: true } };
     }
-    // The field llama-server (Bonsai 2) and Ollama both use. "none" turns
-    // thinking off; Bonsai 2 refuses "high", so "medium" is the default.
+    // reasoning_effort is the field llama-server (Bonsai 2) and Ollama both
+    // use, and "none" turns thinking off.
     if (req.thinking === false) out.reasoning_effort = 'none';
-    if (req.thinking === true) out.reasoning_effort = req.thinkingEffort ?? 'medium';
+    if (req.thinking === true) {
+      const effort = req.thinkingEffort ?? 'medium';
+      if (effort === 'max') {
+        // No limits at all: the AI thinks and writes as long as it likes
+        // (Bonsai 2's own default is "xhigh").
+        delete out.max_tokens;
+      } else {
+        // Bonsai 2 refuses "high": its strongest is "xhigh". Thinking counts
+        // towards max_tokens, so its limit comes on top of the answer's.
+        // llama-server stops the thinking there and has the AI answer.
+        out.reasoning_effort = effort === 'high' ? 'xhigh' : effort;
+        out.thinking_budget_tokens = THINKING_TOKENS[effort];
+        if (req.maxTokens !== undefined) out.max_tokens = req.maxTokens + THINKING_TOKENS[effort];
+      }
+    }
     for (const [key, value] of Object.entries(req.extra ?? {})) {
       if (value === null) delete out[key];
       else out[key] = value;
@@ -37,20 +52,17 @@ export function createOpenAiCompatibleProvider(
     return out;
   }
 
-  async function post(req: ChatRequest, stream: boolean, signal?: AbortSignal): Promise<Response> {
-    const config = getConfig();
-    const timeout = AbortSignal.timeout(config.timeoutSec * 1000);
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  async function post(req: ChatRequest, stream: boolean, config: OpenAiConfig, signals: AbortSignal[]): Promise<Response> {
     let res: Response;
     try {
       res = await doFetch(`${trimSlash(config.baseUrl)}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body(req, config, stream)),
-        signal: combined,
+        signal: AbortSignal.any(signals),
       });
     } catch (err) {
-      throw describe(err, config);
+      throw describe(err, config, stream);
     }
     if (!res.ok) throw new AiRefusedError(`The AI at ${config.baseUrl} answered with an error (${res.status}): ${await errorText(res)}`);
     return res;
@@ -59,42 +71,59 @@ export function createOpenAiCompatibleProvider(
   return {
     async chat(req, o = {}): Promise<ChatResult> {
       const config = getConfig();
-      const res = await post(req, false, o.signal);
-      let data: { choices?: { message?: Record<string, unknown> }[] };
+      // The whole answer must come within the time limit.
+      const limit = timeLimit(config.timeoutSec);
       try {
-        data = (await res.json()) as typeof data;
-      } catch (err) {
-        throw describe(err, config);
+        const res = await post(req, false, config, [limit.signal, ...(o.signal ? [o.signal] : [])]);
+        let data: { choices?: { message?: Record<string, unknown>; finish_reason?: unknown }[] };
+        try {
+          data = (await res.json()) as typeof data;
+        } catch (err) {
+          throw describe(err, config, false);
+        }
+        const choice = data.choices?.[0];
+        // max_tokens ran out, often while the AI was still thinking: the answer is missing or cut short.
+        if (choice?.finish_reason === 'length') throw new AiRefusedError(CUT_OFF);
+        const message = choice?.message ?? {};
+        const raw = typeof message.content === 'string' ? message.content : '';
+        const split = splitThinking(raw);
+        const reasoning =
+          typeof message.reasoning_content === 'string'
+            ? message.reasoning_content
+            : typeof message.reasoning === 'string'
+              ? message.reasoning
+              : '';
+        return { text: split.text.trim(), thinking: [reasoning, split.thinking].filter(Boolean).join('\n') };
+      } finally {
+        limit.stop();
       }
-      const message = data.choices?.[0]?.message ?? {};
-      const raw = typeof message.content === 'string' ? message.content : '';
-      const split = splitThinking(raw);
-      const reasoning =
-        typeof message.reasoning_content === 'string'
-          ? message.reasoning_content
-          : typeof message.reasoning === 'string'
-            ? message.reasoning
-            : '';
-      return { text: split.text.trim(), thinking: [reasoning, split.thinking].filter(Boolean).join('\n') };
     },
 
     async *chatStream(req, o = {}): AsyncIterable<ChatChunk> {
       const config = getConfig();
-      const res = await post(req, true, o.signal);
-      const splitter = thinkSplitter();
-      let cutOff = false;
+      // A stream may take as long as it needs, as long as it keeps sending:
+      // the time limit starts again with each piece, thinking included.
+      const limit = timeLimit(config.timeoutSec);
       try {
-        for await (const delta of sseDeltas(res)) {
-          if (delta.finish_reason === 'length') cutOff = true;
-          const reasoning = delta.reasoning_content ?? delta.reasoning;
-          if (typeof reasoning === 'string' && reasoning) yield { kind: 'thinking', text: reasoning };
-          if (typeof delta.content === 'string' && delta.content) yield* splitter.push(delta.content);
+        const res = await post(req, true, config, [limit.signal, ...(o.signal ? [o.signal] : [])]);
+        const splitter = thinkSplitter();
+        let cutOff = false;
+        try {
+          for await (const delta of sseDeltas(res)) {
+            limit.restart();
+            if (delta.finish_reason === 'length') cutOff = true;
+            const reasoning = delta.reasoning_content ?? delta.reasoning;
+            if (typeof reasoning === 'string' && reasoning) yield { kind: 'thinking', text: reasoning };
+            if (typeof delta.content === 'string' && delta.content) yield* splitter.push(delta.content);
+          }
+          yield* splitter.end();
+          // max_tokens or the context ran out (thinking counts): what came is kept, but it isn't finished.
+          if (cutOff) throw new AiRefusedError(CUT_OFF);
+        } catch (err) {
+          throw describe(err, config, true);
         }
-        yield* splitter.end();
-        // max_tokens ran out (thinking counts towards it): what came is kept, but it isn't finished.
-        if (cutOff) throw new AiRefusedError(CUT_OFF);
-      } catch (err) {
-        throw describe(err, config);
+      } finally {
+        limit.stop();
       }
     },
 
@@ -109,7 +138,7 @@ export function createOpenAiCompatibleProvider(
         const models = (data.data ?? []).flatMap((m) => (typeof m.id === 'string' ? [m.id] : []));
         return { ok: true, models, detail: null };
       } catch (err) {
-        return { ok: false, models: [], detail: describe(err, { ...config, timeoutSec: HEALTH_TIMEOUT_MS / 1000 }).message };
+        return { ok: false, models: [], detail: describe(err, { ...config, timeoutSec: HEALTH_TIMEOUT_MS / 1000 }, false).message };
       }
     },
   };
@@ -117,14 +146,30 @@ export function createOpenAiCompatibleProvider(
 
 const trimSlash = (url: string): string => url.replace(/\/+$/, '');
 
+// The time limit for one request. restart() gives it the full time again.
+function timeLimit(seconds: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const restart = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(new DOMException('The AI took too long.', 'TimeoutError')), seconds * 1000);
+  };
+  restart();
+  return { signal: controller.signal, restart, stop: () => clearTimeout(timer) };
+}
+
 // A cancel stays a cancel. Everything else becomes a sentence that says what
 // went wrong and where.
-function describe(err: unknown, config: OpenAiConfig): Error {
+function describe(err: unknown, config: OpenAiConfig, stream: boolean): Error {
   if (err instanceof AiUnavailableError) return err;
   const name = (err as Error)?.name;
   if (name === 'AbortError') return err as Error;
   if (name === 'TimeoutError') {
-    return new AiRefusedError(`The AI at ${config.baseUrl} didn't answer within ${config.timeoutSec} seconds.`);
+    return new AiRefusedError(
+      stream
+        ? `The AI at ${config.baseUrl} sent nothing for ${config.timeoutSec} seconds.`
+        : `The AI at ${config.baseUrl} didn't answer within ${config.timeoutSec} seconds.`,
+    );
   }
   return new AiUnavailableError(
     `Can't reach the AI at ${config.baseUrl}. Check that it's running, or pick another AI in Settings.`,
@@ -203,7 +248,7 @@ function partialTagLength(text: string, tag: string): number {
 type Delta = { content?: unknown; reasoning_content?: unknown; reasoning?: unknown; finish_reason?: unknown };
 
 const CUT_OFF =
-  'The AI ran out of room before it finished. Raise maxTokens in config\\settings.json (ai.tasks.write for resumes and cover letters), then try again.';
+  "The AI ran out of room before it finished. In Settings → AI, give this task less thinking or a longer answer, then try again. If that doesn't help, the AI server's context is full: give it a bigger one (llama-server's -c).";
 
 async function* sseDeltas(res: Response): AsyncIterable<Delta> {
   if (!res.body) return;

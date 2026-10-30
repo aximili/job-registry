@@ -26,7 +26,7 @@ Before you start: stop the app with `stop.bat`, run `setup.bat`, then start the 
 - [ ] **The fact-check:** add "Grew sales by 40%" to a bullet point. Within a second, "Not in your profile: 40%" appears above the text, and 40% is highlighted in the preview. Note any highlight that is wrong (a fact that is in your profile).
 - [ ] **Stop:** press **Generate cover letter**, then **Stop** part-way. The text so far stays and nothing is saved. The AI pill goes back to Ready.
 - [ ] **Close the tab while it writes:** press **Generate resume**, then close the Firefox tab part-way. Open the job and press **New resume** again. It offers "You have unsaved text from …", and **Restore** brings the text back. The AI pill goes back to Ready.
-- [ ] **A long draft:** if a draft ends with "didn't answer within 300 seconds", raise `"timeoutSec"` under `"ai"` in `config\settings.json` (for example to 600) and try again. If it ends with "ran out of room", raise `maxTokens` under `ai.tasks.write`. Note which one happened.
+- [ ] **A long draft:** if a draft ends with "sent nothing for 300 seconds", raise `"timeoutSec"` under `"ai"` in `config\settings.json` (for example to 600) and try again. If it ends with "ran out of room", the AI's context is full (writing thinks with No limit): give llama-server a bigger `-c`, or pick High for "Writing resumes and cover letters" in Settings → AI. Note which one happened.
 - [ ] **Save and send:** press **Save version**, then **Mark as sent** and confirm. The text becomes read-only, with "Sent on {today}".
 
 ## Print and export

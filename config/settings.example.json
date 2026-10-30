@@ -140,7 +140,7 @@
         "temperature": 0.6,
         "maxTokens": 8192,
         "thinking": true,
-        "thinkingEffort": "medium",
+        "thinkingEffort": "max",
         "extra": {}
       },
       "email": {

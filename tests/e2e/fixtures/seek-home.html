@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SEEK (test page)</title>
+<!-- As on Seek, each card's link is empty and laid over the whole card. -->
+<style>
+  #cards > li { position: relative; }
+  #cards a[data-automation^="recommendedJobLink_"] { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<!-- A copy of Seek's home page when signed in, for the extension's browser
+     tests. Clicking a Recommended card opens the job in a pop-over, and the
+     address stays the same, as on au.seek.com (see seek-home-drawer-real.html).
+     Like Seek's pop-over (react-focus-lock and react-remove-scroll), it pulls
+     focus back into itself, unless the focus is inside an element marked
+     data-no-focus-lock, and it stops the mouse wheel anywhere outside it. -->
+<section data-automation="homePage">
+  <h3>Recommended</h3>
+  <ul data-automation="feedJobs" id="cards"></ul>
+</section>
+<div id="braid-modal-container"></div>
+<script>
+  const JOBS = [
+    { id: '95564362', title: 'Software Engineer', company: 'Ucroo Pty Ltd', place: 'Melbourne VIC', mode: '(Remote)' },
+    { id: '95568235', title: 'Front End Software Engineer', company: 'ABC', place: 'Melbourne VIC', mode: '(Remote)' },
+  ];
+  const cards = document.getElementById('cards');
+  for (const job of JOBS) {
+    const li = document.createElement('li');
+    li.innerHTML =
+      `<div><a href="/job/${job.id}?ref=recom-homepage" aria-label="${job.title}" data-automation="recommendedJobLink_${job.id}"></a>` +
+      `<div><div><h3><span data-automation="jobTitle">${job.title}</span></h3><span data-automation="jobAdvertiser">${job.company}</span></div>` +
+      `<div><div><span>Full time</span><span>${job.place}<span>${job.mode}</span></span></div></div></div></div>`;
+    li.querySelector('a').addEventListener('click', (event) => {
+      event.preventDefault();
+      // Like Seek: the pop-over opens, then fills a moment later.
+      setTimeout(() => open(job), 300);
+    });
+    cards.append(li);
+  }
+
+  let drawer = null;
+  function open(job) {
+    drawer = document.createElement('div');
+    drawer.id = 'homepageDrawer';
+    drawer.setAttribute('role', 'dialog');
+    drawer.setAttribute('aria-label', 'Open job details');
+    drawer.setAttribute('aria-modal', 'true');
+    drawer.innerHTML =
+      `<button type="button">Close</button>` +
+      `<a href="/job/${job.id}?ref=recom-homepage&origin=showNewTab">Open in a new tab</a>` +
+      `<h1 data-automation="job-detail-title"><a href="/job/${job.id}?ref=recom-homepage&origin=jobTitle">${job.title}</a></h1>` +
+      `<span data-automation="advertiser-name">${job.company}</span>` +
+      `<span data-automation="job-detail-location">${job.place} ${job.mode}</span>` +
+      `<span data-automation="job-detail-work-type">Full time</span>` +
+      `<div data-automation="jobAdDetails">${job.company} is hiring a ${job.title}. You will build things in TypeScript.</div>` +
+      `<a data-automation="job-detail-apply" href="/job/${job.id}/apply">Quick apply</a>`;
+    drawer.querySelector('button').addEventListener('click', () => {
+      drawer.remove();
+      drawer = null;
+    });
+    document.getElementById('braid-modal-container').append(drawer);
+    drawer.querySelector('button').focus();
+  }
+
+  // focus-lock's own checks: the focused element, inside open shadow roots
+  // too, and whether one element holds another, across shadow roots.
+  function activeElement(root) {
+    const el = root.activeElement;
+    return el && el.shadowRoot ? activeElement(el.shadowRoot) || el : el;
+  }
+  function contains(scope, el) {
+    if (scope.shadowRoot) return contains(scope.shadowRoot, el);
+    return Node.prototype.contains.call(scope, el) || Array.from(scope.children).some((child) => contains(child, el));
+  }
+  document.addEventListener('focusin', () => {
+    setTimeout(() => {
+      if (!drawer) return;
+      const el = activeElement(document);
+      if (!el || contains(drawer, el)) return;
+      if (Array.from(document.querySelectorAll('[data-no-focus-lock]')).some((node) => contains(node, el))) return;
+      drawer.querySelector('button').focus();
+    }, 0);
+  });
+  for (const type of ['wheel', 'touchmove']) {
+    document.addEventListener(
+      type,
+      (event) => {
+        if (drawer && !drawer.contains(event.target)) event.preventDefault();
+      },
+      { passive: false },
+    );
+  }
+</script>
+</body>
+</html>

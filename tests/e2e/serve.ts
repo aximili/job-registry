@@ -100,6 +100,7 @@ const sites = join(projectRoot, 'tests', 'fixtures', 'sites');
 // Copies of the job sites for the extension's tests, at /seek/…, /linkedin/…,
 // /indeed/… and /other/… (the extension's test build reads them as the real sites).
 const SITE_PAGES: [RegExp, string][] = [
+  [/^\/seek\/$/, join(fixtures, 'seek-home.html')],
   [/^\/seek\/jobs$/, join(fixtures, 'seek-live-search.html')],
   [/^\/seek\/list$/, join(fixtures, 'seek-list.html')],
   [/^\/seek\/job\/99999999$/, join(fixtures, 'seek-unreadable.html')],

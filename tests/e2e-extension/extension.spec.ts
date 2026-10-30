@@ -57,6 +57,33 @@ test('saving a job takes one click, and the panel then says it is saved', async 
   await expect(panel(page).getByRole('button', { name: 'Open in Job Registry' })).toBeVisible();
 });
 
+test("a job opened from Seek's home page shows in the panel, which still takes typing and scrolls while Seek's pop-over is open", async ({ page, background }) => {
+  // A short panel, so its body has something to scroll.
+  await background.evaluate(() => chrome.storage.local.set({ panelPlace: { right: 16, bottom: 16, width: null, height: 150 } }));
+  await page.goto(`${SITES}/seek/`);
+  await page.getByRole('link', { name: 'Software Engineer', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Open job details' })).toBeVisible();
+  await expect(panel(page)).toContainText('Software Engineer · Ucroo Pty Ltd');
+  await expect(panel(page)).toContainText('Good match · 72');
+
+  // Seek's pop-over pulls focus back into itself, but not from the panel.
+  const note = panel(page).getByLabel('Note');
+  await note.click();
+  await page.keyboard.type('Ask about the stack');
+  await expect(note).toHaveValue('Ask about the stack');
+
+  // And it stops the mouse wheel outside it, but not over the panel.
+  const body = panel(page).locator('.body');
+  const b = (await body.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.wheel(0, 200);
+  await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+  // Closing the pop-over leaves the job, as on a search page.
+  await page.getByRole('dialog', { name: 'Open job details' }).getByRole('button', { name: 'Close' }).click();
+  await expect(panel(page)).toHaveCount(0);
+});
+
 test('a job saved from Seek is recognised as "Same job?" on LinkedIn', async ({ page, request }) => {
   const res = await request.post('/api/v1/jobs', {
     headers: { origin: ORIGIN },

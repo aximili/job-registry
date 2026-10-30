@@ -29,6 +29,9 @@ const ask = (extra: Partial<ChatRequest> = {}): ChatRequest => ({
   ...extra,
 });
 
+const CUT_OFF =
+  "The AI ran out of room before it finished. In Settings → AI, give this task less thinking or a longer answer, then try again. If that doesn't help, the AI server's context is full: give it a bigger one (llama-server's -c).";
+
 async function closedPort(): Promise<number> {
   return new Promise((resolve) => {
     const s = createServer();
@@ -63,9 +66,33 @@ describe('OpenAI-compatible provider', () => {
     const { provider, server } = await setup();
     await provider.chat(ask({ thinking: false }));
     await provider.chat(ask({ thinking: true }));
-    await provider.chat(ask({ thinking: true, thinkingEffort: 'xhigh' }));
+    await provider.chat(ask({ thinking: true, thinkingEffort: 'low' }));
+    await provider.chat(ask({ thinking: true, thinkingEffort: 'high' }));
     await provider.chat(ask());
-    expect(server.requests.map((r) => r.reasoning_effort)).toEqual(['none', 'medium', 'xhigh', undefined]);
+    // Bonsai 2 refuses "high": its strongest effort is "xhigh".
+    expect(server.requests.map((r) => r.reasoning_effort)).toEqual(['none', 'medium', 'low', 'xhigh', undefined]);
+  });
+
+  it('gives each thinking level its own room, on top of the longest answer', async () => {
+    const { provider, server } = await setup();
+    await provider.chat(ask({ maxTokens: 2048, thinking: false }));
+    await provider.chat(ask({ maxTokens: 2048, thinking: true, thinkingEffort: 'low' }));
+    await provider.chat(ask({ maxTokens: 2048, thinking: true, thinkingEffort: 'medium' }));
+    await provider.chat(ask({ maxTokens: 2048, thinking: true, thinkingEffort: 'high' }));
+    expect(server.requests.map((r) => [r.thinking_budget_tokens, r.max_tokens])).toEqual([
+      [undefined, 2048],
+      [512, 2048 + 512],
+      [2048, 2048 + 2048],
+      [8192, 2048 + 8192],
+    ]);
+  });
+
+  it('thinking with no limit sends no effort and no limits, so the AI uses its own default', async () => {
+    const { provider, server } = await setup();
+    await provider.chat(ask({ maxTokens: 8192, temperature: 0.6, thinking: true, thinkingEffort: 'max' }));
+    const body = server.requests[0]!;
+    expect(body.temperature).toBe(0.6);
+    for (const field of ['reasoning_effort', 'thinking_budget_tokens', 'max_tokens']) expect(field in body).toBe(false);
   });
 
   it('extra fields are sent as they are, and a null removes a field', async () => {
@@ -111,10 +138,32 @@ describe('OpenAI-compatible provider', () => {
     const run = async () => {
       for await (const chunk of provider.chatStream(ask())) if (chunk.kind === 'text') parts.push(chunk.text);
     };
-    await expect(run()).rejects.toThrow(
-      new AiRefusedError('The AI ran out of room before it finished. Raise maxTokens in config\\settings.json (ai.tasks.write for resumes and cover letters), then try again.'),
-    );
+    await expect(run()).rejects.toThrow(new AiRefusedError(CUT_OFF));
     expect(parts.join('')).toBe('Half a resume');
+  });
+
+  it('an answer cut off while the AI was still thinking says so, and gives no half answer', async () => {
+    const { provider } = await setup(() => ({ content: '', reasoning: 'Let me weigh this job against the profile…', finishReason: 'length' }));
+    const err = await provider.chat(ask({ maxTokens: 2048, thinking: true, thinkingEffort: 'low' })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiRefusedError);
+    expect((err as Error).message).toBe(CUT_OFF);
+  });
+
+  it('a stream that keeps sending may take longer than the time limit', async () => {
+    const { provider } = await setup(() => ({ content: 'A resume, written slowly.', reasoning: 'Hmm', chunkDelayMs: 300 }), { timeoutSec: 1 });
+    let text = '';
+    for await (const chunk of provider.chatStream(ask())) if (chunk.kind === 'text') text += chunk.text;
+    expect(text).toBe('A resume, written slowly.');
+  });
+
+  it('a stream that goes quiet for the time limit stops with the address and the limit', async () => {
+    const { provider, server } = await setup(() => ({ content: 'Stalled', chunkDelayMs: 1500 }), { timeoutSec: 1 });
+    const run = async () => {
+      for await (const chunk of provider.chatStream(ask())) void chunk;
+    };
+    const err = await run().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiRefusedError);
+    expect((err as Error).message).toBe(`The AI at ${server.url} sent nothing for 1 seconds.`);
   });
 
   it('a wrong address (no /v1) names the address in the error', async () => {

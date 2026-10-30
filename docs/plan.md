@@ -214,7 +214,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
 
   Each task is a prompt plus a zod schema (turned into JSON Schema for constrained output), with validation and one retry. The prompts are text files in `server/modules/ai/prompts/`.
 - Each task can have its own settings in `settings.json`: model, temperature, thinking on or off, extra request fields.
-  - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on** for resume and cover letter (`reasoning_effort: "medium"`).
+  - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on with no limit** for resume and cover letter (Bonsai 2's own default, `"xhigh"`; changed from `"medium"` on 30 Oct 2026, at the user's request).
   - Settings → AI shows each task's settings, except the extra request fields (Phase 7).
   - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
 - A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached.

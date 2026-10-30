@@ -2,10 +2,10 @@
 // how each row maps to that task's block in settings.json (ai.tasks.*).
 // A row leaves out the extra request fields: they stay as they are.
 
-import type { AiSettings, TaskSettings } from '../../../shared/contracts/index.ts';
+import type { AiSettings, TaskSettings, ThinkingEffort } from '../../../shared/contracts/index.ts';
 
 export type TaskKey = keyof AiSettings['tasks'];
-export type Thinking = 'off' | 'low' | 'medium' | 'high';
+export type Thinking = 'off' | ThinkingEffort;
 
 export const TASK_ROWS: { key: TaskKey; label: string }[] = [
   { key: 'parse', label: 'Reading job ads' },
@@ -20,18 +20,17 @@ export const THINKING: { value: Thinking; label: string }[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
+  { value: 'max', label: 'No limit' },
 ];
 
-// "High" is the strongest effort the server knows: xhigh.
 export function thinkingOf(t: TaskSettings): Thinking {
-  if (!t.thinking) return 'off';
-  return t.thinkingEffort === 'xhigh' ? 'high' : t.thinkingEffort;
+  return t.thinking ? t.thinkingEffort : 'off';
 }
 
 // Off keeps the effort, so turning thinking on again picks up where it was.
 export function withThinking(t: TaskSettings, v: Thinking): TaskSettings {
   if (v === 'off') return { ...t, thinking: false };
-  return { ...t, thinking: true, thinkingEffort: v === 'high' ? 'xhigh' : v };
+  return { ...t, thinking: true, thinkingEffort: v };
 }
 
 // A row as it is on screen. A number box gives null when it's empty or
@@ -42,10 +41,15 @@ export function rowOf(t: TaskSettings): TaskRow {
   return { thinking: thinkingOf(t), maxTokens: t.maxTokens, temperature: t.temperature, model: t.model ?? '' };
 }
 
+const wholeTokens = (n: number | null): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 16;
+
+// With No limit the AI writes as long as it likes, so the Longest answer box
+// is off. A box that's off can't block a save: it keeps the saved number.
+export const longestOff = (row: TaskRow): boolean => row.thinking === 'max';
+
 // What to fix in a row before it can be saved, or null when it's fine.
 export function rowProblem(label: string, row: TaskRow): string | null {
-  const tokens = row.maxTokens;
-  if (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 16) {
+  if (!longestOff(row) && !wholeTokens(row.maxTokens)) {
     return `${label}: the longest answer must be a whole number, 16 or more.`;
   }
   const temperature = row.temperature;
@@ -60,7 +64,7 @@ export function rowProblem(label: string, row: TaskRow): string | null {
 export function fromRow(t: TaskSettings, row: TaskRow): TaskSettings {
   return {
     ...withThinking(t, row.thinking),
-    maxTokens: Number(row.maxTokens),
+    maxTokens: wholeTokens(row.maxTokens) ? row.maxTokens : t.maxTokens,
     temperature: Number(row.temperature),
     model: row.model.trim() || null,
   };

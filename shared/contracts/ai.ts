@@ -24,19 +24,28 @@ export const AI_PRESETS: Record<AiPresetId, AiPreset> = {
 // as a double-click does, and never closes that window itself.
 export const opensWindow = (exe: string): boolean => /\.(bat|cmd)$/i.test(exe.trim());
 
-export const ThinkingEffort = z.enum(['low', 'medium', 'xhigh']);
+// How long the AI may think before it answers, when thinking is on. Low,
+// medium and high each have a limit (THINKING_TOKENS). max sets none: the AI
+// thinks as long as it likes, as Bonsai 2 does by default. An older settings
+// file may say "xhigh", which is high.
+export const ThinkingEffort = z.preprocess((v) => (v === 'xhigh' ? 'high' : v), z.enum(['low', 'medium', 'high', 'max']));
 export type ThinkingEffort = z.infer<typeof ThinkingEffort>;
 
+// The most each level may think, in tokens: the same steps as PrismML's own
+// chat page for Bonsai 2. The answer gets its own room on top (maxTokens).
+export const THINKING_TOKENS: Record<Exclude<ThinkingEffort, 'max'>, number> = { low: 512, medium: 2048, high: 8192 };
+
 // One task's settings (parse, rate, …), each with its own defaults.
-function taskSettings(defaults: { temperature: number; maxTokens: number; thinking: boolean }) {
+function taskSettings(defaults: { temperature: number; maxTokens: number; thinking: boolean; effort?: ThinkingEffort }) {
   return z
     .strictObject({
       // null means "use ai.model".
       model: z.string().nullable().default(null),
       temperature: z.number().min(0).max(2).default(defaults.temperature),
+      // The longest answer. Thinking comes on top, except with max.
       maxTokens: z.number().int().min(16).default(defaults.maxTokens),
       thinking: z.boolean().default(defaults.thinking),
-      thinkingEffort: ThinkingEffort.default('medium'),
+      thinkingEffort: ThinkingEffort.default(defaults.effort ?? 'medium'),
       // Added to the request body last. A null value removes that field.
       extra: z.record(z.string(), z.unknown()).default({}),
     })
@@ -47,8 +56,9 @@ const ParseTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 4096, thin
 const RateTaskSettings = taskSettings({ temperature: 0.3, maxTokens: 2048, thinking: false });
 // A quick rating from a card in a search list: a short answer, and no thinking.
 const CardTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 512, thinking: false });
-// Resumes and cover letters: the model thinks first, and writes at length.
-const WriteTaskSettings = taskSettings({ temperature: 0.6, maxTokens: 8192, thinking: true });
+// Resumes and cover letters: the model thinks first, for as long as it
+// likes, and writes at length.
+const WriteTaskSettings = taskSettings({ temperature: 0.6, maxTokens: 8192, thinking: true, effort: 'max' });
 // Reading an email: short, and no thinking.
 const EmailTaskSettings = taskSettings({ temperature: 0.1, maxTokens: 1024, thinking: false });
 export type TaskSettings = z.infer<typeof ParseTaskSettings>;

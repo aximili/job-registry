@@ -16,6 +16,13 @@ export function mountPanel(doc: Document, actions: PanelActions, initial: PanelV
   // "all: initial" stops the page's styles being inherited; the panel sets its
   // own. The host takes no space: the panel inside places itself in the window.
   host.style.cssText = 'all: initial; position: fixed; left: 0; top: 0; z-index: 2147483647;';
+  // A site's pop-over (Seek's job details on its home page) can hold the
+  // focus inside itself and stop the mouse wheel everywhere else. The panel
+  // stays usable: focus-lock leaves alone what's inside data-no-focus-lock,
+  // and the wheel and touch moves over the panel stop here, before the
+  // site's listener on the page can cancel them.
+  host.setAttribute('data-no-focus-lock', '');
+  for (const type of ['wheel', 'touchmove']) host.addEventListener(type, (event) => event.stopPropagation());
   const root = host.attachShadow({ mode: SHADOW_MODE });
   (doc.body ?? doc.documentElement).append(host);
   const app = mount(Panel, { target: root, props: { actions } }) as unknown as {

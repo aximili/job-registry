@@ -12,6 +12,8 @@ export type FakeReply = {
   status?: number;
   error?: string;
   delayMs?: number;
+  // A pause before each piece of a stream (thinking first, then the answer).
+  chunkDelayMs?: number;
   // Why the answer ended: 'length' when max_tokens cut it off.
   finishReason?: 'stop' | 'length';
 };
@@ -58,10 +60,13 @@ export async function startFakeOpenAiServer(
       const field = reply.reasoningField ?? 'reasoning_content';
       if (body.stream) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
-        const send = (delta: Record<string, unknown>) =>
-          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
-        if (reply.reasoning) send({ [field]: reply.reasoning });
-        for (const piece of chunks(reply.content ?? '')) send({ content: piece });
+        const send = async (delta: Record<string, unknown>) => {
+          if (reply.chunkDelayMs) await new Promise((r) => setTimeout(r, reply.chunkDelayMs));
+          if (!res.destroyed) res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
+        };
+        if (reply.reasoning) await send({ [field]: reply.reasoning });
+        for (const piece of chunks(reply.content ?? '')) await send({ content: piece });
+        if (res.destroyed) return;
         res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: reply.finishReason ?? 'stop' }] })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
@@ -69,7 +74,11 @@ export async function startFakeOpenAiServer(
       }
       const message: Record<string, unknown> = { role: 'assistant', content: reply.content ?? '' };
       if (reply.reasoning) message[field] = reply.reasoning;
-      return json(res, 200, { id: 'x', object: 'chat.completion', choices: [{ index: 0, message, finish_reason: 'stop' }] });
+      return json(res, 200, {
+        id: 'x',
+        object: 'chat.completion',
+        choices: [{ index: 0, message, finish_reason: reply.finishReason ?? 'stop' }],
+      });
     }
     json(res, 404, { error: { message: 'Not found' } });
   }

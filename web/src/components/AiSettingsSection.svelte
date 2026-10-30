@@ -4,9 +4,9 @@
   // settings that aren't on this page (such as each task's extra request
   // fields, which you can edit in settings.json) are kept.
   import { onMount } from 'svelte';
-  import { AI_PRESETS, opensWindow, type AiPresetId, type AiSettings } from '../../../shared/contracts/index.ts';
+  import { AI_PRESETS, opensWindow, THINKING_TOKENS, type AiPresetId, type AiSettings } from '../../../shared/contracts/index.ts';
   import { AI_LABEL, ai } from '../lib/ai-state.svelte.ts';
-  import { fromRow, rowOf, rowProblem, TASK_ROWS, THINKING, type TaskKey, type TaskRow } from '../lib/ai-tasks.ts';
+  import { fromRow, longestOff, rowOf, rowProblem, TASK_ROWS, THINKING, type TaskKey, type TaskRow } from '../lib/ai-tasks.ts';
   import { api } from '../lib/api.ts';
   import { app, loadSettings } from '../lib/app-state.svelte.ts';
   import { friendlyError } from '../lib/errors.ts';
@@ -25,6 +25,7 @@
   };
 
   const PRESETS = Object.entries(AI_PRESETS) as [AiPresetId, (typeof AI_PRESETS)[AiPresetId]][];
+  const tokens = (n: number) => n.toLocaleString('en-AU');
 
   // True while the form has changes you haven't saved, for the Settings menu.
   let { dirty = $bindable(false) }: { dirty?: boolean } = $props();
@@ -264,8 +265,10 @@
       <div class="wide tasks">
         <h3>How the AI works on each task</h3>
         <p class="muted hint">
-          Thinking gives better answers but takes longer. Keep quick marks light, and let resume writing think hard. Longest
-          answer is in tokens: a token is about three-quarters of a word. Leave Model empty to use the same model as above.
+          Thinking gives better answers but takes longer, so keep quick marks light. Low, Medium and High let the AI think
+          for up to {tokens(THINKING_TOKENS.low)}, {tokens(THINKING_TOKENS.medium)} and {tokens(THINKING_TOKENS.high)} tokens,
+          on top of the longest answer. No limit leaves both to the AI: Bonsai 2 then thinks as long as it likes. A token is
+          about three-quarters of a word. Leave Model empty to use the same model as above.
         </p>
         {#each TASK_ROWS as row (row.key)}
           <fieldset class="task">
@@ -278,7 +281,7 @@
             </label>
             <label class="field">
               <span>Longest answer (tokens) <span class="visually-hidden">for {row.label}</span></span>
-              <input type="number" min="16" step="1" bind:value={form.tasks[row.key].maxTokens} />
+              <input type="number" min="16" step="1" bind:value={form.tasks[row.key].maxTokens} disabled={longestOff(form.tasks[row.key])} />
             </label>
             <label class="field">
               <span>Temperature <span class="visually-hidden">for {row.label}</span></span>

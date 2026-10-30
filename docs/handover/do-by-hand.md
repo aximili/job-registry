@@ -86,6 +86,9 @@ These need a person, a signed-in browser or Word. Skip any you don't care about.
   - Open a job from a Seek search list (the split view). Wait for its full rating in the panel: its card's mark changes to the full one (no "· quick"). Then press **Save**: the card says "Saved".
   - Drag the panel by its top bar ("Job Registry"), and make it bigger from its top-left corner. Open another job: the panel is where you left it. Double-click the bar: it goes back to the corner.
   - Open three quite different jobs. Their match scores should differ, not all be 72.
+  - Signed in, open Seek's home page (au.seek.com). The cards under "Recommended" get marks too. Click one: the job opens on the side, and the panel shows it. Type a note in the panel, and scroll it with the mouse wheel: both work while Seek's side window is open. Close the side window: the panel goes.
+- **Thinking:** in **Settings → AI → How the AI works on each task**, set "Rating a job" to **Low** and press **Save AI settings**. Open a job: its rating comes, a little later than with Off. Set it back to Off if you'd rather have it quick.
+  - "Writing resumes and cover letters" should say **No limit**. If it says Medium (you saved these settings before), pick No limit and save. Then make a resume: it thinks for longer, then writes. If it ends with "ran out of room", Bonsai 2's context is full: pick High instead, or give it a bigger context (llama-server's `-c`; Bonsai-demo's own launcher takes it from `BONSAI_CTX`).
 - **Print to PDF:** on a job, make a resume, press **Print / PDF**, then Ctrl+P → Save to PDF. It looks like the preview.
 - **.docx:** press **Export .docx** and open it in Word for the web. It looks tidy.
 - **Gmail:** after the app has run for 15 minutes with email on, open the Inbox. Do the cards make sense? Were the emails still unread in Gmail?

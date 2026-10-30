@@ -17,12 +17,13 @@ describe('the AI task rows in Settings', () => {
     expect(TASK_ROWS.map((r) => r.key).sort()).toEqual(Object.keys(DEFAULT_SETTINGS.ai.tasks).sort());
   });
 
-  it('offers thinking Off, Low, Medium and High', () => {
+  it('offers thinking Off, Low, Medium, High and No limit', () => {
     expect(THINKING).toEqual([
       { value: 'off', label: 'Off' },
       { value: 'low', label: 'Low' },
       { value: 'medium', label: 'Medium' },
       { value: 'high', label: 'High' },
+      { value: 'max', label: 'No limit' },
     ]);
   });
 });
@@ -30,29 +31,25 @@ describe('the AI task rows in Settings', () => {
 describe('thinking', () => {
   it.each([
     [false, 'low', 'off'],
-    [false, 'xhigh', 'off'],
+    [false, 'max', 'off'],
     [true, 'low', 'low'],
     [true, 'medium', 'medium'],
-    [true, 'xhigh', 'high'],
+    [true, 'high', 'high'],
+    [true, 'max', 'max'],
   ] as const)('thinking %s with effort %s shows as %s', (thinking, thinkingEffort, shown) => {
     expect(thinkingOf(task({ thinking, thinkingEffort }))).toBe(shown);
   });
 
-  it.each(['off', 'low', 'medium', 'high'] as const)('%s comes back as itself', (v: Thinking) => {
-    for (const start of [task({ thinking: false }), task({ thinking: true, thinkingEffort: 'xhigh' })]) {
+  it.each(['off', 'low', 'medium', 'high', 'max'] as const)('%s comes back as itself', (v: Thinking) => {
+    for (const start of [task({ thinking: false }), task({ thinking: true, thinkingEffort: 'high' })]) {
       expect(thinkingOf(withThinking(start, v))).toBe(v);
     }
   });
 
-  it('High is the strongest effort the server knows', () => {
-    expect(withThinking(task(), 'high')).toMatchObject({ thinking: true, thinkingEffort: 'xhigh' });
-    expect(withThinking(task(), 'low')).toMatchObject({ thinking: true, thinkingEffort: 'low' });
-  });
-
   it('Off keeps the effort and the extra fields, for when you turn it on again', () => {
     const extra = { top_k: 20, chat_template_kwargs: { enable_thinking: true } };
-    const off = withThinking(task({ thinking: true, thinkingEffort: 'xhigh', extra }), 'off');
-    expect(off).toEqual(task({ thinking: false, thinkingEffort: 'xhigh', extra }));
+    const off = withThinking(task({ thinking: true, thinkingEffort: 'max', extra }), 'off');
+    expect(off).toEqual(task({ thinking: false, thinkingEffort: 'max', extra }));
   });
 });
 
@@ -80,7 +77,7 @@ describe('a row on screen', () => {
   });
 
   it('a row you have not touched saves the same settings', () => {
-    for (const t of [task(), task({ thinking: false, thinkingEffort: 'xhigh', model: 'm', extra: { a: 1 } })]) {
+    for (const t of [task(), task({ thinking: false, thinkingEffort: 'high', model: 'm', extra: { a: 1 } })]) {
       expect(fromRow(t, rowOf(t))).toEqual(t);
     }
   });
@@ -103,5 +100,13 @@ describe('a row that needs fixing', () => {
 
   it.each([null, Number.NaN, -0.1, 2.1])('says so for a temperature of %s', (temperatureValue) => {
     expect(rowProblem('Rating a job', row({ temperature: temperatureValue }))).toBe(temperature);
+  });
+
+  // With No limit the box is off, so you couldn't fix it there.
+  it('with No limit, a longest answer box that is off never blocks a save: it keeps the saved number', () => {
+    const before = task({ maxTokens: 8192 });
+    const typed = row({ thinking: 'max', maxTokens: null });
+    expect(rowProblem('Rating a job', typed)).toBeNull();
+    expect(fromRow(before, typed)).toMatchObject({ thinking: true, thinkingEffort: 'max', maxTokens: 8192 });
   });
 });

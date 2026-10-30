@@ -132,6 +132,18 @@ describe('contracts: job cards', () => {
       extra: {},
     });
   });
+
+  it('resumes and cover letters think with no limit by default: the AI decides', () => {
+    expect(AiSettings.parse({}).tasks.write).toMatchObject({ thinking: true, thinkingEffort: 'max', maxTokens: 8192 });
+  });
+
+  it('thinking can be low, medium, high or max, and an older "xhigh" is high', () => {
+    for (const effort of ['low', 'medium', 'high', 'max']) {
+      expect(AiSettings.parse({ tasks: { rate: { thinkingEffort: effort } } }).tasks.rate.thinkingEffort).toBe(effort);
+    }
+    expect(AiSettings.parse({ tasks: { rate: { thinkingEffort: 'xhigh' } } }).tasks.rate.thinkingEffort).toBe('high');
+    expect(AiSettings.safeParse({ tasks: { rate: { thinkingEffort: 'extreme' } } }).success).toBe(false);
+  });
 });
 
 describe('contracts: times', () => {

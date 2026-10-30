@@ -41,12 +41,12 @@ describe('writeDocument', () => {
     expect(chunks.join('')).not.toContain('think');
   });
 
-  it('thinks first, at medium effort, with room for a long answer, and puts the profile before the job', async () => {
+  it('thinks first, with no limit, and puts the profile before the job', async () => {
     const provider = writer();
     app = await createTestApp({ fakes: { ai: provider } });
     await collect(app.services.ai.writeDocument(INPUT));
     const req = provider.callsFor('write')[0]!;
-    expect(req).toMatchObject({ thinking: true, thinkingEffort: 'medium', maxTokens: 8192, temperature: 0.6 });
+    expect(req).toMatchObject({ thinking: true, thinkingEffort: 'max', maxTokens: 8192, temperature: 0.6 });
     expect(req.jsonSchema).toBeUndefined();
     const [system, user] = req.messages;
     expect(system!.role).toBe('system');

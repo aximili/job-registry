@@ -229,6 +229,13 @@ textarea {
   line-height: 1.5;
 }
 
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 input:focus,
 select:focus,
 textarea:focus {

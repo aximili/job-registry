@@ -171,6 +171,26 @@ test.describe('AI settings', () => {
       });
     });
 
+    test('No limit leaves the thinking and the answer to the AI, so Longest answer is off', async ({ page }) => {
+      await page.goto('/settings#ai');
+      const write = task(page, 'Writing resumes and cover letters');
+      await expect(write.getByLabel('Thinking').locator('option:checked')).toHaveText('No limit');
+      await expect(write.getByLabel('Longest answer')).toBeDisabled();
+
+      const rate = task(page, 'Rating a job');
+      await expect(rate.getByLabel('Longest answer')).toBeEnabled();
+      await rate.getByLabel('Thinking').selectOption({ label: 'No limit' });
+      await expect(rate.getByLabel('Longest answer')).toBeDisabled();
+      await save(page);
+      await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+      expect((await saved(page)).ai.tasks.rate).toMatchObject({ thinking: true, thinkingEffort: 'max', maxTokens: 2048 });
+
+      await rate.getByLabel('Thinking').selectOption({ label: 'High' });
+      await expect(rate.getByLabel('Longest answer')).toBeEnabled();
+      await save(page);
+      await expect.poll(async () => (await saved(page)).ai.tasks.rate.thinkingEffort).toBe('high');
+    });
+
     test('an empty Model means the same model as above', async ({ page }) => {
       await page.goto('/settings#ai');
       const model = task(page, 'Writing resumes and cover letters').getByLabel('Model');

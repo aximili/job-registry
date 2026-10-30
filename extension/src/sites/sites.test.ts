@@ -81,6 +81,31 @@ describe('Seek', () => {
     expect(capture!.jdText).toContain('Kubernetes and Terraform');
   });
 
+  it("reads a job opened from the home page's Recommended list: the address stays au.seek.com, and the job is in a pop-over (a real page)", () => {
+    const { extractor, doc, url, capture } = page('seek-home-drawer-real.html', 'https://au.seek.com/');
+    expect(extractor.currentJobId(url, doc)).toBe('95564362');
+    expect(capture).toMatchObject({
+      title: 'Software Engineer',
+      company: 'Ucroo Pty Ltd',
+      location: 'Melbourne VIC (Remote)',
+      canonicalUrl: 'https://www.seek.com.au/job/95564362',
+      sourceSite: 'seek',
+      externalId: '95564362',
+      sourceUrl: 'https://au.seek.com/',
+    });
+    expect(capture!.jdText).toContain('Full time');
+    expect(capture!.jdText).toContain('join Pathify’s Australian engineering team');
+    // The cards behind it still get their marks.
+    expect(extractor.readCards(doc, url).map((f) => f.card.externalId)).toEqual(['95564362', '95568235']);
+  });
+
+  it('closing the pop-over on the home page leaves no job open', () => {
+    const { extractor, doc, url } = page('seek-home-drawer-real.html', 'https://au.seek.com/');
+    doc.querySelector('#homepageDrawer')!.remove();
+    expect(extractor.currentJobId(url, doc)).toBeNull();
+    expect(extractor.extract(doc, url, now)).toBeNull();
+  });
+
   it('a search page with no job open has nothing to read', () => {
     const { extractor, doc, url } = page('seek-search.html', 'https://www.seek.com.au/software-engineer-jobs');
     expect(extractor.currentJobId(url, doc)).toBeNull();
@@ -120,6 +145,39 @@ describe('Seek', () => {
     expect(found[2]!.card.location).toBe('Northcote, Melbourne VIC (Hybrid)');
     // The teaser's bullet points, each on its own line.
     expect(found[2]!.card.text).toContain('Salary + Super\nJoin a purpose-driven organisation and develop innovative web solutions\nWork within a highly skilled marketing and communications team\n');
+  });
+
+  it('finds the Recommended cards on the home page you see when signed in (a real page)', () => {
+    const found = cardsOn('seek-home-real.html', 'https://au.seek.com/');
+    // Nine jobs. The tenth item is Seek's own promotion, with no job.
+    expect(found.map((f) => f.card.externalId)).toEqual([
+      '95564362', '95568235', '95082866', '95374556', '95591605', '95418414', '95569131', '95571906', '95593426',
+    ]);
+    expect(found[0]!.card).toEqual({
+      canonicalUrl: 'https://www.seek.com.au/job/95564362',
+      sourceSite: 'seek',
+      externalId: '95564362',
+      title: 'Software Engineer',
+      company: 'Ucroo Pty Ltd',
+      location: 'Melbourne VIC (Remote)',
+      text: 'Full time\nEmployer Subsidized Health Benefits',
+    });
+    // The same job as on the search page: same link, place and salary.
+    expect(found[2]!.card).toMatchObject({
+      canonicalUrl: 'https://www.seek.com.au/job/95082866',
+      title: 'Web Developer (Full Stack)',
+      location: 'Northcote, Melbourne VIC (Hybrid)',
+    });
+    expect(found[2]!.card.text.startsWith('Full time\nSalary + Super\nJoin a purpose-driven organisation')).toBe(true);
+    expect(found[7]!.card.text).toBe('Casual/Vacation\n$75,000 – $100,000 per year');
+    for (const f of found) {
+      expect(f.card.company).toBeTruthy();
+      expect(repeats(f)).toEqual([]);
+      // Not "1d ago", "Viewed" or the buttons.
+      expect(f.card.text).not.toMatch(/Viewed|Save|Hide/);
+      expect(f.anchor.tagName).toBe('H3');
+      expect(f.element.contains(f.anchor)).toBe(true);
+    }
   });
 
   it('finds the cards on a hand-made search page, with the mark after the title link when there is no heading', () => {
@@ -285,6 +343,7 @@ describe('job cards on a search list', () => {
   it("leave out when each job was listed: it changes every day, and the server caches quick ratings by the card's text", () => {
     const pages: [string, string][] = [
       ['seek-search-real.html', 'https://au.seek.com/full-stack-developer-jobs/in-All-Melbourne-VIC'],
+      ['seek-home-real.html', 'https://au.seek.com/'],
       ['linkedin-guest-search.html', 'https://www.linkedin.com/jobs/search?keywords=Full%20Stack%20Developer'],
     ];
     for (const [file, href] of pages) {
