@@ -2,7 +2,7 @@
 // HTTP checks run here; the .bat files and Windows processes only on the PC.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,7 +13,7 @@ import { freePort } from './helpers/test-app.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 const temp = () => {
   const dir = mkdtempSync(join(tmpdir(), 'jr-handover-'));
@@ -147,18 +147,25 @@ describe('handover: the test copy', () => {
   });
 
   // The delete retries for about 7 seconds, as a lock on Windows often clears.
+  // A lock is chmod on macOS and Linux; on Windows a live process holds the
+  // folder as its working directory, which blocks deleting it.
   it('keeps its marker when a file in the old copy is locked, so the next run can try again', { timeout: 30_000 }, () => {
     const dir = join(temp(), 'copy');
     prepareTestRoot(dir);
     const locked = join(dir, 'zz-locked');
     mkdirSync(locked);
     writeFileSync(join(locked, 'file.txt'), 'x');
+    const holding =
+      process.platform === 'win32'
+        ? spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { cwd: locked, stdio: 'ignore', windowsHide: true })
+        : null;
     chmodSync(locked, 0o500);
     try {
       expect(() => prepareTestRoot(dir)).toThrow();
       expect(existsSync(join(dir, '.jr-test-copy'))).toBe(true);
     } finally {
       chmodSync(locked, 0o700);
+      holding?.kill('SIGKILL');
     }
   });
 
@@ -176,6 +183,22 @@ describe('handover: the test copy', () => {
     expect(s.server.port).toBe(4787);
     expect(activeAi(s.ai)).toMatchObject({ preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' });
     expect(s.email.enabled).toBe(false);
+  });
+
+  // setup.ps1's running-check asks port.mjs for the port, and port.mjs reads
+  // the settings next to itself. In the test copy those are the copy's own
+  // settings, so the check never probes the real app on 4777.
+  it('port.mjs reads the port from the settings next to it, and falls back to 4777', () => {
+    const base = temp();
+    mkdirSync(join(base, 'scripts'), { recursive: true });
+    copyFileSync(resolve('scripts/port.mjs'), join(base, 'scripts', 'port.mjs'));
+    mkdirSync(join(base, 'config'), { recursive: true });
+    writeFileSync(join(base, 'config', 'settings.json'), JSON.stringify({ server: { port: 4787 } }));
+    const withSettings = spawnSync(process.execPath, [join(base, 'scripts', 'port.mjs')], { encoding: 'utf8' });
+    expect(withSettings.stdout.trim()).toBe('4787');
+    rmSync(join(base, 'config'), { recursive: true, force: true });
+    const without = spawnSync(process.execPath, [join(base, 'scripts', 'port.mjs')], { encoding: 'utf8' });
+    expect(without.stdout.trim()).toBe('4777');
   });
 
   it('test settings for the AI check run their own llama-server on 8081, from the real ai folder', () => {

@@ -49,6 +49,12 @@ const leaked = ['data', 'profile', 'templates', 'ai', join('config', 'settings.j
 if (leaked.length > 0) report.fail('the copy leaves out your data', `found ${leaked.join(', ')}`);
 else report.pass('the app is copied, without your data, settings, profile or the AI');
 
+// The copy's settings go in before setup runs: setup asks port.mjs which port
+// to check for a running app, and it reads these settings. Without them it
+// falls back to 4777 and stops because the real app is running.
+writeTestSettings(root, testSettings({ port: testPort() }));
+report.pass('the test copy has its own settings', `port ${testPort()}, no email, no AI`);
+
 if (hasFlag('link-modules')) {
   symlinkSync(join(REAL_ROOT, 'node_modules'), join(root, 'node_modules'), IS_WINDOWS ? 'junction' : 'dir');
   if (existsSync(join(REAL_ROOT, 'web', 'dist'))) cpSync(join(REAL_ROOT, 'web', 'dist'), join(root, 'web', 'dist'), { recursive: true });
@@ -71,6 +77,4 @@ if (hasFlag('link-modules')) {
   report.info('setup skipped', 'not Windows');
 }
 
-writeTestSettings(root, testSettings({ port: testPort() }));
-report.pass('the test copy has its own settings', `port ${testPort()}, no email, no AI`);
 process.exit(report.finish());

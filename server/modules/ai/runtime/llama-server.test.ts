@@ -39,6 +39,18 @@ const alive = (pid: number): boolean => {
   }
 };
 
+// Windows holds a killed process's files until it is really gone, so the
+// cleanups wait for the exit before they delete the folder.
+const exited = (child: ChildProcess): Promise<void> =>
+  new Promise((done) => {
+    if (child.exitCode !== null || child.signalCode !== null) return done();
+    const timer = setTimeout(done, 2000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      done();
+    });
+  });
+
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const fn of cleanups.splice(0).reverse()) await fn();
@@ -84,7 +96,8 @@ async function setup(
   cleanups.push(async () => {
     await runtime.stop();
     for (const child of spawned) if (child.pid && alive(child.pid)) child.kill('SIGKILL');
-    rmSync(root, { recursive: true, force: true });
+    await Promise.all(spawned.map(exited));
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   return { runtime, port, spawned, root, logFile, config, again };
 }
@@ -261,7 +274,9 @@ describe('llama-server runtime', () => {
     expect(await answers(next)).toBe(true);
   });
 
-  it('after the app crashes, the next start still knows the server is its own, and can stop it', async () => {
+  // Windows never adopts a server from the pid file (the test below), so
+  // "the next start can stop it" is the macOS and Linux behaviour only.
+  it.skipIf(process.platform === 'win32')('after the app crashes, the next start still knows the server is its own, and can stop it', async () => {
     const { runtime, spawned, port, again } = await setup();
     await runtime.ensureRunning();
     // The app crashed without stopping it; a new start finds it still running.
@@ -308,7 +323,7 @@ describe('llama-server runtime', () => {
 
   it('a program Windows refuses to start says so plainly, and never sticks at "starting"', async () => {
     const root = mkdtempSync(join(tmpdir(), 'jr-llama-'));
-    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const config: SavedAi = { ...DEFAULT_AI, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_AI.managed, exe: process.execPath } };
     const runtime = createLlamaServerRuntime({
       root,
@@ -356,7 +371,7 @@ describe('llama-server runtime, started with a .bat file', () => {
     cleanups.push(async () => {
       await runtime.stop();
       await theirs?.close();
-      rmSync(root, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     });
     return { runtime, port, file, opened, config };
   }
@@ -415,7 +430,7 @@ describe('llama-server runtime, started with a .bat file', () => {
 
   it('a .bat file only runs on Windows, and it says so elsewhere', async () => {
     const root = mkdtempSync(join(tmpdir(), 'jr-bat-'));
-    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const file = join(root, 'start.cmd');
     writeFileSync(file, '@echo off\r\n');
     const config: SavedAi = { ...DEFAULT_AI, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_AI.managed, exe: file } };

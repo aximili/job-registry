@@ -46,6 +46,6 @@ Before you start: stop the app with `stop.bat`, then run `setup.bat` to update.
 
 ## How well it reads real ads
 
-- [ ] Add 8–10 real ads to `tests\fixtures\ads\` with the fields filled in by hand (see the README in that folder). Run `npm run eval:parse` and keep the report. It shows what Bonsai 2 gets right, field by field, and the average time per ad.
+- [ ] Add 8–10 real ads to `tests\fixtures\ads\` with the fields filled in by hand (see the README in that folder). Run `npm run eval:parse` and keep the report. It shows what Bonsai 2 gets right, field by field, and the average time per ad. (2 Nov: the agent ran it with the three sample ads on the real Bonsai 2: 7.1 s per ad, 24 of 27 fields right; requirements on 02-linkedin-example took in the nice-to-haves. The real ads are still to add.)
 
 Write down anything that doesn't match, and bring it to the next session.

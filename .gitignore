@@ -17,4 +17,4 @@ playwright-report/
 # Screenshots and builds from the design-first skill (.claude/skills/design-first/).
 /temp/
 # Results of the Windows handover checks (docs/handover/), to bring back to Claude.
-/handover-results/
+/handover-results*/
