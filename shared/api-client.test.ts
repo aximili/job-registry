@@ -173,14 +173,50 @@ describe('generateDocument: a stream that just stops', () => {
 
 describe('api client: secrets', () => {
   it('sends the app password with PUT and reads back only whether it is set', async () => {
-    const { fetch, calls } = fakeFetch(200, { emailPassword: true });
+    const { fetch, calls } = fakeFetch(200, { emailPassword: true, aiKeys: [] });
     const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
-    expect(await api.updateSecrets({ emailPassword: 'abcdefghijklmnop' })).toEqual({ emailPassword: true });
+    expect(await api.updateSecrets({ emailPassword: 'abcdefghijklmnop' })).toEqual({ emailPassword: true, aiKeys: [] });
     expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/settings/secrets');
     expect(calls[0]!.init.method).toBe('PUT');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ emailPassword: 'abcdefghijklmnop' });
-    expect(await api.secretsStatus()).toEqual({ emailPassword: true });
+    expect(await api.secretsStatus()).toEqual({ emailPassword: true, aiKeys: [] });
     expect(calls[1]!.init.method).toBe('GET');
+  });
+});
+
+describe('api client: the AI section of a settings change', () => {
+  it('is checked as you write it: the older one-AI shape does not compile', () => {
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch: fakeFetch(200, {}).fetch });
+    // @ts-expect-error: a change sends the saved AIs and the one in use, not one AI's fields.
+    const flat = () => api.updateSettings({ ai: { model: 'qwen3:8b' } });
+    expect(typeof flat).toBe('function');
+  });
+});
+
+describe('api client: switching the AI in use', () => {
+  it('sends the id with PUT and reads back the settings', async () => {
+    const { fetch, calls } = fakeFetch(200, {});
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    expect((await api.useAi('bonsai-2')).ai.active).toBe('bonsai-2');
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/settings/ai/active');
+    expect(calls[0]!.init.method).toBe('PUT');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ id: 'bonsai-2' });
+  });
+});
+
+describe('api client: testing any AI, and its model list', () => {
+  it('checkAi and aiModels POST the AI and the key you typed', async () => {
+    const { fetch, calls } = fakeFetch(200, { ok: true, detail: 'Connected.', models: ['m'], replyMs: 5 });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    const ai = { id: 'claude-mine', name: 'Claude – mine', preset: 'anthropic' as const, baseUrl: 'https://api.anthropic.com/v1' };
+    expect(await api.checkAi({ ai, key: 'sk-typed' })).toEqual({ ok: true, detail: 'Connected.', models: ['m'], replyMs: 5 });
+    expect(await api.aiModels({ ai })).toEqual({ ok: true, models: ['m'], detail: 'Connected.' });
+    expect(calls.map((c) => [c.init.method, c.url])).toEqual([
+      ['POST', 'http://127.0.0.1:4777/api/v1/ai/check'],
+      ['POST', 'http://127.0.0.1:4777/api/v1/ai/models'],
+    ]);
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ ai, key: 'sk-typed' });
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ ai });
   });
 });
 

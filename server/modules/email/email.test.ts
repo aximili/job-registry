@@ -1,7 +1,7 @@
 import { Writable } from 'node:stream';
 import { pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS, type EmailClassification } from '../../../shared/contracts/index.ts';
+import { activeAi, DEFAULT_SETTINGS, newSavedAi, type EmailClassification } from '../../../shared/contracts/index.ts';
 import { AiRefusedError, AiUnavailableError } from '../../core/errors.ts';
 import { FakeAiProvider, defaultReply } from '../../../tests/fakes/fake-ai-provider.ts';
 import { FakeMailSource } from '../../../tests/fakes/fake-mail-source.ts';
@@ -22,7 +22,19 @@ afterEach(async () => {
   app = undefined;
 });
 
-async function setup(o: { email?: Partial<typeof DEFAULT_SETTINGS.email>; password?: string | null; ai?: FakeAiProvider; logs?: string[] } = {}) {
+// A cloud AI in use (OpenAI), through the app's own connector. fetch stands
+// in for OpenAI, so no request leaves this computer.
+const cloudAi = newSavedAi('openai', 'OpenAI – mine', ['bonsai-2']);
+
+async function setup(
+  o: {
+    email?: Partial<typeof DEFAULT_SETTINGS.email>;
+    password?: string | null;
+    ai?: FakeAiProvider;
+    logs?: string[];
+    cloud?: { fetch: typeof fetch; key: string | null };
+  } = {},
+) {
   const mail = new FakeMailSource();
   const ai = o.ai ?? new FakeAiProvider((req) => (isClassify(req) ? skim(req) : defaultReply(req)));
   const logger = o.logs
@@ -30,9 +42,16 @@ async function setup(o: { email?: Partial<typeof DEFAULT_SETTINGS.email>; passwo
     : undefined;
   app = await createTestApp({
     now: () => NOW,
-    settings: { email: { ...DEFAULT_SETTINGS.email, enabled: true, address: 'me@gmail.com', ...o.email } },
-    secrets: { emailPassword: o.password === undefined ? 'abcdabcdabcdabcd' : o.password },
+    settings: {
+      email: { ...DEFAULT_SETTINGS.email, enabled: true, address: 'me@gmail.com', ...o.email },
+      ...(o.cloud ? { ai: { active: cloudAi.id, saved: [activeAi(DEFAULT_SETTINGS.ai), cloudAi] } } : {}),
+    },
+    secrets: {
+      emailPassword: o.password === undefined ? 'abcdabcdabcdabcd' : o.password,
+      ...(o.cloud?.key ? { aiKeys: { [cloudAi.id]: o.cloud.key } } : {}),
+    },
     fakes: { ai, mail },
+    ...(o.cloud ? { realProvider: true, realRuntime: true, fetch: o.cloud.fetch } : {}),
     logger,
   });
   const { jobs, contacts, email } = app.services;
@@ -175,6 +194,41 @@ describe('email: checking', () => {
     expect(email.listSuggestions()).toEqual([expect.objectContaining({ summary: "The AI couldn't read this email. Open Gmail to read it." })]);
     await email.checkNow();
     expect(email.listSuggestions()).toHaveLength(1);
+  });
+
+  // A refused key or no key is about the AI, not this email: every email
+  // would fail the same way. So the check waits, however long it takes you
+  // to fix the key, and never turns the email into "couldn't read" cards.
+  it.each([
+    ['a refused API key', 'sk-oai-wrong', 'OpenAI – mine refused its API key. Check the key in Settings → AI.'],
+    ['no API key', null, 'OpenAI – mine needs an API key. Add it in Settings → AI.'],
+  ])('%s stops every check with "Waiting for the AI", and never makes a card, however many checks', async (_what, key, sentence) => {
+    const reply = { status: 401 };
+    let jobId = 0;
+    const doFetch = (async (_input: string | URL | Request, init: RequestInit = {}) => {
+      if (reply.status !== 200) return Response.json({ error: { message: 'Incorrect API key provided.' } }, { status: reply.status });
+      const body = JSON.parse(String(init.body)) as { response_format?: { json_schema?: { name?: string } } };
+      const answer =
+        body.response_format?.json_schema?.name === 'email_classification'
+          ? ({ event: 'rejected', jobId, company: 'Atlassian', role: 'Senior Engineer', confidence: 0.9, summary: 'Not progressing.' } satisfies EmailClassification)
+          : {};
+      return Response.json({ choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(answer) }, finish_reason: 'stop' }] });
+    }) as typeof fetch;
+    const { mail, email, atlassian } = await setup({ cloud: { fetch: doFetch, key } });
+    jobId = atlassian.id;
+    mail.add(rejection);
+    for (let check = 1; check <= 4; check++) {
+      const status = await email.checkNow();
+      expect(status.lastError, `check ${check}`).toBe(`Waiting for the AI: ${sentence}`);
+      expect(status.lastAdded, `check ${check}`).toBe(0);
+    }
+    expect(email.listSuggestions()).toEqual([]);
+
+    // Once the key works, the email is read as usual.
+    reply.status = 200;
+    if (!key) app!.services.settings.updateSecrets({ aiKeys: { [cloudAi.id]: 'sk-oai-right' } });
+    expect((await email.checkNow()).lastError).toBeNull();
+    expect(email.listSuggestions()).toEqual([expect.objectContaining({ jobId: atlassian.id, event: 'rejected', summary: 'Not progressing.' })]);
   });
 
   it("confirming an email the AI couldn't read notes its subject, not the AI's trouble", async () => {
@@ -407,6 +461,26 @@ describe('email: the timer', () => {
     email.stop();
     await vi.advanceTimersByTimeAsync(60 * 60_000);
     expect(mail.fetches).toBe(3);
+  });
+});
+
+describe('email: the timer and API keys', () => {
+  it('saving an API key never restarts the Gmail timer', async () => {
+    const { app, mail, email } = await setup();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    email.start();
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(mail.fetches).toBe(1);
+    // Nine of the ten minutes later, a key is saved for an AI.
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    const events: { keys: string[] }[] = [];
+    app.bus.on('settings.changed', (e) => events.push(e));
+    app.services.settings.updateSecrets({ aiKeys: { 'bonsai-2': 'sk-local-1' } });
+    expect(events).toEqual([{ keys: ['aiKeys'] }]);
+    // The check still comes at ten minutes, not ten minutes after the key.
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(mail.fetches).toBe(2);
+    email.stop();
   });
 });
 

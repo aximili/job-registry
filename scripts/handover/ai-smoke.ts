@@ -1,5 +1,5 @@
-// Handover step: the AI in the test copy. It tries the AI that your settings
-// use (Settings -> AI):
+// Handover step: the AI in the test copy. It tries the AI in use (Settings
+// -> AI):
 // - An AI server you run yourself (such as your own Bonsai 2): the test copy
 //   uses it with your AI settings, and checks that the app leaves it running.
 // - Bonsai 2 started by the app: the test copy starts its own llama-server
@@ -8,7 +8,8 @@
 //   that the app stops it after the idle time, and when the app stops or is
 //   killed.
 // Either way it reads an ad, rates a job, gives a job card a quick mark and
-// writes a resume with it.
+// writes a resume with it. A cloud AI in use is skipped: its key never goes
+// into the test copy, and these checks are for Bonsai 2.
 //
 //   node scripts\handover\ai-smoke.ts            (5 to 25 minutes)
 //   --no-idle   skips the 1-minute idle stop
@@ -17,6 +18,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { activeAi } from '../../shared/contracts/index.ts';
 import { factCheck } from '../../shared/fact-check.ts';
 import {
   aiServerAnswers,
@@ -32,6 +34,7 @@ import {
   readRealSettings,
   REAL_ROOT,
   runCommand,
+  skipForCloud,
   startApp,
   stopApp,
   testPort,
@@ -68,6 +71,10 @@ if (!real.settings) {
 }
 // The Mac tests give a fake llama-server instead.
 const target: AppAi = process.env.JR_LLAMA_EXE ? { kind: 'managed', exe: process.env.JR_LLAMA_EXE, model: null } : appAi(real.settings.ai);
+if (target.kind === 'cloud') {
+  skipForCloud(report, target);
+  process.exit(report.finish());
+}
 const own = target.kind === 'managed';
 const exe = target.kind === 'managed' ? target.exe : '';
 const model = target.kind === 'managed' ? target.model : null;
@@ -84,7 +91,7 @@ if (target.kind === 'external') {
     report.fail('the test ports are free', `something already answers on port ${port}`);
     process.exit(report.finish());
   }
-  settings = testSettings({ port, external: real.settings.ai }) as typeof settings;
+  settings = testSettings({ port, external: activeAi(real.settings.ai) }) as typeof settings;
 } else {
   report.info('the AI used', `Bonsai 2 started by the app (${exe}), as its own llama-server on port ${llamaPort}`);
   if (!existsSync(exe) || (!fakeArgs && (!model || !existsSync(model)))) {

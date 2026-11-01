@@ -22,7 +22,7 @@ hand over every screenshot's path and still do everything else.
 
 ## 0. Read the brief
 
-- CLAUDE.md: plain English and Australian spelling in the UI, and the architecture rules.
+- AGENTS.md: plain English and Australian spelling in the UI, the architecture rules, and "Always give the best possible UX".
 - [docs/architecture.md](../../../docs/architecture.md) §10, Dashboard: what the page you're touching
   must show, and its keyboard rules.
 - The design tokens: [web/src/app.css](../../../web/src/app.css). Its top comment is the brief. Use
@@ -53,10 +53,13 @@ node .claude/skills/design-first/shoot.ts before --out temp/design-first
 
 (`<project>` is the absolute path of this project: Vite reads a relative `--outDir` from `web/`.)
 
-- Each run shoots eight pages (`home`, `search` (results for "engineer"), `job`, `board`, `settings`
-  (the AI section), `display`, `inbox`, `editor`), in light and dark, at two widths: `desktop`
-  (1440 × 900) and `half` (960 × 1000, a window snapped to half the screen, where layouts break
-  first). That's 32 shots, named `<name>-<page>-<scheme>-<size>.png`.
+- Each run shoots twelve pages (`home`, `search` (results for "engineer"), `job`, `board`, `settings`
+  (the AI section), `display`, `inbox`, `editor`, and for the AI: `ai-menu` (the header's AI pill,
+  open), `ai-cloud` (a cloud AI open in Settings → AI), `ai-add` (adding one, its model list open)
+  and `ai-problem` (the pill open while the AI has a problem)), in light and dark, at two widths:
+  `desktop` (1440 × 900) and `half` (960 × 1000, a window snapped to half the screen, where layouts
+  break first). That's 48 shots, named `<name>-<page>-<scheme>-<size>.png`. There are three saved
+  AIs: Bonsai 2 (in use), Bonsai 2B light, and Claude – mine with a made-up key.
 - Narrow it with `--pages home,job`, `--scheme light|dark` and `--size desktop|half`.
 - `--full` shoots the whole page, not just the window.
 - `--selector '<css>'` shoots one element instead of the window. Give that run its own name

@@ -3,7 +3,7 @@
 // rate-job.md, and the values below are filled the same way as rateJobTask's.
 // So llama-server can reuse its cache between full ratings and quick ones.
 
-import { CardRating, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { CardRating, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { fillPrompt, type Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
 import { runJsonTask } from './json-task.ts';
@@ -13,7 +13,7 @@ export type CardInput = { profile: string; preferences: string | null; card: str
 export async function rateCardTask(o: {
   provider: AiProvider;
   prompt: Prompt;
-  config: AiSettings;
+  config: SavedAi;
   input: CardInput;
   signal?: AbortSignal;
 }): Promise<CardRating> {

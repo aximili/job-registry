@@ -1,6 +1,6 @@
 # Job ads for the parse quality check
 
-`npm run eval:parse` reads each ad here with the AI in your settings, and compares what it read with the answers filled in by hand.
+`npm run eval:parse` reads each ad here with the AI in use, and compares what it read with the answers filled in by hand.
 
 ## What's here now
 
@@ -26,7 +26,7 @@ The three ads here are **made-up examples**, so the tool has something to run on
    }
    ```
 
-4. Run `npm run eval:parse`.
+4. Run `npm run eval:parse`. To compare models, run it again with another saved AI: `npm run eval:parse -- --ai "Claude"` (its name, in any case, or its id). The run gets that AI's API key for a moment, in a temporary copy that it deletes at the end.
 
 How fields are checked:
 - **Text** (title, company, agency, location) ignores case, extra spaces and endings such as "Pty Ltd".

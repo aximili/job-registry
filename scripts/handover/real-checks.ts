@@ -54,12 +54,19 @@ if (await healthy(port)) {
   } else {
     report.info('Gmail is off', 'turn it on in Settings -> Email to check it');
   }
-  // Secrets never come back: only whether one is set.
+  // Secrets never come back: only whether the password is set, and the ids
+  // of the saved AIs that have an API key.
   const settingsText = (await api(port, 'GET', '/settings')).text;
-  const secrets = await api(port, 'GET', '/settings/secrets');
-  const onlyFlags = secrets.json && Object.values(secrets.json).every((v) => typeof v === 'boolean');
-  if (!settingsText.includes('emailPassword') && onlyFlags) report.pass('no password comes back from the app');
-  else report.fail('no password comes back from the app', 'GET /settings or /settings/secrets holds more than true or false');
+  const secrets = (await api(port, 'GET', '/settings/secrets')).json as { emailPassword?: unknown; aiKeys?: unknown } | null;
+  const ids = new Set(settings.ai.saved.map((ai) => ai.id));
+  const onlyFlags =
+    secrets !== null &&
+    Object.keys(secrets).every((k) => k === 'emailPassword' || k === 'aiKeys') &&
+    typeof secrets.emailPassword === 'boolean' &&
+    Array.isArray(secrets.aiKeys) &&
+    secrets.aiKeys.every((id) => typeof id === 'string' && ids.has(id));
+  if (!/emailPassword|aiKeys/.test(settingsText) && onlyFlags) report.pass('no password comes back from the app');
+  else report.fail('no password comes back from the app', 'GET /settings or /settings/secrets holds more than true or false and the ids of your saved AIs');
   if (email.enabled) {
     const status = (await api(port, 'GET', '/email/status')).json;
     if (status?.lastCheckAt && !status.lastError) report.info('the last Gmail check', `${status.lastCheckAt}, ${status.lastAdded ?? 0} new, ${status.pending} waiting in the Inbox`);
@@ -67,7 +74,7 @@ if (await healthy(port)) {
     else report.info('Gmail has not been checked yet', 'the first check runs a minute after the app starts');
   }
   const ai = await api(port, 'GET', '/ai/status');
-  report.info('the AI', `${ai.json?.state ?? 'unknown'} (${ai.json?.baseUrl ?? '?'})`);
+  report.info('the AI in use', `${ai.json?.name ?? '?'}, ${ai.json?.state ?? 'unknown'} (${ai.json?.baseUrl ?? '?'})`);
   // As Settings -> AI -> Test connection does.
   const aiTest = await api(port, 'POST', '/ai/test', {}, 300_000);
   if (aiTest.json?.ok) report.pass("the app's AI answers", aiTest.json.detail);

@@ -9,7 +9,8 @@ Job Registry was built and tested on a Mac. These files check it on your Windows
 | [bug-report.md](bug-report.md) | Bonsai 2 | The fixed format for the bug files in `handover-results\bugs\`, which you bring back to Claude. |
 | [findings.md](findings.md) | You and Claude | Bonsai 2's notes on the first run (29 Oct 2026), and what changed after it. |
 
-The checks are scripts in `scripts/handover/`. Each prints PASS, FAIL or INFO lines, and keeps them in `handover-results\results.txt`.
+The checks are scripts in `scripts/handover/`. Each prints PASS, FAIL, SKIP or INFO lines, and keeps them in `handover-results\results.txt`.
+- The AI checks use the AI in use (Settings → AI). If that's a cloud AI, they print SKIP: a test copy never gets an API key, and these checks are for Bonsai 2.
 - The ones that start and stop the app use a test copy in `%USERPROFILE%\JobRegistryTest`, so your own jobs, settings, profile and secrets are never touched.
 - Their logic, and the app and AI checks themselves, are tested on the Mac (`tests/handover.test.ts`, against a fake llama-server). The Windows-only parts (the `.bat` files, killing processes, CUDA, Firefox on Windows) run for the first time on your PC.
 

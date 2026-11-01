@@ -1,7 +1,7 @@
 // Seeding helpers for the browser tests. They call the real API.
 
 import type { APIRequestContext } from '@playwright/test';
-import type { Interaction, Job } from '../../shared/contracts/index.ts';
+import { activeAi, newSavedAi, type Interaction, type Job, type SavedAi, type Settings } from '../../shared/contracts/index.ts';
 
 export const ORIGIN = 'http://127.0.0.1:4799';
 const headers = { origin: ORIGIN };
@@ -9,6 +9,32 @@ const headers = { origin: ORIGIN };
 export async function reset(request: APIRequestContext): Promise<void> {
   const res = await request.post('/__test/reset', { headers });
   if (!res.ok()) throw new Error(`reset failed: ${res.status()}`);
+}
+
+// The settings as saved, and the AI in use in them.
+export async function savedSettings(request: APIRequestContext): Promise<{ settings: Settings; ai: SavedAi }> {
+  const settings = (await (await request.get('/api/v1/settings')).json()) as Settings;
+  return { settings, ai: activeAi(settings.ai) };
+}
+
+// A second saved AI, "Claude – mine", with a made-up key (or none, with
+// null). The fake AI answers for it, so nothing reaches Anthropic. Returns its id.
+export async function seedCloudAi(request: APIRequestContext, key: string | null = 'sk-ant-e2e-not-a-real-key'): Promise<string> {
+  const { settings } = await savedSettings(request);
+  const claude = newSavedAi(
+    'anthropic',
+    'Claude – mine',
+    settings.ai.saved.map((one) => one.id),
+  );
+  const saved = await request.patch('/api/v1/settings', {
+    headers,
+    data: { ai: { active: settings.ai.active, saved: [...settings.ai.saved, claude] } },
+  });
+  if (!saved.ok()) throw new Error(`seedCloudAi failed: ${saved.status()} ${await saved.text()}`);
+  if (key === null) return claude.id;
+  const keyed = await request.put('/api/v1/settings/secrets', { headers, data: { aiKeys: { [claude.id]: key } } });
+  if (!keyed.ok()) throw new Error(`seedCloudAi's key failed: ${keyed.status()}`);
+  return claude.id;
 }
 
 export async function seedJob(

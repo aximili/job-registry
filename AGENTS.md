@@ -1,0 +1,131 @@
+# Job Registry
+
+A personal, local-first app for tracking job applications. It runs on Windows: a Node server, a browser dashboard, a Firefox/Chrome extension, SQLite and a local AI.
+
+## Read these first
+
+1. [docs/plan.md](docs/plan.md): what we're building, the phases, and what "done" means for each phase.
+2. [docs/architecture.md](docs/architecture.md): how it's built, covering modules, events, ports and adapters, data model, API and testing.
+3. [docs/decisions/](docs/decisions/): why each key choice was made.
+
+If the code and these documents disagree, stop and ask. Don't quietly follow one of them. If a change alters the design, update architecture.md (and §4.2 if dependencies change) in the same piece of work.
+
+This file is the one guide for every AI agent: Claude Code, KiloCode, OpenCode and others. CLAUDE.md only points here.
+
+## Always give the best possible UX
+
+Before you build anything the user will see or touch, think as the app's lead UX designer first, then as an engineer.
+
+- **Start from the moment of use.** Who is doing what, and what's in their way? The user often tracks jobs in the middle of a call or a busy search. The thing they act on should be the boldest thing on the page.
+- **Fewest steps wins.** Everyday actions take one click or one key. Don't make the user set the same thing up twice.
+- **Use the design-first skill** (`.claude/skills/design-first/`) for any change to how the dashboard looks or is laid out: shoot "before", build two or three real options, and let the user pick from screenshots. Skip it for a pure bug fix or a copy-only change.
+- **The extension counts too.** Its popup, panel and marks on job sites follow the same thinking, even though the skill's screenshot tool covers only the dashboard.
+- **Plain words everywhere.** Every label, message and error says what happened and what to do next, in plain English.
+- **Check the basics:** both themes, a half-width window, the keyboard alone, and contrast you measured (4.5:1 for text, 3:1 for the edges of fields and buttons).
+- If good UX needs more work than the request seems to ask for, say so and do it well. Don't ship the quick version quietly.
+
+## Current status
+
+- **Phase 0** (architecture document): approved 28 Oct 2026.
+- **Phase 1** (core registry): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-1-core-registry.md)).
+  - **Windows checklist** ([docs/checklists/phase-1-windows.md](docs/checklists/phase-1-windows.md)): Setup and "Starting and stopping" pass on Windows. The user will run the rest later, together with the later phases' checklists, and fix anything then.
+  - **Closed out** on 28 Oct 2026: the user's pick of the deferred minors (group A) is fixed. See "Phase 1 close-out" in the ledger, `.superpowers/sdd/2026-10-28-phase-1-core-registry/progress.md`.
+- **Phase 2** (local AI): built and tested on macOS on 28 Oct 2026, against a fake AI server ([plan](docs/superpowers/plans/2026-10-28-phase-2-local-ai.md), ledger `.superpowers/sdd/2026-10-28-phase-2-local-ai/progress.md`).
+  - **Windows checklist:** [docs/checklists/phase-2-windows.md](docs/checklists/phase-2-windows.md). Not run yet: the real Bonsai 2 model, `download-ai.bat`, llama-server start/stop with taskkill, Ollama.
+  - The user hasn't added real ads for `npm run eval:parse` yet. `tests/fixtures/ads/` has three made-up examples.
+- **Phase 3** (browser extension): built and tested on macOS on 28 Oct 2026 ([plan](docs/superpowers/plans/2026-10-28-phase-3-browser-extension.md), ledger `.superpowers/sdd/2026-10-28-phase-3-browser-extension/progress.md`).
+  - **Windows checklist:** [docs/checklists/phase-3-windows.md](docs/checklists/phase-3-windows.md). Not run yet: real Firefox, signing (the user needs addons.mozilla.org keys), real signed-in Seek, LinkedIn and Indeed pages.
+  - The site fixtures are hand-made (plus one real LinkedIn guest page). When the user saves real pages, check them with `npm run ext:check` and add them to `tests/fixtures/sites/`.
+  - **Seek's new addresses** (fixed 29 Oct 2026, after Windows use): Seek moved its job pages to au.seek.com and nz.seek.com. The extension runs there now. A Seek job keeps the stable link `www.seek.com.au/job/<id>` (or `www.seek.co.nz/job/<id>` for nz.seek.com), so jobs saved from www.seek.com.au before still match. A job saved from au.seek.com or nz.seek.com before 29 Oct 2026 keeps its old link, so its card won't say Saved; "Same job?" still catches a re-save. The Phase 7 checklist counts them.
+- **Phase 4** (resume and cover letter): built and tested on macOS on 28–29 Oct 2026, against a fake AI ([plan](docs/superpowers/plans/2026-10-28-phase-4-resume-cover-letter.md), ledger `.superpowers/sdd/2026-10-28-phase-4-resume-cover-letter/progress.md`). Both reviews (checkpoint and final) are closed, and their deferred minors are in the ledger.
+  - **Windows checklist:** [docs/checklists/phase-4-windows.md](docs/checklists/phase-4-windows.md). Not run yet: Bonsai writing real drafts (timing, invented facts), Firefox's Save to PDF, a .docx in Word for the web or ONLYOFFICE, Windows file names.
+  - The starter guides and templates live in `starters/` (tracked). The app copies them into `profile/` and `templates/` (both git-ignored) at start-up, wherever a file is missing. There's no starter master profile or preferences file.
+- **Phase 5** (Gmail): built and tested on macOS on 29 Oct 2026, against a test IMAP server (hoodiecrow-imap), a fake mailbox and a fake AI ([plan](docs/superpowers/plans/2026-10-29-phase-5-gmail.md), ledger `.superpowers/sdd/2026-10-29-phase-5-gmail/progress.md`).
+  - **Windows checks:** [docs/checklists/phase-5-windows.md](docs/checklists/phase-5-windows.md). Not run yet: a real Gmail login with an app password, TLS through antivirus email scanning, Bonsai reading real emails, the timer over 30 minutes.
+  - The app password lives in `config/secrets.json` (git-ignored, never sent to the browser). Email is off until it's turned on in Settings → Email.
+  - Both reviews (checkpoint and final) are closed. Their fixes are in, and the deferred minors are in the ledger.
+- **Phase 6** (nice-to-haves): built and tested on macOS on 29 Oct 2026 ([plan](docs/superpowers/plans/2026-10-29-phase-6-nice-to-haves.md), ledger `.superpowers/sdd/2026-10-29-phase-6-nice-to-haves/progress.md`). The user picked **follow-up reminders** and the **Kanban board view** (asked once, as agreed). Not wanted: phone access over Wi-Fi, the Windows-wide hotkey.
+  - **Windows checks:** [docs/checklists/phase-6-windows.md](docs/checklists/phase-6-windows.md). Not run yet: drag and drop in real Firefox on Windows, the Windows date picker, a follow-up across midnight.
+  - Both reviews (checkpoint and final) are closed. Their fixes are in, and the deferred minors are in the ledger (including one timing flake in the extension's "five quick clicks" test).
+- **Phase 7** (quick marks on search lists, asked for on 29 Oct 2026): built and tested on macOS on 29–30 Oct 2026, against a fake AI ([plan](docs/superpowers/plans/2026-10-29-phase-7-list-ratings.md), ledger `.superpowers/sdd/2026-10-29-phase-7-list-ratings/progress.md`). On Seek, LinkedIn (signed in and out) and Indeed search lists, each job card gets a small mark after its title. A job you saved says so ("Saved · Applied 12 Oct"), and a job you opened before shows its full rating. Every other card gets a quick AI rating of the card alone ("Good 68 · quick"). It never opens the ad. Settings → AI now shows each AI task's settings.
+  - **Windows checks:** [docs/checklists/phase-7-windows.md](docs/checklists/phase-7-windows.md). Not run yet: real signed-in lists on Seek, LinkedIn and Indeed, Bonsai 2's time per card, how the marks look under each site's titles, dark mode. The handover's AI check (`ai-smoke`) now times one card.
+  - Quick marks are on by default (the extension's option "Rate the jobs in search results"). Only the tab in front is rated, one card at a time.
+  - Jora and CareerOne are left for later: Jora refused a download, and CareerOne's saved page had no search results or job data, so neither could be tested. Each would also need a job-page reader first.
+  - Every task review and the final whole-phase review are closed. The final fix wave is in, and the remaining deferred minors are in the ledger.
+  - A card whose quick rating fails stays unmarked until you reload the page. If Bonsai 2 isn't running, each return to the tab can leave one more card unmarked.
+  - **After Windows use** (30 Oct 2026, ledger: "After Windows use"): every match score was 72, because the AI wrote the score before its reasons. The reasons now come first. Not checked with Bonsai 2 yet. The panel now moves by its top bar, resizes from any edge, and remembers both; a double-click on the bar puts it back. The user saw nothing on a Seek search list, but the extension works on live au.seek.com (checked from macOS, signed out), so that needs the user's details.
+  - **After Windows use, part 2** (30 Oct 2026, same ledger): rating with thinking at Low failed because thinking used up the 2,048-token answer. Each thinking level now has its own limit on top of Longest answer (Low 512, Medium 2,048, High 8,192, sent as `thinking_budget_tokens`). The new **No limit** sends nothing, so Bonsai 2 thinks at its own default (`xhigh`, uncapped); it's the default for writing. A cut-off answer says so at once, and a stream only times out when it goes quiet. The user's "list" was Seek's signed-in home page: its Recommended cards now get marks, and a job opened there (a pop-over; the address doesn't change) now shows in the panel, which also stays usable for typing and scrolling while Seek's pop-over holds the focus. Checked on a real Bonsai 2 2B on macOS through the app's code (the old Low request failed the user's way; every level now rates and writes); not on the 27B, nor on the real signed-in home page.
+- **Phase 8** (several AIs, switched in one click, asked for on 31 Oct 2026): built and tested on macOS on 31 Oct – 1 Nov 2026, against fake AI servers only ([spec](docs/superpowers/specs/2026-10-31-several-ais-design.md), [plan](docs/superpowers/plans/2026-10-31-phase-8-several-ais.md), ledger `.superpowers/sdd/2026-10-31-phase-8-several-ais/progress.md`, decision [0011](docs/decisions/0011-several-ais-and-cloud-providers.md)). Settings → AI keeps any number of AIs ("My AIs"), each with its own key, model and task settings. Local: Bonsai 2 (llama-server), Ollama, LM Studio, any OpenAI-style server. Cloud: Claude (through Anthropic's own Messages API), OpenAI, Gemini, DeepSeek, Kimi, Z.ai (general API), Qwen, Mistral, xAI, Groq, OpenRouter. The AI pill switches the whole app in one click, and **Test connection** tests any AI without saving it.
+  - **The user's picks:** each model keeps its own ratings; the switcher is the name pill (option a) with the grouped menu ("On this computer" / "Cloud"); Settings → AI is the list, then the form (layout a).
+  - **Windows checks:** [docs/checklists/phase-8-windows.md](docs/checklists/phase-8-windows.md). Not run yet: a real cloud key (Claude: one Test connection and one rating), two Bonsai .bat AIs on 127.0.0.1:8080 and the "still running" sentence, what PrismML's llama-server lists in `/v1/models` (the model-file check reads only `.gguf` names), Firefox offering to save an API key, the pill and its menu in Windows Firefox in both themes, `eval:parse --ai` with an en dash in PowerShell.
+  - API keys live in `config/secrets.json` under `aiKeys` (git-ignored, never sent to the browser, a log, an error or the handover's test copy; `eval:parse` (with or without `--ai`) copies the key of the AI it runs into its temporary copy on purpose, and deletes it at the end). A key goes only to its own provider, and is deleted with its AI or when that AI's provider changes. The default is still one AI, Bonsai 2: no cloud AI is set up out of the box.
+  - A Claude Pro or Max login and Z.ai's GLM Coding Plan can't be used (their terms); API keys can. The provider facts (addresses, models, thinking and JSON options) were checked on 31 Oct 2026 (`PRESETS_CHECKED` in `shared/contracts/ai-presets.ts`), and a few are marked unverified there, such as Qwen's address.
+  - An old `settings.json` loads as one saved AI (Bonsai 2, or "My AI server" for the run-1 "Another OpenAI-style server") and takes the new shape at the next save. After the update, each job is rated once more. `eval:parse` has `--ai "NAME"`. The handover's AI checks print SKIP when a cloud AI is in use.
+  - A usage limit, a refused or missing key, or a busy cloud AI is an account problem (`AiAccountError`), not a refused item: saved jobs stay waiting and emails wait, and both are read once the AI works again (or you switch). The pill's problem clears when you fix the key or edit the AI in use.
+  - Every task review (Tasks 1–10; the UI's Tasks 8 and 9 were reviewed together) and the final whole-phase review are closed. The final fix wave is in, and the remaining deferred minors are in the ledger.
+  - A saved "My AI server" with no model asks for a model name at its next save (any name works for llama-server).
+- **Windows handover:** written 29 Oct 2026, in [docs/handover/](docs/handover/README.md): the runbook for Bonsai 2, the bug-list format, and the user's do-by-hand list. Its checks are `scripts/handover/*.ts` (tested in `tests/handover.test.ts`), plus `start-bonsai-server.bat` (Bonsai 2 on port 8080 for the agent and the app) and `setup.bat -Quiet`. When the user brings back `handover-results\` (summary.md, results.txt, the bugs folder, the logs), fix the bugs with tests that fail first.
+  - **Run 1** (29 Oct 2026, [findings.md](docs/handover/findings.md)): steps 1–3 and 11–13 ran; steps 4–10 didn't, because a missing `ai\` download was a STOP. Both FAILs are fixed: Firefox from the Microsoft Store is found, and the checks follow Settings → AI.
+  - **The user's AI:** the agent tool is whatever they pick (KiloCode in VS Code right now; they may switch to OpenCode, ZCode or others), so keep the handover docs tool-neutral. The model is their own Bonsai 2, run from `D:\aitest\Bonsai-demo\start_bonsai.bat` on port 8080. The app uses it by address (Settings → AI → Another OpenAI-style server), so `ai\` stays empty. They may switch later. Since Phase 8 that setting shows as the saved AI "My AI server"; do-by-hand step 8 adds a Bonsai 2 that opens `start_bonsai.bat`.
+  - **Next:** run 2, a clean run from Step 1 (do-by-hand.md, "Running the runbook again").
+- **After run 1** (29 Oct 2026, ledger: Phase 6, "After run 1"):
+  - **Settings** has a side menu and shows one section at a time (`/settings#ai` and so on). Hidden sections stay on the page, so nothing typed is lost.
+  - **Your own .bat file as the AI program:** Settings → AI → Bonsai 2, "Start it for me when it isn't running", Program `D:\aitest\Bonsai-demo\start_bonsai.bat`. The app opens it in its own window when you need the AI, and never closes it. Background work never opens it. Not run on Windows yet (do-by-hand step 8, and the 15-minute check).
+  - **Stopping the AI when idle is optional, and off by default** (each saved AI's `stopWhenIdle`): the user doesn't usually want it stopped automatically. The handover's AI check turns it on in its test copy.
+- **The look** (30 Oct 2026): the user picked it from real screenshots, using the design-first skill (`.claude/skills/design-first/`, adapted from nemity). It's "Layers": a band of ink across the top with the search box as the bright slot, white cards on a darker page, and firm edges on fields and buttons. Settings → Display picks Light, Dark or Match this computer. Use the skill for any change the user will see.
+- **How the user wants to work:**
+  - (28 Oct 2026) "I just want the app finished the best you can." Build phase after phase, through Phase 6, without stopping for plan reviews or Windows tests. Don't ask about details: make the call and record it in the phase's ledger.
+  - (29 Oct 2026) The user won't run checklists by hand. When everything is built, write a **Windows handover for Bonsai 2**, the local model, which is less capable. It's a step-by-step runbook it can follow on the Windows PC.
+    - Each step has an exact command, the expected output, and what to do if the output differs. Prefer scripted PASS/FAIL checks over judgement.
+    - It may fix only "very simple" things, defined in the runbook. Everything else goes into a bug list in a fixed format, which the user brings back to Claude.
+    - Also give the user a short list of what only they can do by hand: start Bonsai 2 and the agent tool, paste the master profile, the AMO keys, the Gmail app password, and signing in to the job sites.
+  - The `docs/checklists/phase-N-windows.md` files are input for that handover, not tasks for the user.
+- **Deferred minors from Phase 3** (in its ledger): the popup's save doesn't set the badge; the panel is last in the tab order; a rating keeps running after you leave a job for an unreadable page; the badge can lag when replies arrive out of order.
+- **Deferred minors from Phase 5** (in its ledger): a first check over about 300 seconds can make Firefox give up on Check now (it corrects itself); zod's own wording for a bad number in Settings → Email; card headings are h3 under the h1; secrets.json is 0644 on macOS; small timer gaps (saving a setting restarts it, turning email off doesn't stop a running check); a no-Message-ID email can repeat after a UIDVALIDITY reset.
+
+Update this section when a phase starts or finishes.
+
+## Commands
+
+| Command | What it does |
+|---------|--------------|
+| `npm test` | Typecheck (tsc and svelte-check), then the architecture check (`check:deps`), then the unit and API tests (Vitest). |
+| `npm run test:e2e` | Build the dashboard and the extension's test build, then run the browser tests: the dashboard in Firefox and Chromium, and the real extension in Chromium. It starts its own server on 4799 and copies of the job sites on 4798. |
+| `npm run dev:server` + `npm run dev:web` | Development mode. The server runs on 4777, and the dashboard on 5173 with live reload. |
+| `npm run build` | Build the dashboard into `web/dist` (the server serves it). |
+| `npm start` | Run the server (`node server/main.ts`). |
+| `npm run ext:build` | Build the browser extension into `extension/dist/{firefox,chrome}` (`--e2e` also builds `chrome-e2e` for the browser tests). |
+| `npm run ext:lint` / `ext:sign` / `ext:check -- page.html URL` | Mozilla's checks; sign the Firefox build (needs `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`); run a site reader on a saved page. |
+| `node scripts/handover/<check>.ts` | The Windows handover checks (prereqs, make-test-copy, app-smoke, ai-smoke, eval-report, run-tests, sign, real-checks, cleanup, collect-logs, summary). See docs/handover/runbook.md. |
+| `npm run eval:parse` | How well the AI in use reads job ads (a report, not a test). Uses `tests/fixtures/ads/`. `-- --ai "NAME"` runs another saved AI (by name or id); `-- --settings FILE` uses another settings file. |
+
+**Windows scripts:** `setup.bat`, `start.bat`, `stop.bat`, `download-ai.bat` and `start-bonsai-server.bat`, plus `scripts/setup.ps1` and `scripts/download-ai.ps1`, must stay plain ASCII with CRLF line endings (`.gitattributes` enforces CRLF). Windows PowerShell 5.1 misreads UTF-8 that has no byte-order mark.
+
+## Architecture rules (summary; full detail in architecture.md §4 and §15)
+
+1. **Feature modules.** The server lives in `server/modules/<name>/` with `index.ts`, `service.ts`, `repo.ts` and `routes.ts`. Other modules import only `index.ts`.
+2. **Only the owning module touches its tables.** Modules talk through public services or typed events (`server/core/events.ts`).
+3. **Services know nothing about Fastify or SQL.** Fastify stays in `routes.ts`, and SQL stays in `repo.ts`.
+4. **Outside systems sit behind ports:** `AiProvider`, `ModelRuntime`, `MailSource`, `DocumentExporter` and `SiteExtractor`.
+5. **`jobs` never depends on `ai`.** The `enrich` module does the AI work after a save. Saving must never wait for the AI.
+6. **One shared contract.** Every API body is a zod schema in `shared/contracts/`, used by the server, dashboard and extension.
+7. **Only `server/app.ts` wires things together.** No dependency-injection framework.
+8. **`npm run check:deps` must pass.** Never weaken a rule to make it pass. Fix the import instead.
+
+## Conventions
+
+- **TypeScript:** erasable syntax only, because Node runs the server's `.ts` files directly. That means no `enum` and no constructor parameter properties.
+- **Database:** plain SQL with no ORM. Every schema change is a new numbered file in `server/core/db/migrations/`, and old migrations are never edited.
+- **Never overwrite your data:**
+  - Documents are append-only, and sent versions are frozen.
+  - Jobs are archived, not deleted.
+  - The AI never overwrites a field you edited.
+- **Writing:** plain English and Australian spelling in the UI, docs, comments and prompts.
+- **Tests:** they sit next to the code (`*.test.ts`). Fakes for every port live in `tests/fakes/`.
+- **AI prompts:** text files in `server/modules/ai/prompts/`, not strings in code.
+
+## Platform notes
+
+- **Where it runs:** the target is Windows (RTX 3090, Firefox first). Development happens on macOS, so `.bat` and `.ps1` scripts must be checked on the Windows PC.
+- **Default AI:** Bonsai 2 27B on PrismML's own build of llama.cpp (`llama-server`). Stock llama.cpp and Ollama can't run it. Ollama and LM Studio work through the same OpenAI-style adapter, for other models.
+- **Cloud AIs** (Phase 8) are optional, with the user's own API key. Claude has its own adapter (Anthropic's Messages API); the other cloud providers use the OpenAI-style one, in their own dialect. No test may call a real cloud AI.

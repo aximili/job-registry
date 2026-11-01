@@ -1,25 +1,29 @@
-// npm run eval:parse — how well the AI you've set up reads job ads.
+// npm run eval:parse — how well an AI you've saved reads job ads.
 //
 // It reads every tests/fixtures/ads/*.txt that has a matching .expected.json
-// (the fields filled in by hand), asks the AI in your settings to read it,
-// and prints what it got right, field by field. It's a report, not a test.
+// (the fields filled in by hand), asks the AI to read it, and prints what it
+// got right, field by field. It's a report, not a test.
 //
-//   npm run eval:parse                      uses config/settings.json
-//   npm run eval:parse -- --settings FILE   uses another settings file
-//   npm run eval:parse -- --ads FOLDER      uses another folder of ads
+//   npm run eval:parse                       the AI in use, from config/settings.json
+//   npm run eval:parse -- --ai "NAME"        another saved AI, by its name or id, to compare models
+//   npm run eval:parse -- --settings FILE    another settings file (and the secrets.json next to it)
+//   npm run eval:parse -- --ads FOLDER       another folder of ads
 //
 // Your settings file is copied, never written, and the database is a
-// temporary one, so your data is never touched. It may start llama-server,
-// exactly as the app would.
+// temporary one, so your data is never touched. The run has its own profile
+// and templates folders too (reading an ad needs neither). The copy gets the
+// API key of the AI it runs, and no other, and it's deleted at the end. It
+// may start llama-server, exactly as the app would.
 
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pino } from 'pino';
 import type { ParsedJob } from '../shared/contracts/index.ts';
 import { buildApp } from '../server/app.ts';
 import { resolvePaths } from '../server/core/config.ts';
+import { prepareEvalConfig } from './eval-ai.ts';
 import { scoreParse } from './eval-score.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -31,15 +35,34 @@ const settingsFile = option('settings') ?? join(root, 'config', 'settings.json')
 const adsDir = option('ads') ?? join(root, 'tests', 'fixtures', 'ads');
 
 const scratch = mkdtempSync(join(tmpdir(), 'jr-eval-'));
+// The copy may hold an API key, so it goes however the run ends: at the end,
+// on an error, or when you stop it: Ctrl+C (SIGINT), closing the terminal
+// window (SIGHUP, on Windows too) or a kill (SIGTERM). Only a forced kill,
+// which no program can catch, leaves it in your temp folder.
+process.on('exit', () => rmSync(scratch, { recursive: true, force: true }));
+for (const [signal, code] of [['SIGINT', 130], ['SIGHUP', 129], ['SIGTERM', 143]] as const) process.once(signal, () => process.exit(code));
 const configDir = join(scratch, 'config');
 mkdirSync(configDir, { recursive: true });
 if (existsSync(settingsFile)) copyFileSync(settingsFile, join(configDir, 'settings.json'));
 else console.log(`No settings file at ${settingsFile}, so the default AI settings are used.\n`);
 
-const paths = resolvePaths(root, { db: ':memory:', config: configDir, data: join(scratch, 'data') });
+const picked = prepareEvalConfig({ configDir, yourSecrets: join(dirname(settingsFile), 'secrets.json'), wanted: option('ai') });
+if ('problem' in picked) {
+  console.log(picked.problem);
+  process.exit(1);
+}
+const { ai } = picked;
+
+const paths = resolvePaths(root, {
+  db: ':memory:',
+  config: configDir,
+  data: join(scratch, 'data'),
+  // The app copies its starter files in wherever one is missing: here, never into the app folder.
+  profile: join(scratch, 'profile'),
+  templates: join(scratch, 'templates'),
+});
 const app = await buildApp({ paths, logger: pino({ level: 'silent' }), version: 'eval' });
-const ai = app.services.settings.get().ai;
-console.log(`AI: ${ai.preset} at ${ai.baseUrl}${ai.model ? `, model ${ai.model}` : ''}\n`);
+console.log(`AI: ${ai.name} (${ai.preset}) at ${ai.baseUrl}${ai.model ? `, model ${ai.model}` : ''}\n`);
 
 const ads = readdirSync(adsDir)
   .filter((f) => f.endsWith('.txt') && existsSync(join(adsDir, f.replace(/\.txt$/, '.expected.json'))))
@@ -93,4 +116,3 @@ if (times.length > 0) {
 }
 
 await app.close();
-rmSync(scratch, { recursive: true, force: true });

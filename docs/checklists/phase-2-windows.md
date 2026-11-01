@@ -20,18 +20,18 @@ Before you start: stop the app with `stop.bat`, then run `setup.bat` to update.
 
 ## Bonsai 2 (the default)
 
-- [ ] **Test connection:** Settings → AI → **Test connection**. The first time can take up to a minute while the model loads. It says "Connected to Bonsai 2 … It replied in … ms." The header pill shows **AI ready**.
+- [ ] **Test connection:** Settings → AI → **Test connection**. The first time can take up to a minute while the model loads. It says "Connected to Bonsai 2 … It replied in … ms." The header pill shows **Bonsai 2 · ready** (the AI pill shows the name of the AI in use since Phase 8).
 - [ ] **Phase 2's goal:** paste a real Seek ad into **New job**, leave Role and Company empty, and save. Within about **20 seconds** the role, company, salary and key requirements fill in.
-- [ ] **The pill** shows **AI working…** while it reads, then **AI ready**.
+- [ ] **The pill** shows **Bonsai 2 · working…** while it reads, then **Bonsai 2 · ready**.
 - [ ] **llama-server's window:** there's no extra console window for it. Its log is `data\logs\llama.log`, and it names your RTX 3090 (a CUDA device).
-- [ ] **GPU memory comes back:** after 15 minutes with nothing to do, the pill says **AI off**, and `nvidia-smi` (or Task Manager → Performance → GPU) shows the memory freed.
-- [ ] **`stop.bat` stops it too:** with the pill on **AI ready**, run `stop.bat`. In Task Manager → Details, there's no `llama-server.exe` left.
+- [ ] **GPU memory comes back:** after 15 minutes with nothing to do, the pill says **Bonsai 2 · off**, and `nvidia-smi` (or Task Manager → Performance → GPU) shows the memory freed.
+- [ ] **`stop.bat` stops it too:** with the pill on **Bonsai 2 · ready**, run `stop.bat`. In Task Manager → Details, there's no `llama-server.exe` left.
 - [ ] **Closing the server window stops it too:** start the app, read an ad, then close the "Job Registry server" window. No `llama-server.exe` is left.
 - [ ] **A llama-server you started yourself is left alone:** start `ai\llama.cpp\llama-server.exe -m ai\models\Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99 --port 8080` in a terminal, then use the app and stop it. Your llama-server keeps running.
 
 ## When the AI isn't there
 
-- [ ] **Not installed:** rename the `ai` folder, start the app, and paste an ad. The job saves at once and says "Couldn't read the ad yet. The AI program isn't installed …". The pill says **AI problem**. Rename the folder back and press **Read again**: it fills in.
+- [ ] **Not installed:** rename the `ai` folder, start the app, and paste an ad. The job saves at once and says "Couldn't read the ad yet. The AI program isn't installed …". The pill says **Bonsai 2 · problem**. Rename the folder back and press **Read again**: it fills in.
 
 ## Ollama (optional, if you use it)
 

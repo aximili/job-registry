@@ -191,6 +191,8 @@ export function createEmailService(opts: EmailOptions): EmailService {
       // Refused (an HTTP error or a timeout): the server may refuse every email
       // (a wrong model, say), so the check decides what to do with it.
       if (err instanceof AiRefusedError) return { refused: err.message, jobId: result.jobIds[0] ?? null };
+      // Can't be reached, or a problem with the AI itself (AiAccountError: no
+      // key, a refused key, a usage limit, busy): wait for it, however long.
       if (err instanceof AiUnavailableError) return { stop: `Waiting for the AI: ${err.message}` };
       throw err;
     }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { inbox, watchInbox } from '../lib/inbox.svelte.ts';
-  import AiPill from './AiPill.svelte';
+  import AiSwitcher from './AiSwitcher.svelte';
   import SearchBox from './SearchBox.svelte';
 
   let { onNewJob }: { onNewJob?: () => void } = $props();
@@ -18,7 +18,7 @@
     <div class="bar on-band">
       <a href="/" class="brand">Job Registry</a>
       <nav aria-label="Main">
-        <AiPill />
+        <AiSwitcher />
         {#if onNewJob}
           <button type="button" class="button primary" onclick={onNewJob}>New job <kbd>N</kbd></button>
         {/if}

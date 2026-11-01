@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pino } from 'pino';
-import { DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
+import { DEFAULT_AI_ID, DEFAULT_SETTINGS } from '../../shared/contracts/index.ts';
 import { buildApp } from '../../server/app.ts';
 import { resolvePaths } from '../../server/core/config.ts';
 import { FakeMailSource, type FakeMail } from '../fakes/fake-mail-source.ts';
@@ -60,8 +60,9 @@ app.http.post('/__test/reset', async () => {
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
     DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;
     DELETE FROM card_rating_cache;`);
+  // Back to the one default AI, which drops every other AI's key; then its own key too.
   app.services.settings.update(DEFAULT_SETTINGS);
-  app.services.settings.updateSecrets({ emailPassword: null });
+  app.services.settings.updateSecrets({ emailPassword: null, aiKeys: { [DEFAULT_AI_ID]: null } });
   // Your profile and templates as a fresh install has them.
   app.services.profile.write('master-profile', E2E_PROFILE);
   app.services.profile.write('preferences', '');

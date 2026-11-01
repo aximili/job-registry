@@ -63,6 +63,10 @@ export class FakeAiProvider implements AiProvider {
   thinking = '';
   // A pause between streamed chunks, for cancelling part-way.
   chunkDelayMs = 0;
+  // Set part-way through a stream: the server went away, so it stops with this.
+  cut: Error | null = null;
+  // What health() lists: llama-server lists the model file it runs.
+  models = ['fake-model'];
   reply: FakeReplyFn;
 
   constructor(reply: FakeReplyFn = defaultReply, opts: { delayMs?: number } = {}) {
@@ -88,6 +92,7 @@ export class FakeAiProvider implements AiProvider {
     if (this.thinking) yield { kind: 'thinking', text: this.thinking };
     for (const word of answer.split(/(?<= )/)) {
       await wait(this.chunkDelayMs, opts.signal);
+      if (this.cut) throw this.cut;
       yield { kind: 'text', text: word };
     }
     this.finished.push(req);
@@ -96,7 +101,7 @@ export class FakeAiProvider implements AiProvider {
   async health(): Promise<ProviderHealth> {
     return this.down
       ? { ok: false, models: [], detail: "Can't reach the AI at http://fake/v1. Check that it's running, or pick another AI in Settings." }
-      : { ok: true, models: ['fake-model'], detail: null };
+      : { ok: true, models: [...this.models], detail: null };
   }
 
   // Calls for one task only, by its schema name. Writing a document has no schema.

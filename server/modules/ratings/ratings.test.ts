@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import type { Capture, JobCard, Rating } from '../../../shared/contracts/index.ts';
-import { FAKE_CARD_RATING, FAKE_RATING, FakeAiProvider } from '../../../tests/fakes/fake-ai-provider.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { activeAi, DEFAULT_SETTINGS, newSavedAi, type Capture, type JobCard, type Rating, type SavedAi } from '../../../shared/contracts/index.ts';
+import { defaultReply, FAKE_CARD_RATING, FAKE_RATING, FakeAiProvider } from '../../../tests/fakes/fake-ai-provider.ts';
 import { createTestApp, freePort, type TestApp } from '../../../tests/helpers/test-app.ts';
 import { cardKey, cardText } from './index.ts';
 
@@ -265,6 +265,119 @@ describe('ratings: job cards in a search list', () => {
     expect((await app.request('POST', '/api/v1/ratings/cards/lookup', { cards: many })).status).toBe(400);
     expect((await app.request('POST', '/api/v1/ratings/cards/lookup', { cards: many.slice(0, 100) })).status).toBe(200);
     expect((await app.request('POST', '/api/v1/ratings/cards/lookup', { cards: [] })).status).toBe(400);
+  });
+});
+
+describe('ratings: each model keeps its own', () => {
+  const claude = (name: string, model: string, taken: string[]): SavedAi => ({ ...newSavedAi('anthropic', name, taken), model });
+  const haiku = claude('Claude Haiku', 'claude-haiku-5-5', ['bonsai-2']);
+  const sonnet = claude('Claude Sonnet', 'claude-sonnet-5-5', ['bonsai-2', 'claude-haiku']);
+  // The same model on your wife's key: another AI, with its own key.
+  const hers = claude('Claude Haiku – hers', 'claude-haiku-5-5', ['bonsai-2', 'claude-haiku', 'claude-sonnet']);
+  // Full ratings on Haiku, quick ones on the AI's own model, Sonnet.
+  const mixed: SavedAi = (() => {
+    const ai = claude('Claude mixed', 'claude-sonnet-5-5', ['bonsai-2', 'claude-haiku', 'claude-sonnet', 'claude-haiku-hers']);
+    return { ...ai, tasks: { ...ai.tasks, rate: { ...ai.tasks.rate, model: 'claude-haiku-5-5' } } };
+  })();
+
+  async function setupAis() {
+    const provider = new FakeAiProvider();
+    app = await createTestApp({
+      fakes: { ai: provider },
+      settings: { ai: { active: haiku.id, saved: [activeAi(DEFAULT_SETTINGS.ai), haiku, sonnet, hers, mixed] } },
+      secrets: { aiKeys: { [haiku.id]: 'sk-ant-mine', [sonnet.id]: 'sk-ant-mine', [hers.id]: 'sk-ant-hers', [mixed.id]: 'sk-ant-mine' } },
+    });
+    writeProfile('I write TypeScript.');
+    const use = (ai: SavedAi) => void app!.services.settings.useAi(ai.id);
+    return { app, provider, use };
+  }
+
+  const kinds = [
+    ['a job', 'rating', (a: TestApp) => a.services.ratings.rate(seekAd)],
+    ['a card', 'card_rating', (a: TestApp) => a.services.ratings.rateCard(card())],
+  ] as const;
+
+  it.each(kinds)('%s is rated again on another model, and back on the first model its rating comes back', async (_, task, rate) => {
+    const { app, provider, use } = await setupAis();
+    const cached = async () => (await rate(app)).cached;
+    expect(await cached()).toBe(false);
+    expect(await cached()).toBe(true);
+    use(sonnet);
+    expect(await cached()).toBe(false);
+    use(haiku);
+    expect(await cached()).toBe(true);
+    expect(provider.callsFor(task).map((c) => c.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  });
+
+  it('two AIs with the same model share their ratings, though each has its own key', async () => {
+    const { app, provider, use } = await setupAis();
+    await app.services.ratings.rate(seekAd);
+    await app.services.ratings.rateCard(card());
+    use(hers);
+    expect((await app.services.ratings.rate(seekAd)).cached).toBe(true);
+    expect((await app.services.ratings.rateCard(card())).cached).toBe(true);
+    expect(app.services.ratings.lookupCards([card()]).results[0]?.kind).toBe('full');
+    expect(provider.calls).toHaveLength(2);
+  });
+
+  it("a quick mark finds a full rating by the rating task's model, and a quick one by the card task's", async () => {
+    const { app, use } = await setupAis();
+    use(mixed);
+    await app.services.ratings.rate(seekAd);
+    const quickOnly = card({ canonicalUrl: 'https://www.seek.com.au/job/2', externalId: '2' });
+    await app.services.ratings.rateCard(quickOnly);
+    const marks = () => app.services.ratings.lookupCards([card(), quickOnly]).results.map((m) => m?.kind ?? null);
+
+    expect(marks()).toEqual(['full', 'quick']);
+    use(haiku);
+    expect(marks()).toEqual(['full', null]);
+    use(sonnet);
+    expect(marks()).toEqual([null, 'quick']);
+  });
+
+  // The cache is checked for the AI in use when you ask, but the answer is
+  // kept for the model that gave it.
+  it.each(kinds)("%s that waited through a switch is kept as the new model's, not the old one's", async (_, task, rate) => {
+    const { app, provider, use } = await setupAis();
+    // Reading an ad holds the AI until it's let go.
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    provider.reply = async (req) => {
+      if (req.jsonSchema?.name === 'parsed_job') await held;
+      return defaultReply(req);
+    };
+    const reading = app.services.ai.parseJob('An ad.');
+    await vi.waitFor(() => expect(provider.callsFor('parsed_job')).toHaveLength(1));
+    const waiting = rate(app);
+    use(sonnet);
+    letGo();
+    await reading;
+    expect((await waiting).cached).toBe(false);
+    expect(provider.callsFor(task).map((c) => c.model)).toEqual(['claude-sonnet-5-5']);
+
+    expect((await rate(app)).cached).toBe(true);
+    use(haiku);
+    expect((await rate(app)).cached).toBe(false);
+  });
+
+  it.each(kinds)("%s already being rated at a switch is kept as the old model's", async (_, task, rate) => {
+    const { app, provider, use } = await setupAis();
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    provider.reply = async (req) => {
+      await held;
+      return defaultReply(req);
+    };
+    const running = rate(app);
+    await vi.waitFor(() => expect(provider.callsFor(task)).toHaveLength(1));
+    use(sonnet);
+    letGo();
+    expect((await running).cached).toBe(false);
+    expect(provider.callsFor(task).map((c) => c.model)).toEqual(['claude-haiku-5-5']);
+
+    expect((await rate(app)).cached).toBe(false);
+    use(haiku);
+    expect((await rate(app)).cached).toBe(true);
   });
 });
 

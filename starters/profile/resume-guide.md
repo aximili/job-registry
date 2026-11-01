@@ -12,7 +12,7 @@ Two readers decide whether I get a call. Write for both.
 ## Facts come first
 
 - Use only facts from my master profile. If you're not sure of something, leave it out. You can't ask me questions here.
-- My master profile decides what's true and how to describe me. Follow its rules on job titles, years of experience, numbers and their labels, wording to avoid, roles to leave off, and the "Don't claim", "To confirm" and ⚠ items.
+- My master profile decides what's true and how to describe me. Follow its rules on job titles, years of experience, numbers and their labels, wording to avoid, roles to leave off, where my own projects go, and the "Don't claim", "To confirm" and ⚠ items.
 - This guide decides how to write the resume. My profile may have its own notes on layout, section order, date format, length or style. Where they differ from this guide, follow this guide.
 - Skip any steps in my profile that don't fit here, such as asking me questions, making a Word file or updating the profile.
 - The ad's own instructions (such as a page limit) beat this guide.
@@ -24,7 +24,7 @@ Read the full ad. The lists under "The job" come from an AI's reading of the ad,
 List these, one short line each:
 
 - every must-have, including qualifications and work rights;
-- every "desirable" or "nice to have" item;
+- every "desirable", "highly valued" or "nice to have" item;
 - the main duties;
 - the ad's key words (the job title, tools, methods and domain words), spelt exactly as the ad spells them.
 
@@ -43,10 +43,10 @@ Use these headings, in this order. Screening software looks for standard names.
 
 1. `# [My name]`, then one line with my contact details.
 2. `## Summary`
-3. `## Skills`
-4. `## Certifications` goes here if the ad asks for a certification I hold, or if mine are central to the role.
+3. `## Certifications` goes here if the ad asks for a certification I hold, or if mine are central to the role.
+4. `## Skills`
 5. `## Experience`
-6. `## Projects`, only if my profile has one that supports this ad and doesn't already list it under Experience.
+6. `## Projects`, only if my profile has one that supports this ad and doesn't already list it under Experience. Community or volunteer work goes here too, when the ad values it.
 7. `## Certifications` goes here in all other cases. Leave it out if I have none.
 8. `## Education`
 9. A last line: "Referees available on request." If the ad asks for referees, still write only this line. My profile doesn't hold their details.
@@ -76,8 +76,8 @@ Use these headings, in this order. Screening software looks for standard names.
 
 - Newest first. Each role starts with a heading in one fixed format: `### [Job title] | [Employer] | [Mon YYYY] – [Mon YYYY]`. Use "present" for a current role.
 - Give the month and year for every role, for example "Aug 2024 – Jun 2025". Recruiters and screening software work out my years of experience from these dates. Use years alone only when my profile gives no month, and never guess a month.
-- You may add one short line under the heading for context, such as what the employer does or the scale.
-- For several client projects at one consultancy, use one heading for the consultancy and its dates. Then give each client role a bold line, `**[Job title], [Client] | [Mon YYYY] – [Mon YYYY]**`, with its bullets. This shows one long stay, not many short jobs.
+- Use the job title exactly as my profile gives it. You may add one short line under the heading for context: what the employer does, the scale, or a descriptor my profile gives for the role (such as "led the frontend rebuild"). Never put a descriptor in the title itself.
+- For several client projects at one consultancy, or a promotion at one employer, use one heading for the employer and its dates. Then give each role a bold line, `**[Job title], [Client] | [Mon YYYY] – [Mon YYYY]**` (no client for a promotion), with its bullets. This shows one long stay, not many short jobs.
 - Older or less relevant roles go at the end under `### Earlier experience`, one line each: `- **[Job title], [Employer]** ([Mon YYYY] – [Mon YYYY]): [what I did that matters here].`
 
 How much each role gets:
@@ -92,7 +92,7 @@ How much each role gets:
 - One idea each. One line is best, two at most.
 - Start with a verb: past tense for past roles, present tense for my current role. Vary the verbs.
 - Put the words that matter first. Readers often see only the first two or three.
-- Shape: what I did, how I did it (the tool or method, in the ad's words), and what changed. Lead with the result when it's the strongest part.
+- Shape: what I did, how I did it (the tool or method, in the ad's words), and what changed. Lead with the result or number when it's the strongest part.
 - Use numbers only from my profile, with their labels ("about", "roughly", "estimate"). Never round up.
 - No result on record? Show the scale instead: team size, users, systems, sites or regions.
 - Made-up example of the shape (never copy its facts):
@@ -133,7 +133,7 @@ The resume stays short by leaving things out. Cut:
 - Plain words. Australian spelling: organise, optimise, prioritise, colour, behaviour, centre, analyse, licence (the noun), program. Keep product names as their makers spell them.
 - Spelling and grammar must be perfect. Typos cost interviews.
 - Avoid these empty or AI-sounding words: passionate, results-driven, dynamic, proven track record, team player, hard-working, detail-oriented, self-starter, innovative, cutting-edge, world-class, seamless, synergy, spearheaded, leveraged, utilised, delve, showcasing, underscore, pivotal, crucial, testament, landscape, foster, elevate, empower. Also "responsible for", "worked on" and "duties included". Replace each with a specific fact.
-- No em dashes (—). Use an en dash (–) only in date ranges.
+- No em dashes (—). Use an en dash (–) only in date ranges and in names that have one.
 
 ## Step 3: check it against the ad (in your thinking, before you reply)
 

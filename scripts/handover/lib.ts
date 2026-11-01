@@ -1,6 +1,6 @@
 // Shared by the Windows handover checks (docs/handover/runbook.md). Each check
-// prints PASS, FAIL or INFO lines, keeps them in handover-results\results.txt,
-// and ends with exit code 1 when anything failed.
+// prints PASS, FAIL, SKIP or INFO lines, keeps them in
+// handover-results\results.txt, and ends with exit code 1 when anything failed.
 //
 // The checks that start and stop the app only ever run on a test copy (by
 // default %USERPROFILE%\JobRegistryTest), never on the real app folder, so
@@ -12,7 +12,7 @@ import { request } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_SETTINGS, opensWindow, Settings, type AiSettings } from '../../shared/contracts/index.ts';
+import { activeAi, AI_PRESETS, DEFAULT_SETTINGS, opensWindow, Settings, type AiSettings, type SavedAi } from '../../shared/contracts/index.ts';
 
 export const REAL_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 export const IS_WINDOWS = process.platform === 'win32';
@@ -37,17 +37,29 @@ export function readRealSettings(): { exists: boolean; settings: Settings | null
   }
 }
 
-// Which AI your settings use (Settings -> AI): a server you run yourself, or
-// the llama-server the app starts, with that program's and model's paths.
-export type AppAi = { kind: 'external'; baseUrl: string } | { kind: 'managed'; exe: string; model: string | null };
+// The AI in use (Settings -> AI), out of all your saved AIs: a cloud AI, a
+// server you run yourself, or the llama-server the app starts, with that
+// program's and model's paths.
+export type AppAi =
+  | { kind: 'cloud'; name: string }
+  | { kind: 'external'; baseUrl: string }
+  | { kind: 'managed'; exe: string; model: string | null };
 
-export function appAi(ai: AiSettings, root = REAL_ROOT): AppAi {
+export function appAi(settings: AiSettings, root = REAL_ROOT): AppAi {
+  const ai = activeAi(settings);
+  if (AI_PRESETS[ai.preset].group === 'cloud') return { kind: 'cloud', name: ai.name };
   // A .bat file is only opened when nothing answers, so the checks need it running already, as yours.
   if (ai.preset !== 'llama-server' || !ai.managed.enabled || opensWindow(ai.managed.exe)) return { kind: 'external', baseUrl: ai.baseUrl };
   const at = (p: string) => (isAbsolute(p) ? p : resolve(root, p));
   const flag = ai.managed.args.findIndex((a) => a === '-m' || a === '--model');
   const model = flag >= 0 ? ai.managed.args[flag + 1] : undefined;
   return { kind: 'managed', exe: at(ai.managed.exe), model: model ? at(model) : null };
+}
+
+// The local AI checks are for Bonsai 2, or another AI on this PC. A cloud
+// AI's key never goes into a test copy, so they're skipped for one.
+export function skipForCloud(report: Report, ai: { name: string }): void {
+  report.skip('the local AI checks', `the AI in use is ${ai.name}, a cloud AI; these checks are for Bonsai 2`);
 }
 
 // Any answer from an OpenAI-style server's model list means it's there.
@@ -78,6 +90,8 @@ export function findFirefox(env: NodeJS.ProcessEnv = process.env): string | null
 export type Report = {
   pass(name: string, detail?: string): void;
   fail(name: string, detail: string): void;
+  // A check that doesn't apply here, and why. Never a problem.
+  skip(name: string, detail: string): void;
   info(name: string, detail?: string): void;
   // Prints the summary, sets the exit code, and returns it.
   finish(): number;
@@ -95,19 +109,27 @@ export function createReport(script: string, o: { resultsFile?: string; print?: 
   const file = o.resultsFile ?? resultsFile();
   const print = o.print ?? ((line: string) => console.log(line));
   let failures = 0;
-  function line(status: 'PASS' | 'FAIL' | 'INFO', name: string, detail?: string) {
+  let skips = 0;
+  function line(status: 'PASS' | 'FAIL' | 'SKIP' | 'INFO', name: string, detail?: string) {
     const text = ascii(detail ? `${status} ${name} - ${detail}` : `${status} ${name}`);
     print(text);
     mkdirSync(dirname(file), { recursive: true });
     appendFileSync(file, `${stamp()} ${script}: ${text}\r\n`);
     if (status === 'FAIL') failures++;
+    if (status === 'SKIP') skips++;
   }
   return {
     pass: (name, detail) => line('PASS', name, detail),
     fail: (name, detail) => line('FAIL', name, detail),
+    skip: (name, detail) => line('SKIP', name, detail),
     info: (name, detail) => line('INFO', name, detail),
     finish() {
-      const summary = failures > 0 ? `${script}: ${failures} FAIL. Write each FAIL in handover-results\\bugs\\.` : `${script}: all PASS.`;
+      const summary =
+        failures > 0
+          ? `${script}: ${failures} FAIL. Write each FAIL in handover-results\\bugs\\.`
+          : skips > 0
+            ? `${script}: all PASS, ${skips} SKIP.`
+            : `${script}: all PASS.`;
       print(summary);
       appendFileSync(file, `${stamp()} ${script}: ${summary}\r\n`);
       process.exitCode = failures > 0 ? 1 : 0;
@@ -172,8 +194,11 @@ export function isTestCopy(dir: string): boolean {
 // The test copy's settings: its own port, no email, and an AI address where
 // nothing listens, so it never uses the Bonsai 2 the agent is running on. The
 // AI check gives it either its own llama-server on another port, or the AI
-// server you run yourself, with your AI settings ("external").
-export function testSettings(o: { port: number; llama?: { exe: string; model: string; port: number }; external?: AiSettings }): object {
+// server you run yourself, with the settings of your AI in use ("external").
+// The flat "ai" sections are the older one-AI shape, which the app still reads.
+// No API key ever goes into a test copy: a key lives in secrets.json, which
+// the copy never gets.
+export function testSettings(o: { port: number; llama?: { exe: string; model: string; port: number }; external?: SavedAi }): object {
   const ai = o.llama
     ? {
         preset: 'llama-server',
@@ -187,7 +212,9 @@ export function testSettings(o: { port: number; llama?: { exe: string; model: st
           startTimeoutSec: 240,
         },
       }
-    : (o.external ?? { preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' });
+    : o.external
+      ? { active: o.external.id, saved: [o.external] }
+      : { preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' };
   return { server: { port: o.port }, ai, email: { enabled: false } };
 }
 

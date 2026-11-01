@@ -151,6 +151,7 @@ export function createApiClient(opts: ApiClientOptions) {
     getSettings: () => call(C.Settings, 'GET', '/settings'),
     updateSettings: (patch: z.input<typeof C.UpdateSettingsRequest>) =>
       call(C.Settings, 'PATCH', '/settings', patch),
+    useAi: (id: string) => call(C.Settings, 'PUT', '/settings/ai/active', { id } satisfies C.UseAiRequest),
     secretsStatus: () => call(C.SecretsStatus, 'GET', '/settings/secrets'),
     updateSecrets: (req: C.UpdateSecretsRequest) => call(C.SecretsStatus, 'PUT', '/settings/secrets', req),
 
@@ -165,6 +166,9 @@ export function createApiClient(opts: ApiClientOptions) {
 
     aiStatus: () => call(C.AiStatus, 'GET', '/ai/status'),
     testAi: () => call(C.AiTestResult, 'POST', '/ai/test', {}),
+    // Any AI from Settings → AI, saved or not, with the key typed in the form. Nothing is saved.
+    checkAi: (req: z.input<typeof C.AiCheckRequest>) => call(C.AiTestResult, 'POST', '/ai/check', req),
+    aiModels: (req: z.input<typeof C.AiCheckRequest>) => call(C.AiModelsResult, 'POST', '/ai/models', req),
     rate: (req: z.input<typeof C.RateRequest>, o: { signal?: AbortSignal } = {}) =>
       call(C.RateResponse, 'POST', '/ratings', req, o.signal),
     rateCard: (req: z.input<typeof C.RateCardRequest>, o: { signal?: AbortSignal } = {}) =>

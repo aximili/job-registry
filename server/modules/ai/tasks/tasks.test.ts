@@ -63,7 +63,7 @@ describe('AI tasks', () => {
   it('rateJob puts the profile before the ad, and says when no preferences were given', async () => {
     const provider = new FakeAiProvider();
     const ai = await withProvider(provider);
-    expect(await ai.rateJob({ profile: 'I write TypeScript.', preferences: null, ad: 'We need Go.' })).toEqual(FAKE_RATING);
+    expect((await ai.rateJob({ profile: 'I write TypeScript.', preferences: null, ad: 'We need Go.' })).rating).toEqual(FAKE_RATING);
     const req = provider.callsFor('rating')[0]!;
     const all = req.messages.map((m) => m.content).join('\n');
     expect(all.indexOf('I write TypeScript.')).toBeLessThan(all.indexOf('We need Go.'));

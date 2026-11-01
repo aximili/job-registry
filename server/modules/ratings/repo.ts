@@ -36,7 +36,8 @@ export function createRatingsRepo(db: Db) {
     put(adKey: string, profileHash: string, rating: Rating, at: string): void {
       putStmt.run(adKey, profileHash, JSON.stringify(rating), at);
     },
-    // The newest full rating of a job you opened, for this version of your profile.
+    // The newest full rating of a job you opened, for this version of your
+    // profile and this model (both in profileHash: see the service).
     latestFull(canonicalUrl: string, profileHash: string): Rating | null {
       const prefix = `${canonicalUrl}#`;
       for (const row of fullStmt.all(profileHash, prefix, prefix) as { rating_json: string }[]) {

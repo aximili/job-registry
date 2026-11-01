@@ -6,7 +6,9 @@ export type { AiService, CardInput, ClassifyInput, Priority, RateInput, WriteInp
 export type { AiProvider, ChatRequest, ChatChunk } from './provider.ts';
 export type { ModelRuntime } from './runtime.ts';
 // Adapters and runtimes, for app.ts to wire. Nothing else imports these.
+export { createAnthropicProvider } from './adapters/anthropic.ts';
 export { createOpenAiCompatibleProvider } from './adapters/openai-compatible.ts';
+export { createCloudRuntime } from './runtime/cloud.ts';
 export { createLlamaServerRuntime } from './runtime/llama-server.ts';
 export { createNoopRuntime } from './runtime/noop.ts';
 

@@ -2,7 +2,7 @@
 // an assessment, an offer, or something else. It knows nothing about jobs
 // beyond the short list it's given, and may only pick from that list.
 
-import { EmailClassification, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { EmailClassification, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { fillPrompt, type Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
 import { runJsonTask } from './json-task.ts';
@@ -32,7 +32,7 @@ const text = (v: string | null): string | null => (v && v.trim() ? v.trim().slic
 export async function classifyEmailTask(o: {
   provider: AiProvider;
   prompt: Prompt;
-  config: AiSettings;
+  config: SavedAi;
   input: ClassifyInput;
   signal?: AbortSignal;
 }): Promise<EmailClassification> {

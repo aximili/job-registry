@@ -1,6 +1,6 @@
 # 0004 — Talk to the AI through the OpenAI-style chat API
 
-**Status:** Accepted (28 Oct 2026)
+**Status:** Accepted (28 Oct 2026). Extended by [0011](0011-several-ais-and-cloud-providers.md) in Phase 8 (1 Nov 2026): you can save several AIs, cloud ones included, and not every server supports `json_schema` now.
 
 ## Context
 The default model is Bonsai 2 (PrismML). For now it runs only on PrismML's own build of llama.cpp, so Ollama and LM Studio can't load it. You also want to be able to switch to Ollama or other models.
@@ -15,4 +15,4 @@ The `ai` module speaks the OpenAI-style `/v1/chat/completions` API through one `
 ## Consequences
 - Changing the model or the server is a settings change.
 - Small differences between servers, like how thinking is switched off, are handled inside the adapter.
-- Structured output uses `response_format: json_schema`, which all the target servers support.
+- Structured output uses `response_format: json_schema`, which all the target servers support. (Since Phase 8, some cloud providers take only `json_object`, and Claude has its own connector: see [0011](0011-several-ais-and-cloud-providers.md).)

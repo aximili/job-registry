@@ -7,7 +7,7 @@ Each step has:
 - **Expect:** what a good result looks like.
 - **If not:** what to do instead.
 
-The check scripts print lines that start with `PASS`, `FAIL` or `INFO`. `INFO` is never a problem. Each script ends with a line like `prereqs: all PASS.` or `prereqs: 2 FAIL. …`. Every line is also kept in `handover-results\results.txt`.
+The check scripts print lines that start with `PASS`, `FAIL`, `SKIP` or `INFO`. `INFO` and `SKIP` are never a problem. Each script ends with a line like `prereqs: all PASS.`, `prereqs: all PASS, 1 SKIP.` or `prereqs: 2 FAIL. …`. A last line with `all PASS` in it means nothing failed. Every line is also kept in `handover-results\results.txt`.
 
 **Keeping your place:** after each step, run `Add-Content handover-results\progress.txt "Step N done"`, with N the step's number. If you're ever unsure where you are, run `Get-Content handover-results\progress.txt` and carry on with the step after the last one done.
 
@@ -54,6 +54,7 @@ The check scripts print lines that start with `PASS`, `FAIL` or `INFO`. `INFO` i
 
 - **Run:** `node scripts\handover\prereqs.ts`
 - **Expect:** `prereqs: all PASS.`
+  - If the user's AI in use is a cloud AI (such as Claude), you also see `SKIP the local AI checks - the AI in use is …, a cloud AI; these checks are for Bonsai 2`, and the last line is `prereqs: all PASS, 1 SKIP.` That's fine. Go on.
 - **If not:**
   - A FAIL on a port: F2.
   - Every other FAIL is for the user: write a bug for each one, with **Type: needs you**.
@@ -81,12 +82,13 @@ This uses `start.bat`, `setup.bat` and `stop.bat` themselves.
 
 ## Step 6: The AI in the test copy (5 to 25 minutes)
 
-The test copy uses the AI that the user's settings use (Settings → AI). The line `INFO the AI used` says which:
-- **"your own AI server at …"**: a server the user runs, such as the Bonsai 2 you run on (port 8080). This includes a Bonsai 2 the app opens with the user's own .bat file. The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
-- **"Bonsai 2 started by the app …"**: the test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
+The user may have several AIs saved. The test copy uses the one in use (Settings → AI). The first line says which:
+- **`INFO the AI used - your own AI server at …`**: a server the user runs, such as the Bonsai 2 you run on (port 8080). This includes a Bonsai 2 the app opens with the user's own .bat file. The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
+- **`INFO the AI used - Bonsai 2 started by the app …`**: the test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
+- **`SKIP the local AI checks - the AI in use is …, a cloud AI; these checks are for Bonsai 2`**: the user's AI in use is on the internet (such as Claude). The test copy never gets an API key, so this step checks nothing, and neither does step 7. That's fine: it takes a few seconds, and the last line is `ai-smoke: all PASS, 1 SKIP.` Don't write a bug. Go on to step 7.
 
 - **Run:** `node scripts\handover\ai-smoke.ts`
-- **Expect:** `ai-smoke: all PASS.`
+- **Expect:** `ai-smoke: all PASS.` (or `ai-smoke: all PASS, 1 SKIP.` for a cloud AI, as above)
 - **If not:**
   - "the test ports are free": F2.
   - "your AI server answers", "there is room on the graphics card" or "the AI is downloaded": write a bug with **Type: needs you**, then go to step 8 (skip step 7).
@@ -98,6 +100,7 @@ It needs step 6 first, which gives the test copy its AI settings.
 
 - **Run:** `node scripts\handover\eval-report.ts`
 - **Expect:** `eval-report: all PASS.` The report is `handover-results\eval-report.txt`. You don't judge it: the user and Claude read it.
+  - If step 6 said `SKIP` (a cloud AI), this step says the same `SKIP` line and ends with `eval-report: all PASS, 1 SKIP.` No report is made. That's fine.
 - **If not:** write a bug and go on.
 
 ## Step 8: The app's own tests in the test copy (20 to 40 minutes)
@@ -119,11 +122,11 @@ This runs `npm test`, Mozilla's extension checks, then the browser tests in Fire
 
 ## Step 10: Check the user's own install (read-only; about 1 minute)
 
-This only reads. Its two requests are the app's own Test connection buttons: Gmail's only logs in, and the AI's asks one short question.
+This only reads. Its two requests are the app's own Test connection buttons: Gmail's only logs in, and the AI's asks the AI in use one short question. The line `INFO the AI in use` says which AI that is. It can be a cloud AI here: the user's own app has its key.
 
 - **Run:** `node scripts\handover\real-checks.ts`
 - **Expect:** `real-checks: all PASS.`
-- **If not:** most FAILs here mean a step in the user's list isn't done yet: the master profile, setup.bat's shortcut, pointing Settings → AI at the user's Bonsai 2 ("the app's AI answers"), or starting the app with email on. Write each of those as a bug with **Type: needs you**. A FAIL on "Gmail answers" or "the last Gmail check worked" is a **bug**, with the exact message.
+- **If not:** most FAILs here mean a step in the user's list isn't done yet: the master profile, setup.bat's shortcut, an AI in use that answers ("the app's AI answers": the user's Bonsai 2, or a cloud AI with a working key), or starting the app with email on. Write each of those as a bug with **Type: needs you**. A FAIL on "Gmail answers" or "the last Gmail check worked" is a **bug**, with the exact message.
 
 ## Step 11: Stop everything the checks started
 

@@ -4,9 +4,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, Settings } from '../shared/contracts/index.ts';
+import { activeAi, AI_PRESETS, AiPresetId, DEFAULT_SETTINGS, Settings } from '../shared/contracts/index.ts';
 import { createServer, type RequestListener } from 'node:http';
 import { appAi, createReport, findFirefox, keepInTestCopy, killPortListeners, prepareTestRoot, testSettings } from '../scripts/handover/lib.ts';
 import { freePort } from './helpers/test-app.ts';
@@ -21,12 +21,28 @@ const temp = () => {
   return dir;
 };
 
-// Your own settings, for a check that reads them, in a temp file.
-const realSettings = (settings: object) => {
+// Your own settings, for a check that reads them, in a temp file. Your
+// secrets, if given, sit next to it, as in config\.
+const realSettings = (settings: object, secrets?: object) => {
   const file = join(temp(), 'settings.json');
   writeFileSync(file, JSON.stringify(settings));
+  if (secrets) writeFileSync(join(dirname(file), 'secrets.json'), JSON.stringify(secrets));
   return file;
 };
+
+// Two saved AIs, with a cloud one in use. Its address is one where nothing
+// listens, so a check that wrongly tried it could never reach Anthropic.
+const CLOUD_IN_USE = {
+  ai: {
+    active: 'claude-work',
+    saved: [
+      { id: 'bonsai-2', name: 'Bonsai 2' },
+      { id: 'claude-work', name: 'Claude (work)', preset: 'anthropic', baseUrl: 'http://127.0.0.1:9/v1', model: 'claude-sonnet-5-5' },
+    ],
+  },
+};
+const CLOUD_KEY = 'sk-ant-api03-handover-test-key';
+const CLOUD_SKIP = 'SKIP the local AI checks - the AI in use is Claude (work), a cloud AI; these checks are for Bonsai 2';
 
 // Runs a check without blocking, so a server in this process can answer it.
 const runScript = (script: string, env: NodeJS.ProcessEnv) =>
@@ -69,6 +85,30 @@ describe('handover: the report', () => {
     report.pass('fine');
     expect(report.finish()).toBe(0);
     expect(out.at(-1)).toBe('demo: all PASS.');
+  });
+
+  it('prints SKIP lines, and counts them when nothing failed', () => {
+    const file = join(temp(), 'r.txt');
+    const out: string[] = [];
+    const report = createReport('demo', { resultsFile: file, print: (l) => out.push(l) });
+    report.pass('fine');
+    report.skip('the local AI checks', 'the AI in use is Claude, a cloud AI; these checks are for Bonsai 2');
+    expect(report.finish()).toBe(0);
+    expect(out).toEqual([
+      'PASS fine',
+      'SKIP the local AI checks - the AI in use is Claude, a cloud AI; these checks are for Bonsai 2',
+      'demo: all PASS, 1 SKIP.',
+    ]);
+    expect(readFileSync(file, 'utf8')).toContain('demo: SKIP the local AI checks');
+  });
+
+  it('a FAIL still ends the same way when something was skipped too', () => {
+    const out: string[] = [];
+    const report = createReport('demo', { resultsFile: join(temp(), 'r.txt'), print: (l) => out.push(l) });
+    report.skip('one thing', 'why');
+    report.fail('another thing', 'what went wrong');
+    expect(report.finish()).toBe(1);
+    expect(out.at(-1)).toBe('demo: 1 FAIL. Write each FAIL in handover-results\\bugs\\.');
   });
 });
 
@@ -134,7 +174,7 @@ describe('handover: the test copy', () => {
   it('test settings use their own port, and an AI address where nothing listens', () => {
     const s = Settings.parse(testSettings({ port: 4787 }));
     expect(s.server.port).toBe(4787);
-    expect(s.ai).toMatchObject({ preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' });
+    expect(activeAi(s.ai)).toMatchObject({ preset: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'none' });
     expect(s.email.enabled).toBe(false);
   });
 
@@ -143,34 +183,37 @@ describe('handover: the test copy', () => {
       testSettings({ port: 4787, llama: { exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', model: 'C:\\JR\\ai\\models\\m.gguf', port: 8081 } }),
     );
     // The AI check tests the idle stop, so its test copy turns it on.
-    expect(s.ai).toMatchObject({ preset: 'llama-server', baseUrl: 'http://127.0.0.1:8081/v1', idleMinutes: 1, stopWhenIdle: true });
-    expect(s.ai.managed).toMatchObject({ enabled: true, exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', startTimeoutSec: 240 });
-    expect(s.ai.managed.args).toEqual(['-m', 'C:\\JR\\ai\\models\\m.gguf', '-ngl', '99', '-fa', 'on', '-c', '16384', '--jinja', '--port', '8081']);
+    const ai = activeAi(s.ai);
+    expect(ai).toMatchObject({ preset: 'llama-server', baseUrl: 'http://127.0.0.1:8081/v1', idleMinutes: 1, stopWhenIdle: true });
+    expect(ai.managed).toMatchObject({ enabled: true, exe: 'C:\\JR\\ai\\llama.cpp\\llama-server.exe', startTimeoutSec: 240 });
+    expect(ai.managed.args).toEqual(['-m', 'C:\\JR\\ai\\models\\m.gguf', '-ngl', '99', '-fa', 'on', '-c', '16384', '--jinja', '--port', '8081']);
   });
 
   it('test settings for the AI check can use the AI server you run yourself, as your settings do', () => {
-    const yours = Settings.parse({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2', tasks: { write: { maxTokens: 6000 } } } }).ai;
+    const yours = activeAi(Settings.parse({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2', tasks: { write: { maxTokens: 6000 } } } }).ai);
     const s = Settings.parse(testSettings({ port: 4787, external: yours }));
     expect(s.server.port).toBe(4787);
-    expect(s.ai).toEqual(yours);
+    expect(activeAi(s.ai)).toEqual(yours);
     expect(s.email.enabled).toBe(false);
   });
 });
 
 describe('handover: which AI your settings use', () => {
+  const aiOf = (settings: object) => Settings.parse(settings).ai;
+
   it('a server you run yourself: another preset, or llama-server that the app does not start', () => {
-    const custom = Settings.parse({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2' } }).ai;
+    const custom = aiOf({ ai: { preset: 'custom', baseUrl: 'http://127.0.0.1:8080/v1', model: 'bonsai-2' } });
     expect(appAi(custom, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
-    const ollama = Settings.parse({ ai: { preset: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' } }).ai;
+    const ollama = aiOf({ ai: { preset: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' } });
     expect(appAi(ollama, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:11434/v1' });
-    const unmanaged = Settings.parse({ ai: { managed: { enabled: false } } }).ai;
+    const unmanaged = aiOf({ ai: { managed: { enabled: false } } });
     expect(appAi(unmanaged, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
   });
 
   it('your own start_bonsai.bat: the app only opens it, so the checks treat it as a server you run', () => {
-    const bat = Settings.parse({ ai: { managed: { exe: 'D:\\aitest\\Bonsai-demo\\start_bonsai.bat' } } }).ai;
+    const bat = aiOf({ ai: { managed: { exe: 'D:\\aitest\\Bonsai-demo\\start_bonsai.bat' } } });
     expect(appAi(bat, '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8080/v1' });
-    const cmd = Settings.parse({ ai: { managed: { exe: 'start.CMD' } } }).ai;
+    const cmd = aiOf({ ai: { managed: { exe: 'start.CMD' } } });
     expect(appAi(cmd, '/app')).toMatchObject({ kind: 'external' });
   });
 
@@ -180,10 +223,26 @@ describe('handover: which AI your settings use', () => {
       exe: resolve('/app', 'ai/llama.cpp/llama-server.exe'),
       model: resolve('/app', 'ai/models/Ternary-Bonsai-2-27B-PQ2_0.gguf'),
     });
-    const elsewhere = Settings.parse({ ai: { managed: { exe: '/aitest/llama-server', args: ['--model', '/aitest/bonsai.gguf', '--port', '8080'] } } }).ai;
+    const elsewhere = aiOf({ ai: { managed: { exe: '/aitest/llama-server', args: ['--model', '/aitest/bonsai.gguf', '--port', '8080'] } } });
     expect(appAi(elsewhere, '/app')).toEqual({ kind: 'managed', exe: '/aitest/llama-server', model: '/aitest/bonsai.gguf' });
-    const noModel = Settings.parse({ ai: { managed: { args: ['--port', '8080'] } } }).ai;
+    const noModel = aiOf({ ai: { managed: { args: ['--port', '8080'] } } });
     expect(appAi(noModel, '/app')).toMatchObject({ kind: 'managed', model: null });
+  });
+
+  it('only the AI in use counts, out of all your saved AIs', () => {
+    const saved = [
+      { id: 'bonsai-2', name: 'Bonsai 2' },
+      { id: 'my-server', name: 'My server', preset: 'custom', baseUrl: 'http://127.0.0.1:8090/v1', model: 'x' },
+      CLOUD_IN_USE.ai.saved[1],
+    ];
+    expect(appAi(aiOf({ ai: { active: 'my-server', saved } }), '/app')).toEqual({ kind: 'external', baseUrl: 'http://127.0.0.1:8090/v1' });
+    expect(appAi(aiOf({ ai: { active: 'bonsai-2', saved } }), '/app')).toMatchObject({ kind: 'managed' });
+    expect(appAi(aiOf({ ai: { active: 'claude-work', saved } }), '/app')).toEqual({ kind: 'cloud', name: 'Claude (work)' });
+  });
+
+  it.each(AiPresetId.options)('%s in use: a cloud AI only when its preset is one', (preset) => {
+    const ai = aiOf({ ai: { active: 'one', saved: [{ id: 'one', name: 'One', preset, baseUrl: 'http://127.0.0.1:8090/v1', model: 'm' }] } });
+    expect(appAi(ai, '/app').kind === 'cloud').toBe(AI_PRESETS[preset].group === 'cloud');
   });
 });
 
@@ -261,6 +320,23 @@ describe('handover: the summary', () => {
     const res = spawnSync(process.execPath, ['scripts/handover/summary.ts'], { env: { ...process.env, JR_RESULTS: results }, encoding: 'utf8' });
     expect(res.status, res.stdout + res.stderr).toBe(0);
     expect(readFileSync(join(base, 'summary.md'), 'utf8')).toContain('- The AI check used: your own AI server at http://127.0.0.1:8080/v1');
+  });
+
+  it('says when the AI check was skipped for a cloud AI', () => {
+    const base = temp();
+    const results = join(base, 'results.txt');
+    writeFileSync(results, [
+      '2026-11-02 10:00:00 prereqs: prereqs: all PASS, 1 SKIP.',
+      `2026-11-02 10:05:00 ai-smoke: ${CLOUD_SKIP}`,
+      '2026-11-02 10:05:01 ai-smoke: ai-smoke: all PASS, 1 SKIP.',
+      '',
+    ].join('\r\n'));
+    const res = spawnSync(process.execPath, ['scripts/handover/summary.ts'], { env: { ...process.env, JR_RESULTS: results }, encoding: 'utf8' });
+    expect(res.status, res.stdout + res.stderr).toBe(0);
+    const summary = readFileSync(join(base, 'summary.md'), 'utf8');
+    expect(summary).toContain('- prereqs: all PASS, 1 SKIP');
+    expect(summary).toContain('- ai-smoke: all PASS, 1 SKIP');
+    expect(summary).toContain('- The AI check used: skipped - the AI in use is Claude (work), a cloud AI; these checks are for Bonsai 2');
   });
 });
 
@@ -361,7 +437,11 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
         JR_TEST_ROOT: root,
         JR_RESULTS: join(base, 'results.txt'),
         JR_TEST_PORT: '4792',
-        JR_REAL_SETTINGS: realSettings({ ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${aiPort}/v1`, model: 'bonsai-2' } }),
+        // A key for this AI in your secrets, which must stay out of the test copy.
+        JR_REAL_SETTINGS: realSettings(
+          { ai: { preset: 'custom', baseUrl: `http://127.0.0.1:${aiPort}/v1`, model: 'bonsai-2' } },
+          { emailPassword: null, aiKeys: { 'my-ai-server': 'sk-local-handover-test-key' } },
+        ),
       };
       const made = spawnSync(process.execPath, ['scripts/handover/make-test-copy.ts', '--link-modules'], { env, encoding: 'utf8' });
       expect(made.status, made.stdout + made.stderr).toBe(0);
@@ -385,6 +465,10 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
       expect(out).not.toContain('FAIL');
       expect(out).not.toContain('llama-server answers on port');
       expect(await up()).toBe(true);
+      expect(existsSync(join(root, 'config', 'secrets.json'))).toBe(false);
+      const copied = readFileSync(join(root, 'config', 'settings.json'), 'utf8');
+      expect(copied).not.toContain('sk-local-handover-test-key');
+      expect(copied).not.toContain('aiKeys');
     } finally {
       yours.kill();
     }
@@ -406,6 +490,41 @@ describe.skipIf(process.platform === 'win32')('handover: the AI check, run again
     const out = await runScript('ai-smoke.ts', env);
     expect(out).toContain(`FAIL your AI server answers - nothing answers at http://127.0.0.1:${nothing}/v1.`);
     expect(out).toContain('ai-smoke: 1 FAIL.');
+  });
+});
+
+// The test copy never gets a key, so a cloud AI can't be checked there.
+describe.skipIf(process.platform === 'win32')('handover: a cloud AI in use', () => {
+  it('the AI check and the reading report skip, and no key goes into the test copy', { timeout: 60_000 }, async () => {
+    const base = temp();
+    const root = join(base, 'copy');
+    const env = {
+      ...process.env,
+      JR_TEST_ROOT: root,
+      JR_RESULTS: join(base, 'results.txt'),
+      JR_TEST_PORT: '4795',
+      JR_REAL_SETTINGS: realSettings(CLOUD_IN_USE, { emailPassword: null, aiKeys: { 'claude-work': CLOUD_KEY } }),
+    };
+    const made = spawnSync(process.execPath, ['scripts/handover/make-test-copy.ts', '--link-modules'], { env, encoding: 'utf8' });
+    expect(made.status, made.stdout + made.stderr).toBe(0);
+
+    const ai = await runScript('ai-smoke.ts', env);
+    expect(ai).toContain(CLOUD_SKIP);
+    expect(ai).toContain('ai-smoke: all PASS, 1 SKIP.');
+    expect(ai).not.toContain('the app starts');
+    expect(ai).not.toContain('the AI used');
+
+    const report = await runScript('eval-report.ts', env);
+    expect(report).toContain(CLOUD_SKIP);
+    expect(report).toContain('eval-report: all PASS, 1 SKIP.');
+    expect(existsSync(join(base, 'eval-report.txt'))).toBe(false);
+
+    expect(existsSync(join(root, 'config', 'secrets.json'))).toBe(false);
+    const copied = readFileSync(join(root, 'config', 'settings.json'), 'utf8');
+    expect(copied).not.toContain(CLOUD_KEY);
+    expect(copied).not.toContain('aiKeys');
+    // Still the settings make-test-copy wrote: an AI address where nothing listens.
+    expect(activeAi(Settings.parse(JSON.parse(copied)).ai).baseUrl).toBe('http://127.0.0.1:9/v1');
   });
 });
 
@@ -433,6 +552,13 @@ describe("handover: your settings' AI, in the first check", () => {
     expect(out).toContain(`FAIL your AI server answers - nothing answers at http://127.0.0.1:${nothing}/v1.`);
   });
 
+  it('a cloud AI in use: the local AI checks are skipped', async () => {
+    const out = await prereqs(CLOUD_IN_USE);
+    expect(out).toContain(CLOUD_SKIP);
+    expect(out).not.toContain('your AI server answers');
+    expect(out).not.toContain('downloaded');
+  });
+
   it('Bonsai 2 started by the app, but not downloaded: it says both ways out', async () => {
     const out = await prereqs({ ai: { managed: { exe: '/nowhere/llama-server.exe', args: ['-m', '/nowhere/bonsai.gguf'] } } });
     expect(out).toContain("FAIL the app's own Bonsai 2 is downloaded - missing /nowhere/llama-server.exe.");
@@ -442,14 +568,14 @@ describe("handover: your settings' AI, in the first check", () => {
 
 describe("handover: your real install's AI, in the read-only checks", () => {
   // Your app, as far as these checks see it.
-  const yourApp = (aiTest: object) =>
+  const yourApp = (aiTest: object, secrets: object = { emailPassword: false, aiKeys: [] }) =>
     listen((req, res) => {
       res.setHeader('content-type', 'application/json');
       const answers: Record<string, unknown> = {
         'GET /api/v1/health': { ok: true },
         'GET /api/v1/settings': {},
-        'GET /api/v1/settings/secrets': { emailPassword: false },
-        'GET /api/v1/ai/status': { state: 'ready', baseUrl: 'http://127.0.0.1:8080/v1' },
+        'GET /api/v1/settings/secrets': secrets,
+        'GET /api/v1/ai/status': { state: 'ready', name: 'Bonsai 2', baseUrl: 'http://127.0.0.1:8080/v1' },
         'POST /api/v1/ai/test': aiTest,
       };
       res.end(JSON.stringify(answers[`${req.method} ${req.url}`] ?? {}));
@@ -464,9 +590,29 @@ describe("handover: your real install's AI, in the read-only checks", () => {
       const env = { ...process.env, JR_RESULTS: join(temp(), 'results.txt'), JR_REAL_SETTINGS: realSettings({ server: { port: app.port } }) };
       const out = await runScript('real-checks.ts', env);
       expect(out).toContain(`PASS the app is running - port ${app.port}`);
+      expect(out).toContain('INFO the AI in use - Bonsai 2, ready (http://127.0.0.1:8080/v1)');
       expect(out).toContain(line);
+      expect(out).toContain('PASS no password comes back from the app');
     } finally {
       await app.close();
+    }
+  });
+
+  it('API keys come back only as the ids of the AIs that have one', async () => {
+    const ok = { ok: true, detail: 'Connected.' };
+    const saved = { ai: { active: 'bonsai-2', saved: [{ id: 'bonsai-2', name: 'Bonsai 2' }, { id: 'claude-mine', name: 'Claude – mine', preset: 'custom' }] } };
+    for (const [secrets, line] of [
+      [{ emailPassword: true, aiKeys: ['claude-mine'] }, 'PASS no password comes back from the app'],
+      [{ emailPassword: true, aiKeys: ['sk-ant-api03-abc'] }, 'FAIL no password comes back from the app'],
+      [{ emailPassword: 'abcdefghijklmnop', aiKeys: [] }, 'FAIL no password comes back from the app'],
+    ] as const) {
+      const app = await yourApp(ok, secrets);
+      try {
+        const env = { ...process.env, JR_RESULTS: join(temp(), 'results.txt'), JR_REAL_SETTINGS: realSettings({ server: { port: app.port }, ...saved }) };
+        expect(await runScript('real-checks.ts', env)).toContain(line);
+      } finally {
+        await app.close();
+      }
     }
   });
 });

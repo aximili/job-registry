@@ -11,10 +11,11 @@ const file = resultsFile();
 const dir = dirname(file);
 const lines = existsSync(file) ? readFileSync(file, 'utf8').split(/\r?\n/) : [];
 
-// The last "<script>: all PASS." or "<script>: N FAIL." line of each check, in the order they ran.
+// The last "<script>: all PASS.", "<script>: all PASS, N SKIP." or
+// "<script>: N FAIL." line of each check, in the order they ran.
 const results = new Map<string, string>();
 for (const line of lines) {
-  const m = /^\S+ \S+ ([\w-]+): \1: (all PASS|\d+ FAIL)\./.exec(line);
+  const m = /^\S+ \S+ ([\w-]+): \1: (all PASS(?:, \d+ SKIP)?|\d+ FAIL)\./.exec(line);
   if (m) {
     results.delete(m[1]!);
     results.set(m[1]!, m[2]!);
@@ -27,7 +28,10 @@ const lastMatch = (pattern: RegExp) => {
 const read = lastMatch(/PASS the AI reads a saved ad - (\d+) s/);
 const wrote = lastMatch(/PASS the AI writes a resume - (\d+) s/);
 const signed = lastMatch(/sign: (PASS the extension is signed|INFO not signed|FAIL[^-]*)/);
-const aiUsed = lastMatch(/ai-smoke: INFO the AI used - (.+)$/);
+// The AI the AI check used, or why it skipped (a cloud AI in use).
+const aiUsed = lastMatch(/ai-smoke: (INFO the AI used - .+|SKIP the local AI checks - .+)$/)
+  ?.replace('INFO the AI used - ', '')
+  .replace('SKIP the local AI checks - ', 'skipped - ');
 
 const bugsDir = join(dir, 'bugs');
 const bugs = existsSync(bugsDir) ? readdirSync(bugsDir).filter((f) => /^bug-\d+\.md$/.test(f)).sort() : [];

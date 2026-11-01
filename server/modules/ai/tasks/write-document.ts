@@ -3,7 +3,7 @@
 // llama-server can reuse its cache; the job and its ad come last. Only the
 // answer is passed on: the model's thinking never reaches a document.
 
-import type { AiSettings } from '../../../../shared/contracts/index.ts';
+import type { SavedAi } from '../../../../shared/contracts/index.ts';
 import { fillPrompt, type Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
 import { trimAd } from './parse-job.ts';
@@ -22,7 +22,7 @@ export type WriteInput = {
 export async function* writeDocumentTask(o: {
   provider: AiProvider;
   prompt: Prompt;
-  config: AiSettings;
+  config: SavedAi;
   input: WriteInput;
   signal?: AbortSignal;
 }): AsyncIterable<string> {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS } from '../../../shared/contracts/index.ts';
+import { activeAi, DEFAULT_SETTINGS } from '../../../shared/contracts/index.ts';
 import { FakeAiProvider, defaultReply } from '../../../tests/fakes/fake-ai-provider.ts';
 import { AiUnavailableError } from '../../core/errors.ts';
 import { FakeRuntime } from '../../../tests/fakes/fake-runtime.ts';
@@ -33,7 +33,7 @@ describe('AI service', () => {
     const states: string[] = [];
     app.bus.on('ai.stateChanged', ({ state }) => states.push(state));
     const before = await app.request('GET', '/api/v1/ai/status');
-    expect(before.body).toEqual({ state: 'off', detail: null, preset: 'llama-server', baseUrl: 'http://127.0.0.1:8080/v1' });
+    expect(before.body).toEqual({ state: 'off', detail: null, id: 'bonsai-2', name: 'Bonsai 2', preset: 'llama-server', baseUrl: 'http://127.0.0.1:8080/v1' });
     await app.services.ai.parseJob('An ad.');
     expect(states).toEqual(['starting', 'ready', 'busy', 'ready']);
     expect((await app.request('GET', '/api/v1/ai/status')).body.state).toBe('ready');
@@ -159,11 +159,11 @@ describe('AI service', () => {
     // The default program, on a port nothing else uses: on the Windows PC,
     // Bonsai 2 may already be answering on the default port 8080.
     const port = await freePort();
-    const ai = DEFAULT_SETTINGS.ai;
+    const ai = activeAi(DEFAULT_SETTINGS.ai);
     const args = ai.managed.args.map((a, i, all) => (all[i - 1] === '--port' ? String(port) : a));
     app = await createTestApp({
       realRuntime: true,
-      settings: { ai: { ...ai, baseUrl: `http://127.0.0.1:${port}/v1`, managed: { ...ai.managed, args } } },
+      settings: { ai: { active: ai.id, saved: [{ ...ai, baseUrl: `http://127.0.0.1:${port}/v1`, managed: { ...ai.managed, args } }] } },
     });
     await expect(app.services.ai.parseJob('An ad.')).rejects.toThrow(
       "The AI program isn't installed: ai/llama.cpp/llama-server.exe is missing. Run download-ai.bat, or pick another AI in Settings.",
@@ -178,8 +178,8 @@ describe('AI service', () => {
     });
     await app.services.ai.parseJob('An ad.');
     expect(await answers(port)).toBe(true);
-    const ai = app.services.settings.get().ai;
-    app.services.settings.update({ ai: { ...ai, preset: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' } });
+    const ai = activeAi(app.services.settings.get().ai);
+    app.services.settings.update({ ai: { active: ai.id, saved: [{ ...ai, preset: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' }] } });
     expect(await eventually(async () => !(await answers(port)))).toBe(true);
     await app.services.ai.parseJob('An ad.');
     expect(app.services.ai.status()).toMatchObject({ state: 'ready', preset: 'ollama' });
@@ -189,14 +189,14 @@ describe('AI service', () => {
 describe('AI service: quick ratings from job cards', () => {
   const card = 'Senior Engineer\nAtlassian\nSydney NSW\n$150,000 - $170,000. Build developer tools in TypeScript.';
 
-  it("rateCard sends the card last, with the card task's settings, and returns the rating", async () => {
+  it("rateCard sends the card last, with the card task's settings, and returns the rating with the model that made it", async () => {
     const { provider } = createSmartFake();
     app = await createTestApp({
       fakes: { ai: provider },
       settings: { ai: { tasks: { card: { temperature: 0.4, maxTokens: 300 } } } } as never,
     });
-    const rating = await app.services.ai.rateCard({ profile: 'I write TypeScript.', preferences: null, card });
-    expect(rating).toEqual(FAKE_CARD_RATING);
+    const rated = await app.services.ai.rateCard({ profile: 'I write TypeScript.', preferences: null, card });
+    expect(rated).toEqual({ rating: FAKE_CARD_RATING, model: 'llama-server|ternary-bonsai-2-27b-pq2_0.gguf' });
     const req = provider.calls[0]!;
     expect(req.jsonSchema?.name).toBe('card_rating');
     expect(req.temperature).toBe(0.4);

@@ -23,7 +23,8 @@ export type AppEvents = {
   'document.saved': { jobId: number; documentId: number };
   'document.sent': { jobId: number; documentId: number };
   'attachment.added': { jobId: number; attachmentId: number };
-  'ai.stateChanged': { state: AiState; detail: string | null };
+  // The AI in use's state, and which AI it is (its id and name).
+  'ai.stateChanged': { state: AiState; detail: string | null; id: string; name: string };
   'enrich.done': { jobId: number; step: 'parse' | 'rate' };
   'enrich.failed': { jobId: number; step: 'parse' | 'rate'; error: string };
   'email.suggestionsAdded': { count: number };

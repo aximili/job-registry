@@ -43,12 +43,15 @@ export async function createTestApp(
     fetch?: typeof fetch;
     settings?: Partial<Settings>;
     // Written to config/secrets.json, as you'd save them in Settings.
-    secrets?: { emailPassword: string | null };
+    secrets?: { emailPassword?: string | null; aiKeys?: Record<string, string> };
     port?: number;
     fakes?: Partial<Fakes>;
     // Use the app's own runtime choice (llama-server or a server you run),
     // for the tests of that choice. The AI provider is still a fake.
     realRuntime?: boolean;
+    // Use the app's own connectors (Claude's, or the OpenAI-style one), for
+    // the tests of that wiring. Give a fetch: no test calls a real cloud.
+    realProvider?: boolean;
     // To read what the app logs. Silent unless given.
     logger?: Logger;
   } = {},
@@ -69,7 +72,11 @@ export async function createTestApp(
     runtime: opts.fakes?.runtime ?? new FakeRuntime(),
     mail: opts.fakes?.mail ?? new FakeMailSource(),
   };
-  const wiring: Partial<Fakes> = opts.realRuntime ? { ai: fakes.ai, mail: fakes.mail } : fakes;
+  const wiring: Partial<Fakes> = {
+    ...(opts.realProvider ? {} : { ai: fakes.ai }),
+    ...(opts.realRuntime ? {} : { runtime: fakes.runtime }),
+    mail: fakes.mail,
+  };
   const app = await buildApp({
     paths,
     port: opts.port ?? TEST_PORT,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AiSettings } from './ai.ts';
+import { AiId, AiSettings, StrictAiSettings } from './ai.ts';
 import { EmailSettings } from './email.ts';
 
 export const Status = z.strictObject({
@@ -74,7 +74,11 @@ export const UpdateSettingsRequest = z.strictObject({
   server: ServerSettings.optional(),
   backups: BackupSettings.optional(),
   statuses: StatusList.optional(),
-  ai: AiSettings.optional(),
+  ai: StrictAiSettings.optional(),
   email: EmailSettings.optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
+
+// Switch the AI the whole app uses to another saved one.
+export const UseAiRequest = z.strictObject({ id: AiId });
+export type UseAiRequest = z.infer<typeof UseAiRequest>;

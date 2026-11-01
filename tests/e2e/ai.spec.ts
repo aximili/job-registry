@@ -3,7 +3,7 @@
 // that reads the ad's first lines (see tests/fakes/smart-fake-ai.ts).
 
 import { expect, test, type Page } from '@playwright/test';
-import { reset, setAiMode } from './helpers.ts';
+import { reset, savedSettings, setAiMode } from './helpers.ts';
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -61,17 +61,18 @@ test('when the AI is down, the job says why, and Read again works once it is bac
   await expect(page.getByRole('button', { name: 'Read again' })).toHaveCount(0);
 });
 
-test('the header pill shows the AI state and changes live', async ({ page }) => {
+test('the header pill shows the AI in use and its state, and changes live', async ({ page }) => {
   await page.goto('/');
-  const pill = page.getByRole('link', { name: /^AI / });
-  await expect(pill).toHaveText('AI off');
+  const pill = page.getByRole('button', { name: /AI in use$/ });
+  await expect(pill).toHaveAccessibleName('Bonsai 2, off, AI in use');
   await pasteNewJob(page);
-  await expect(pill).toHaveText('AI ready', { timeout: 10_000 });
+  await expect(pill).toHaveAccessibleName('Bonsai 2, ready, AI in use', { timeout: 10_000 });
   await aiMode(page, 'fail');
   await pasteNewJob(page, 'Second role\nCanva');
-  await expect(pill).toHaveText('AI problem');
+  await expect(pill).toHaveAccessibleName('Bonsai 2, problem, AI in use');
   await expect(pill).toHaveAttribute('title', /Can't reach the AI/);
-  await expect(pill).toHaveAttribute('href', '/settings#ai');
+  await pill.click();
+  await expect(page.getByRole('menuitem', { name: 'Manage AIs…' })).toHaveAttribute('href', '/settings#ai');
 });
 
 test('an answer that never fits says so, with Read again', async ({ page }) => {
@@ -86,8 +87,9 @@ test('an answer that never fits says so, with Read again', async ({ page }) => {
 test('the AI problem is written out in Settings, not only in the pill', async ({ page }) => {
   await aiMode(page, 'fail');
   await pasteNewJob(page);
-  await expect(page.getByRole('link', { name: /^AI / })).toHaveText('AI problem');
-  await page.getByRole('link', { name: /^AI / }).click();
+  await expect(page.getByRole('button', { name: /AI in use$/ })).toHaveAccessibleName('Bonsai 2, problem, AI in use');
+  await page.getByRole('button', { name: /AI in use$/ }).click();
+  await page.getByRole('menuitem', { name: 'Manage AIs…' }).click();
   const ai = page.getByRole('region', { name: 'AI', exact: true });
   await expect(ai).toContainText("Right now: AI problem. Can't reach the AI at http://127.0.0.1:8080/v1.");
   await expect(page.getByRole('heading', { name: 'AI', exact: true })).toBeFocused();
@@ -95,9 +97,27 @@ test('the AI problem is written out in Settings, not only in the pill', async ({
 });
 
 
+test('once the AI is back, Test connection on its form as saved clears the problem, and the waiting ad is read', async ({ page }) => {
+  await aiMode(page, 'fail');
+  await pasteNewJob(page);
+  const pill = page.getByRole('button', { name: /AI in use$/ });
+  await expect(pill).toHaveAccessibleName('Bonsai 2, problem, AI in use');
+  const jobUrl = page.url();
+  await aiMode(page, 'smart');
+  await page.goto('/settings#ai');
+  const ai = page.getByRole('region', { name: 'AI', exact: true });
+  await expect(ai).toContainText('Right now: AI problem.');
+  await ai.getByRole('button', { name: 'Test connection' }).click();
+  await expect(ai.getByRole('status')).toContainText(/Connected to Bonsai 2 \(llama-server\)\. It replied in \d+ ms\./);
+  await expect(pill).toHaveAccessibleName('Bonsai 2, ready, AI in use');
+  await expect(ai).toContainText('Right now: AI ready.');
+  // The ad that waited for the AI is read now.
+  await page.goto(jobUrl);
+  await expect(sheet(page).getByRole('heading', { level: 1 })).toContainText('Data Analyst');
+});
+
 test('idle minutes are checked only while that box is on screen', async ({ page }) => {
-  type AiSaved = { ai: { preset: string; stopWhenIdle: boolean; idleMinutes: number } };
-  const before = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai.idleMinutes;
+  const before = (await savedSettings(page.request)).ai.idleMinutes;
   await page.goto('/settings#ai');
   const ai = page.getByRole('region', { name: 'AI', exact: true });
   const save = () => ai.getByRole('button', { name: 'Save AI settings' }).click();
@@ -114,17 +134,17 @@ test('idle minutes are checked only while that box is on screen', async ({ page 
   await stop.uncheck();
   await save();
   await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
-  let saved = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai;
+  let saved = (await savedSettings(page.request)).ai;
   expect(saved).toMatchObject({ stopWhenIdle: false, idleMinutes: before });
 
-  // The same when you switch to another AI server.
+  // The same when you switch to another provider.
   await stop.check();
   await minutes.fill('0');
-  await ai.getByLabel('AI server').selectOption('ollama');
+  await ai.getByLabel('Provider').selectOption('ollama');
   await ai.getByLabel('Model', { exact: true }).fill('qwen3:8b');
   await save();
   await expect(ai.getByRole('alert')).toHaveCount(0);
-  await expect.poll(async () => ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai.preset).toBe('ollama');
-  saved = ((await (await page.request.get('/api/v1/settings')).json()) as AiSaved).ai;
+  await expect.poll(async () => (await savedSettings(page.request)).ai.preset).toBe('ollama');
+  saved = (await savedSettings(page.request)).ai;
   expect(saved.idleMinutes).toBe(before);
 });

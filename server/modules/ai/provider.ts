@@ -2,7 +2,21 @@
 // it can change (llama-server, Ollama, LM Studio, a fake in tests) without
 // touching the rest of the app. See docs/architecture.md §6.1.
 
-import type { ThinkingEffort } from '../../../shared/contracts/index.ts';
+import type { AiDialect, AiPresetId, ThinkingEffort } from '../../../shared/contracts/index.ts';
+
+// The AI an adapter talks to: from a saved AI, its key and its preset.
+export type ProviderConfig = {
+  // The AI's own name, for error messages ("Claude – mine refused its API key…").
+  name: string;
+  preset: AiPresetId;
+  baseUrl: string;
+  model: string;
+  timeoutSec: number;
+  // Sent only to this AI's own address. Never in an error or a log.
+  apiKey: string | null;
+  // How this provider wants to be asked (AI_PRESETS[preset].dialect).
+  dialect: AiDialect;
+};
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -17,6 +31,9 @@ export type ChatRequest = {
   thinking?: boolean;
   thinkingEffort?: ThinkingEffort;
   // Added to the request body last, from settings. A null removes a field.
+  // The OpenAI-style connector adds top-level fields (a shallow merge). The
+  // Claude connector deep-merges, so a nested field such as
+  // output_config.effort changes only itself.
   extra?: Record<string, unknown>;
 };
 

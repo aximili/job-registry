@@ -11,6 +11,11 @@
  * It serves the dashboard built into `--dist` (default temp/design-first/dist), not web/dist, so a
  * test run in progress keeps its own build.
  *
+ * Pages: home, search, job, board, settings, display, inbox, editor, plus ai-menu (the header's AI
+ * switcher, open), ai-cloud (Settings → AI with a cloud AI open), ai-add (adding an AI: Claude
+ * picked, its model list open) and ai-problem (the switcher open while the AI has a problem). There are three saved AIs: Bonsai 2 (in use), Bonsai 2B light, and
+ * Claude – mine, which has a made-up key. The fake AI answers for all three.
+ *
  * Writes `<dir>/<name>-<page>-<scheme>-<size>.png` and prints each path.
  * `--design <x>` sets data-design="<x>" on <html>, for options built as `:root[data-design='x']`.
  * `--selector` shoots that element (the first match) instead of the window. `--full` shoots the whole page.
@@ -26,6 +31,7 @@ import { pino } from 'pino';
 
 import { buildApp } from '../../../server/app.ts';
 import { resolvePaths } from '../../../server/core/config.ts';
+import { newSavedAi, type Settings } from '../../../shared/contracts/index.ts';
 import { localDate } from '../../../shared/dates.ts';
 import { FakeMailSource } from '../../../tests/fakes/fake-mail-source.ts';
 import { FakeRuntime } from '../../../tests/fakes/fake-runtime.ts';
@@ -39,7 +45,7 @@ const SIZES = {
   half: { width: 960, height: 1000 },
 } as const;
 const SCHEMES = ['light', 'dark'] as const;
-const PAGES = ['home', 'search', 'job', 'board', 'settings', 'display', 'inbox', 'editor'] as const;
+const PAGES = ['home', 'search', 'job', 'board', 'settings', 'display', 'inbox', 'editor', 'ai-menu', 'ai-cloud', 'ai-add', 'ai-problem'] as const;
 type PageName = (typeof PAGES)[number];
 
 const args = process.argv.slice(2);
@@ -158,8 +164,18 @@ async function seed(origin: string, mail: FakeMailSource): Promise<{ jobId: numb
   const doc = await send<{ id: number }>('POST', `/api/v1/jobs/${main}/documents`, { kind: 'resume', markdown: RESUME, origin: 'edited' });
   await send('POST', `/api/v1/documents/${doc.id}/sent`, {});
 
-  const settings = await send<{ email: Record<string, unknown> }>('GET', '/api/v1/settings');
+  const settings = await send<Settings>('GET', '/api/v1/settings');
   await send('PATCH', '/api/v1/settings', { email: { ...settings.email, enabled: true, address: 'alex@gmail.com' } });
+
+  // Three saved AIs: Bonsai 2 in use, a lighter copy that runs the 2B model,
+  // and a cloud AI with a made-up key (the fake AI answers for every one).
+  const bonsai = settings.ai.saved[0]!;
+  const args = [...bonsai.managed.args];
+  args[args.indexOf('-m') + 1] = 'ai/models/Ternary-Bonsai-2-2B-PQ2_0.gguf';
+  const light = { ...newSavedAi('llama-server', 'Bonsai 2B light', [bonsai.id]), managed: { ...bonsai.managed, args } };
+  const claude = newSavedAi('anthropic', 'Claude – mine', [bonsai.id, light.id]);
+  await send('PATCH', '/api/v1/settings', { ai: { active: bonsai.id, saved: [bonsai, light, claude] } });
+  await send('PUT', '/api/v1/settings/secrets', { aiKeys: { [claude.id]: 'sk-ant-design-only-not-a-real-key' } });
   await send('PUT', '/api/v1/settings/secrets', { emailPassword: 'abcdefghijklmnop' });
   const now = new Date().toISOString();
   mail.add({ receivedAt: now, from: 'careers@canva.com', subject: 'Your application for Platform Engineer', text: 'Unfortunately we will not progress your application.' });
@@ -170,7 +186,7 @@ async function seed(origin: string, mail: FakeMailSource): Promise<{ jobId: numb
 }
 
 // What each page shows once it has loaded its data.
-async function ready(page: Page, which: PageName): Promise<void> {
+async function ready(page: Page, which: PageName, origin: string, jobId: number): Promise<void> {
   const wait = {
     home: () => page.getByText('Atlassian').first().waitFor(),
     // Typing in the search box swaps the home page for the results.
@@ -180,10 +196,42 @@ async function ready(page: Page, which: PageName): Promise<void> {
     },
     job: () => page.getByRole('region', { name: 'Call sheet' }).waitFor(),
     board: () => page.getByRole('heading', { name: 'Board' }).waitFor(),
-    settings: () => page.getByRole('heading', { name: 'AI', exact: true }).first().waitFor(),
+    settings: async () => {
+      await page.getByRole('heading', { name: 'AI', exact: true }).first().waitFor();
+      // Firefox can scroll the focused heading to the top a moment after it loads; shoot the top.
+      await page.waitForTimeout(300);
+      await page.evaluate(() => scrollTo(0, 0));
+    },
     display: () => page.getByRole('heading', { name: 'Display', exact: true }).waitFor(),
     inbox: () => page.getByRole('article').first().waitFor(),
     editor: () => page.locator('iframe').first().waitFor(),
+    'ai-menu': async () => {
+      await page.getByText('Atlassian').first().waitFor();
+      await page.getByRole('button', { name: /AI in use$/ }).click();
+      await page.getByRole('menu').waitFor();
+    },
+    'ai-cloud': async () => {
+      await page.getByRole('heading', { name: 'AI', exact: true }).first().waitFor();
+      await page.getByRole('button', { name: /^Claude – mine/ }).first().click();
+      await page.getByRole('heading', { name: 'Claude – mine', exact: true }).waitFor();
+    },
+    'ai-add': async () => {
+      await page.getByRole('heading', { name: 'AI', exact: true }).first().waitFor();
+      await page.getByRole('button', { name: 'Add an AI' }).click();
+      await page.getByLabel('Provider').selectOption('anthropic');
+      await page.getByRole('button', { name: 'Show the list' }).click();
+      await page.getByRole('listbox').waitFor();
+      await page.getByText(/^Asking /).waitFor({ state: 'detached' });
+    },
+    // The AI can't be reached: a job is read again, and fails.
+    'ai-problem': async () => {
+      await page.getByText('Atlassian').first().waitFor();
+      smart.setMode('fail');
+      await fetch(`${origin}/api/v1/jobs/${jobId}/reparse`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' });
+      await page.getByRole('button', { name: /, problem, AI in use$/ }).waitFor();
+      await page.getByRole('button', { name: /AI in use$/ }).click();
+      await page.getByRole('menu').waitFor();
+    },
   }[which];
   await wait();
   await page.evaluate(() => document.fonts.ready);
@@ -221,6 +269,10 @@ try {
     display: '/settings#display',
     inbox: '/inbox',
     editor: `/jobs/${jobId}/documents/${docId}`,
+    'ai-menu': '/',
+    'ai-cloud': '/settings#ai',
+    'ai-add': '/settings#ai',
+    'ai-problem': '/',
   };
 
   for (const scheme of schemes) {
@@ -229,8 +281,10 @@ try {
       if (design) await context.addInitScript((d) => document.documentElement.setAttribute('data-design', d), design);
       const page = await context.newPage();
       for (const which of pages) {
+        // A fresh load each time: two pages at one address would otherwise share what's typed.
+        await page.goto('about:blank');
         await page.goto(origin + urls[which], { waitUntil: 'load' });
-        await ready(page, which);
+        await ready(page, which, origin, jobId);
         // The pointer rests where the last click left it, and a hover there changes a row.
         await page.mouse.move(0, 0);
         const path = join(outDir, `${name}-${which}-${scheme}-${size}.png`);
@@ -242,6 +296,11 @@ try {
           await page.screenshot({ path, animations: 'disabled', fullPage: full });
         }
         console.log(path);
+        // Back to an AI that works, for the pages after.
+        if (which === 'ai-problem') {
+          smart.setMode('smart');
+          await fetch(`${origin}/api/v1/ai/test`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' });
+        }
       }
       await context.close();
     }

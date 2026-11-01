@@ -1,6 +1,6 @@
 // Reads a job ad into the fields of a job.
 
-import { ParsedJob, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { ParsedJob, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { localDate } from '../../../../shared/dates.ts';
 import { fillPrompt, type Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
@@ -18,7 +18,7 @@ export function trimAd(text: string): string {
 export async function parseJobTask(o: {
   provider: AiProvider;
   prompt: Prompt;
-  config: AiSettings;
+  config: SavedAi;
   adText: string;
   today: Date;
   signal?: AbortSignal;

@@ -67,3 +67,15 @@ export class AiRefusedError extends AiUnavailableError {
     this.name = 'AiRefusedError';
   }
 }
+
+// A problem with the AI as a whole, not with this request: no API key, a
+// refused key, a usage limit, or the AI being busy. Every request fails the
+// same way until it's fixed, or you switch AI. So, like AiUnavailableError
+// (and unlike AiRefusedError), a job or an email waits for the AI instead of
+// being marked as one it couldn't read.
+export class AiAccountError extends AiUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiAccountError';
+  }
+}

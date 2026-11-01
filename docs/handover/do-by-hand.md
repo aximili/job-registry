@@ -30,17 +30,18 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
 ## Your own data (10 minutes)
 
 7. **Start the app** with the Desktop shortcut. In **Settings → Profile**, paste your master profile (your full resume) and press **Save**. Add your preferences if you like.
-8. **Point the app at your Bonsai 2** (skip this if you answered Y to the download in step 3). In **Settings → AI**, set:
-   - **AI server:** Bonsai 2 (llama-server)
+8. **Point the app at your Bonsai 2** (skip this if you answered Y to the download in step 3). Open **Settings → AI**. Bonsai 2 is the first AI under **My AIs**, and its settings are open under the list already (if another AI's are, press **Bonsai 2** in the list). Set:
    - **Server address:** `http://127.0.0.1:8080/v1`
    - Tick **Start it for me when it isn't running**.
    - **Program or .bat file:** `D:\aitest\Bonsai-demo\start_bonsai.bat`
+   - **Model file** (it shows once the .bat file is in): leave it empty, or type the name of the .gguf file your `start_bonsai.bat` runs. With it, the app can tell when a different model is answering on port 8080.
 
-   Press **Save AI settings**, then **Test connection**. It should say "Connected to Bonsai 2 (llama-server)". The app now sends its AI work to your Bonsai 2, and never stops it.
+   Press **Save AI settings**, then **Test connection**. It should say "Connected to Bonsai 2 (llama-server)". In My AIs, Bonsai 2 should say **In use**. If it doesn't, press its **Use this**. The AI pill at the top of the page now says **Bonsai 2**. The app sends its AI work to your Bonsai 2, and never stops it.
    - If Bonsai 2 isn't running, the app opens `start_bonsai.bat` in its own window (minimised) the next time it needs the AI for you: when you save an ad, press Test connection, or open a job page or a search list (any rating). Checking Gmail never opens it.
    - Close that window yourself when you want Bonsai 2 to stop. It stays open after Job Registry stops.
-   - Already set to "Another OpenAI-style server" from run 1? That still works, but it never starts Bonsai 2 for you.
-   - To switch later (to Ollama, LM Studio or the app's own Bonsai 2), pick another AI server here.
+   - No Bonsai 2 in My AIs? Then you set up "Another OpenAI-style server" in run 1, and it now shows as **My AI server**. That still works, but it never starts Bonsai 2 for you. To have the app open your .bat file, press **Add an AI**, pick **Bonsai 2 (llama-server)** as the **Provider**, set the fields above, and press **Save AI settings**. Adding an AI never switches to it, so then press **Use this** on the new Bonsai 2 in My AIs.
+   - To try another AI later (Ollama, LM Studio, or a cloud AI such as Claude), press **Add an AI**. Then switch between them from the AI pill at the top of the page.
+   - **A cloud AI and the runbook:** if a cloud AI is in use when the runbook runs, steps 6 and 7 skip their AI checks (they print SKIP). The test copy never gets an API key, and those checks are for Bonsai 2. That's fine. If you want them, switch back to Bonsai 2 first. Step 10 still asks the AI in use one short question, which a cloud AI bills to your key.
 9. **Gmail (optional):**
    1. Make an app password at myaccount.google.com/apppasswords (it needs 2-Step Verification).
    2. In **Settings → Email**, tick "Check Gmail…", enter your Gmail address, paste the app password, and press **Test connection**.
@@ -87,7 +88,7 @@ These need a person, a signed-in browser or Word. Skip any you don't care about.
   - Drag the panel by its top bar ("Job Registry"), and make it bigger from its top-left corner. Open another job: the panel is where you left it. Double-click the bar: it goes back to the corner.
   - Open three quite different jobs. Their match scores should differ, not all be 72.
   - Signed in, open Seek's home page (au.seek.com). The cards under "Recommended" get marks too. Click one: the job opens on the side, and the panel shows it. Type a note in the panel, and scroll it with the mouse wheel: both work while Seek's side window is open. Close the side window: the panel goes.
-- **Thinking:** in **Settings → AI → How the AI works on each task**, set "Rating a job" to **Low** and press **Save AI settings**. Open a job: its rating comes, a little later than with Off. Set it back to Off if you'd rather have it quick.
+- **Thinking:** in **Settings → AI**, open Bonsai 2. In **How the AI works on each task**, set "Rating a job" to **Low** and press **Save AI settings**. Open a job: its rating comes, a little later than with Off. Set it back to Off if you'd rather have it quick.
   - "Writing resumes and cover letters" should say **No limit**. If it says Medium (you saved these settings before), pick No limit and save. Then make a resume: it thinks for longer, then writes. If it ends with "ran out of room", Bonsai 2's context is full: pick High instead, or give it a bigger context (llama-server's `-c`; Bonsai-demo's own launcher takes it from `BONSAI_CTX`).
 - **Print to PDF:** on a job, make a resume, press **Print / PDF**, then Ctrl+P → Save to PDF. It looks like the preview.
 - **.docx:** press **Export .docx** and open it in Word for the web. It looks tidy.

@@ -12,7 +12,11 @@
 
 :root {
   color-scheme: light dark;
+}
 
+/* .off-band: a menu that opens from the band takes the page's colours back. */
+:root,
+.off-band {
   /* Each colour is light-dark(light theme, dark theme). The browser picks
      from color-scheme: the computer's setting, or your choice in
      Settings → Display (data-theme on <html>, below). */
@@ -36,7 +40,13 @@
   --mark: light-dark(#fff1a8, #5a4b00);
   /* The header's band of ink. It's dark in both themes. */
   --band: light-dark(#1d2b64, #1b2450);
+}
 
+.off-band {
+  color: var(--ink);
+}
+
+:root {
   --font: 'Atkinson Hyperlegible Next Variable', 'Segoe UI', system-ui, sans-serif;
   --step--1: 0.875rem;
   --step-0: 1rem;
@@ -200,6 +210,12 @@ kbd {
 .button:disabled {
   opacity: 0.55;
   cursor: progress;
+}
+
+/* A button you can't use yet, which still takes the cursor and says why. */
+.button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .field {

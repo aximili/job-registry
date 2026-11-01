@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, type TaskSettings } from '../../../shared/contracts/index.ts';
-import { fromRow, rowOf, rowProblem, TASK_ROWS, THINKING, thinkingOf, withThinking, type TaskRow, type Thinking } from './ai-tasks.ts';
+import { activeAi, DEFAULT_SETTINGS, type TaskSettings } from '../../../shared/contracts/index.ts';
+import {
+  forNewProvider,
+  fromRow,
+  hasOwnTaskSettings,
+  rowOf,
+  rowProblem,
+  TASK_ROWS,
+  THINKING,
+  thinkingOf,
+  withThinking,
+  type TaskRow,
+  type Thinking,
+} from './ai-tasks.ts';
 
-const task = (t: Partial<TaskSettings> = {}): TaskSettings => ({ ...DEFAULT_SETTINGS.ai.tasks.rate, ...t });
+const tasks = activeAi(DEFAULT_SETTINGS.ai).tasks;
+const task = (t: Partial<TaskSettings> = {}): TaskSettings => ({ ...tasks.rate, ...t });
 
 describe('the AI task rows in Settings', () => {
   it('has one row per task, in this order, with these names', () => {
@@ -14,7 +27,7 @@ describe('the AI task rows in Settings', () => {
       { key: 'email', label: 'Reading emails' },
     ]);
     // Every task in settings.json has a row.
-    expect(TASK_ROWS.map((r) => r.key).sort()).toEqual(Object.keys(DEFAULT_SETTINGS.ai.tasks).sort());
+    expect(TASK_ROWS.map((r) => r.key).sort()).toEqual(Object.keys(tasks).sort());
   });
 
   it('offers thinking Off, Low, Medium, High and No limit', () => {
@@ -110,3 +123,20 @@ describe('a row that needs fixing', () => {
     expect(fromRow(before, typed)).toMatchObject({ thinking: true, thinkingEffort: 'max', maxTokens: 8192 });
   });
 });
+
+describe('a change of provider', () => {
+  it("drops a task's own model and extra fields, and keeps the rest", () => {
+    // From an old Bonsai 2 file: top_k makes Claude refuse every request.
+    const before = task({ model: 'small', extra: { top_k: 20, chat_template_kwargs: { enable_thinking: true } }, temperature: 0.1 });
+    expect(forNewProvider(before)).toEqual({ ...before, model: null, extra: {} });
+  });
+
+  it('knows when there is anything of the kind to drop', () => {
+    expect(hasOwnTaskSettings(tasks)).toBe(false);
+    expect(hasOwnTaskSettings({ ...tasks, card: task({ extra: { top_k: 20 } }) })).toBe(true);
+    expect(hasOwnTaskSettings({ ...tasks, write: task({ model: 'claude-opus-5-5' }) })).toBe(true);
+    // A blank model is the same as none.
+    expect(hasOwnTaskSettings({ ...tasks, write: task({ model: '  ' }) })).toBe(false);
+  });
+});
+

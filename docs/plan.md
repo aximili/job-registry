@@ -4,8 +4,9 @@
 > - **Approved:** 28 Oct 2026.
 > - **Phase 0** (architecture document) is in review. See [architecture.md](architecture.md).
 > - **Updated:** small refinements from the architecture work. They are listed in architecture.md §18 and already applied below.
-> - **Phases 1–6** are built and tested on macOS (Phase 5, Gmail, and Phase 6, follow-up reminders and the board, on 29 Oct 2026). From Phase 6 you chose follow-up reminders and the Kanban board, not phone access or the Windows-wide hotkey. See CLAUDE.md for the current status.
+> - **Phases 1–6** are built and tested on macOS (Phase 5, Gmail, and Phase 6, follow-up reminders and the board, on 29 Oct 2026). From Phase 6 you chose follow-up reminders and the Kanban board, not phone access or the Windows-wide hotkey. See AGENTS.md for the current status.
 > - **Phase 7** (quick marks on search lists) was added at your request on 29 Oct 2026, and built and tested on macOS on 29–30 Oct 2026.
+> - **Phase 8** (several AIs, switched in one click) was added at your request on 31 Oct 2026, and built and tested on macOS on 31 Oct – 1 Nov 2026. You picked ratings per model, the name pill with a grouped menu, and the list-then-form layout for Settings → AI.
 
 ## Context
 
@@ -36,7 +37,7 @@ When you're job hunting you apply to 100+ roles, and you can't remember the deta
   - Saving a job has to wait for the AI.
   - The AI makes up experience on a resume.
   - A status changes from an email without your OK.
-  - Any of your data leaves your PC.
+  - Any of your data leaves your PC. (Since Phase 8 you can add a cloud AI with your own key. It sees your profile, the ads you save and rate, and (if email is on) your emails, but only after you add it and switch to it. The app never switches by itself.)
 
 ## Architecture (your idea, kept, with a few changes)
 
@@ -57,6 +58,8 @@ Dashboard (browser tab)    ──►        │                                 
   2. **Ollama**
   3. **LM Studio**
   4. **Custom URL**
+
+  Since Phase 8 you can save several AIs and switch between them in one click, and add cloud providers with your own API key: Claude, OpenAI, Gemini, DeepSeek, Kimi, Z.ai, Qwen, Mistral, xAI, Groq and OpenRouter.
 - **Startup:** `start.bat` runs the Node server, which opens the dashboard. The server starts the AI **only when it's first needed**. It stops the AI when the app stops. Stopping it after some idle minutes, to free GPU memory for your other apps, is a setting you can turn on (off by default since 29 Oct 2026, at the user's request). The model is a setting too.
 
 ## Architecture rules (loose coupling)
@@ -74,12 +77,12 @@ These rules keep each part replaceable and easy to change. The Phase 0 document 
    - Fastify stays in `routes.ts`. SQL stays in `repo.ts`.
    - So you can test the logic without a server, and swap the web framework or the database later.
 4. **Anything outside the app sits behind a small interface (a "port"), with swappable parts behind it ("adapters"):**
-   - `AiProvider`: one OpenAI-compatible adapter covers llama-server, Ollama and LM Studio. A cloud adapter could be added later. `LlamaServerRuntime` is a separate, optional part that only starts and stops the process.
+   - `AiProvider`: one OpenAI-compatible adapter covers llama-server, Ollama and LM Studio, and (since Phase 8) most cloud providers. Claude has its own adapter. `LlamaServerRuntime` is a separate, optional part that only starts and stops the process.
    - `MailSource`: IMAP today, the Gmail API later if needed.
    - `DocumentExporter`: print HTML today, .docx next.
    - `SiteExtractor` (in the extension): Seek, LinkedIn, Indeed, generic. Adding a site means adding one file.
 5. **AI tasks don't know about jobs, and `jobs` doesn't know about the AI.**
-   - `ai.parseJob(text)` returns `ParsedJob`, and `ai.rateJob(...)` returns `Rating`.
+   - `ai.parseJob(text)` returns `ParsedJob`, and `ai.rateJob(...)` returns `Rating` (since Phase 8, `{ rating, model }`: the rating, and the model that made it).
    - A separate `enrich` module listens for new ads, calls the AI and hands the results to `jobs`. So saving can never wait for the AI, and the AI module can be tested with plain text.
 6. **One shared contract.**
    - `shared/` holds the zod schemas and types for every API request and response, plus a thin typed API client.
@@ -116,7 +119,7 @@ These rules keep each part replaceable and easy to change. The Phase 0 document 
 - `interactions`: contact, job (optional), type (call, email, meeting or message), when, notes. This is the conversation log.
 - `documents`: job, kind (resume or cover letter), markdown, version, `is_sent`, `sent_css` (the template frozen when sent), when. Rows are only ever added, never overwritten.
 - `attachments`: job, kind, file name, path in `data/files/`, when.
-- `rating_cache`: canonical URL + profile hash → rating. It covers jobs you rated but didn't save.
+- `rating_cache`: canonical URL + profile hash (+ the model, since Phase 8) → rating. It covers jobs you rated but didn't save.
 - `card_rating_cache` (Phase 7): a job card (its link and a hash of what it shows) + profile hash → quick rating.
 - `email_suggestions` (Phase 5).
 - `search_index`: one FTS5 table, updated by app code on every write. It covers company, agency, title, contact names, phones and emails, notes and the ad text.
@@ -128,7 +131,7 @@ These rules keep each part replaceable and easy to change. The Phase 0 document 
 
 Moving a job to Applied sets `date_applied` automatically.
 
-Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status never breaks history. Secrets, like the IMAP app password, live in their own git-ignored `config/secrets.json`.
+Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status never breaks history. Secrets, like the IMAP app password and (since Phase 8) the AIs' API keys, live in their own git-ignored `config/secrets.json`.
 
 ## Key user flows
 
@@ -217,7 +220,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
   - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on with no limit** for resume and cover letter (Bonsai 2's own default, `"xhigh"`; changed from `"medium"` on 30 Oct 2026, at the user's request).
   - Settings → AI shows each task's settings, except the extra request fields (Phase 7).
   - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
-- A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached.
+- A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached. Since Phase 8 it shows the name of the AI in use too, and one click opens a menu to switch to another.
 
 ## Windows setup and running
 
@@ -245,7 +248,8 @@ templates/   resume.css, cover-letter.css
 data/        jobs.db, backups/, files/      (git-ignored)
 ai/          llama.cpp binaries + models    (git-ignored)
 docs/        architecture.md (Phase 0), decisions/ (one short file per key decision)
-CLAUDE.md    project guide for future sessions: points to the plan, the architecture doc and the rules
+AGENTS.md    project guide for every AI agent: points to the plan, the architecture doc and the rules
+CLAUDE.md    one line that points Claude Code to AGENTS.md
 shared/      contracts/ (zod schemas + types per API), api-client.ts, canonical-url.ts, phone.ts,
              fact-check.ts, markdown.ts
 server/      main.ts (entry), app.ts (composition root)
@@ -325,6 +329,14 @@ tests/
    - Settings → AI shows each AI task's settings (thinking, longest answer, temperature, model), so quick marks can use less effort than resumes.
    - Jora and CareerOne are left for later. Jora refused a download, and CareerOne's saved page had no search results, so neither could be tested.
    - *Done when:* on a Seek search list, every card on screen gets a mark one after another, without opening any ad. A job you saved says so at once. The marks come back after you scroll or the site redraws the list, never two on one card. Only the tab in front is rated, and turning the option off shows no marks.
+8. **Several AIs, switched in one click** (added 31 Oct 2026, at your request: keep several AIs and switch, the way KiloCode's profiles do).
+   - Settings → AI keeps any number of AIs ("My AIs"), each with its own name, provider, key, model and task settings. **Duplicate** makes a light copy or a second key quickly, and never copies the key.
+   - **Add an AI** picks from a list of providers. On this computer: Bonsai 2, Ollama, LM Studio, another OpenAI-style server. In the cloud, with your own API key: Claude, OpenAI, Gemini, DeepSeek, Kimi, Z.ai, Qwen, Mistral, xAI, Groq and OpenRouter. Each cloud one says what it sees and that each request is billed.
+   - The AI pill in the header shows the AI in use, and one click switches the whole app. **Test connection** tests any AI without saving or switching.
+   - Keys stay in `config/secrets.json` and never reach the browser. A plain sentence names the AI when it refuses a key or hits a usage limit, and points to the switcher. The app never switches by itself.
+   - Each model keeps its own ratings. When two Bonsai 2 AIs share one address, the app catches the wrong model still answering.
+   - A Claude Pro or Max login and Z.ai's GLM Coding Plan can't be used (their terms). API keys can.
+   - *Done when:* an AI can be added from a preset, tested before saving, duplicated, and switched to from the pill by mouse and keyboard; a key never reaches the browser; your old settings file loads as one saved AI with nothing lost.
 
 ## Choices I made (override any of them)
 

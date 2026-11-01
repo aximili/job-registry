@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import { activeAi, AI_PRESETS, type SavedAi } from '../shared/contracts/index.ts';
 import { localDate } from '../shared/dates.ts';
 import type { AppPaths, Clock } from './core/config.ts';
 import { openDb, type Db } from './core/db/db.ts';
@@ -16,6 +17,8 @@ import { serveDashboard } from './core/http/static.ts';
 import { createLogger, type Logger } from './core/logger.ts';
 import {
   createAiModule,
+  createAnthropicProvider,
+  createCloudRuntime,
   createLlamaServerRuntime,
   createNoopRuntime,
   createOpenAiCompatibleProvider,
@@ -48,6 +51,7 @@ export type AppOptions = {
   port?: number;
   logger?: Logger;
   now?: Clock;
+  // How the app reaches other websites and the AIs' own addresses, for tests.
   fetch?: typeof fetch;
   onShutdown?: () => void;
   version?: string;
@@ -123,23 +127,60 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   });
   const capture = createCaptureModule({ fetch: opts.fetch, now });
 
-  // The AI: one provider for every OpenAI-style server. The runtime is the
-  // llama-server the app manages, or a check on a server you run yourself.
-  const aiConfig = () => settings.service.get().ai;
-  const provider =
-    fakes.ai ??
-    createOpenAiCompatibleProvider(() => {
-      const c = aiConfig();
-      return { baseUrl: c.baseUrl, model: c.model, timeoutSec: c.timeoutSec };
-    });
+  // The AIs. Each gets its own provider, with its key and its preset's
+  // dialect: Claude's own connector, or the OpenAI-style one for the rest.
+  // The AI in use's provider is kept while its settings and key stay the
+  // same, so a connector keeps what it learnt (Claude's model limits). Only
+  // the AI in use as saved (the object from the settings, never a form's
+  // copy) is kept, so a test with a typed key leaves nothing behind. Any
+  // change to the AIs drops it, so a deleted AI's key goes too.
+  const aiConfig = () => activeAi(settings.service.get().ai);
+  let kept: { same: string; provider: AiProvider } | null = null;
+  bus.on('settings.changed', ({ keys }) => {
+    if (keys.includes('ai')) kept = null;
+  });
+  const providerFor = (one: SavedAi, key: string | null): AiProvider => {
+    if (fakes.ai) return fakes.ai;
+    const { dialect } = AI_PRESETS[one.preset];
+    const config = { name: one.name, preset: one.preset, baseUrl: one.baseUrl, model: one.model, timeoutSec: one.timeoutSec, apiKey: key, dialect };
+    const same = JSON.stringify(config);
+    const inUse = one === aiConfig();
+    if (inUse && kept?.same === same) return kept.provider;
+    const connect = dialect.connector === 'anthropic' ? createAnthropicProvider : createOpenAiCompatibleProvider;
+    const provider = connect(() => config, { fetch: opts.fetch });
+    if (inUse) kept = { same, provider };
+    return provider;
+  };
+  // A saved AI's key. An AI that takes none never reads secrets.json, so a
+  // broken file can't stop Bonsai 2.
+  const getKey = (id: string): string | null => {
+    const one = settings.service.get().ai.saved.find((saved) => saved.id === id);
+    return one && AI_PRESETS[one.preset].key !== 'none' ? settings.service.aiKey(id) : null;
+  };
+  // The runtime: the llama-server the app manages, a check on a server you
+  // run yourself, or nothing at all for a cloud AI.
   const managedRuntime = createLlamaServerRuntime({ root: opts.paths.root, logFile: join(opts.paths.logs, 'llama.log'), getConfig: aiConfig });
-  const externalRuntime = createNoopRuntime(provider, aiConfig);
+  const externalRuntime = createNoopRuntime(() => {
+    const c = aiConfig();
+    return providerFor(c, getKey(c.id));
+  });
+  const cloudRuntime = createCloudRuntime();
   const runtime = (): ModelRuntime => {
     if (fakes.runtime) return fakes.runtime;
     const c = aiConfig();
-    return c.preset === 'llama-server' && c.managed.enabled ? managedRuntime : externalRuntime;
+    if (AI_PRESETS[c.preset].group === 'cloud') return cloudRuntime;
+    return AI_PRESETS[c.preset].managed && c.managed.enabled ? managedRuntime : externalRuntime;
   };
-  const ai = createAiModule({ provider, runtime, getConfig: aiConfig, bus, logger, now });
+  const ai = createAiModule({
+    providerFor,
+    getKey,
+    getAll: () => settings.service.get().ai.saved,
+    runtime,
+    getConfig: aiConfig,
+    bus,
+    logger,
+    now,
+  });
   const profile = createProfileModule({ dir: opts.paths.profile, templatesDir: opts.paths.templates, startersDir: STARTERS_DIR, bus, now });
   const installed = profile.service.installStarters();
   if (installed.length > 0) logger.info(`Added starter files: ${installed.join(', ')}`);

@@ -20,7 +20,7 @@
 import { execFile, execFileSync, spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { opensWindow, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { opensWindow, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { AiUnavailableError } from '../../../core/errors.ts';
 import { runtimeState, type ModelRuntime } from '../runtime.ts';
 
@@ -29,7 +29,7 @@ export type LlamaServerOptions = {
   logFile: string;
   // Where the running server's process id is kept.
   pidFile?: string;
-  getConfig: () => AiSettings;
+  getConfig: () => SavedAi;
   spawn?: typeof nodeSpawn;
   fetch?: typeof fetch;
   platform?: NodeJS.Platform;
@@ -78,7 +78,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
   let generation = 0;
 
   const healthUrl = () => `${new URL(opts.getConfig().baseUrl).origin}/health`;
-  const launchKey = (c: AiSettings) => JSON.stringify({ exe: c.managed.exe, args: c.managed.args, origin: new URL(c.baseUrl).origin });
+  const launchKey = (c: SavedAi) => JSON.stringify({ exe: c.managed.exe, args: c.managed.args, origin: new URL(c.baseUrl).origin });
 
   async function answers(): Promise<boolean> {
     try {
@@ -104,7 +104,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
   }
 
   // Waits until the AI answers, for up to startTimeoutSec. False if it never did.
-  async function waitForAnswer(config: AiSettings, cancelled: () => boolean, exited: () => boolean = () => false): Promise<boolean> {
+  async function waitForAnswer(config: SavedAi, cancelled: () => boolean, exited: () => boolean = () => false): Promise<boolean> {
     const deadline = Date.now() + config.managed.startTimeoutSec * 1000;
     while (Date.now() < deadline) {
       if (cancelled()) throw stoppedError();
@@ -125,7 +125,7 @@ export function createLlamaServerRuntime(opts: LlamaServerOptions): ModelRuntime
 
   // Your .bat file, opened in its own window. The app doesn't own what it
   // starts, so it never stops it.
-  async function open(config: AiSettings, exe: string, cancelled: () => boolean): Promise<void> {
+  async function open(config: SavedAi, exe: string, cancelled: () => boolean): Promise<void> {
     const name = basename(exe.replaceAll('\\', '/'));
     if (!existsSync(exe)) fail(`${config.managed.exe} is missing. Check the program in Settings → AI.`);
     state.set('starting');

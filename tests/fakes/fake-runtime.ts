@@ -10,7 +10,11 @@ export class FakeRuntime implements ModelRuntime {
   starts = 0;
   // Whether each call was background work, in order.
   background: boolean[] = [];
+  // When set, a start waits for release(), or for a stop, which cancels it
+  // as llama-server's does.
+  slowStart = false;
   private readonly s = runtimeState();
+  private held: { release: () => void; cancel: () => void } | null = null;
 
   async ensureRunning(_signal?: AbortSignal, opts: { background?: boolean } = {}): Promise<void> {
     this.background.push(opts.background ?? false);
@@ -21,8 +25,18 @@ export class FakeRuntime implements ModelRuntime {
     if (this.s.get() !== 'ready') {
       this.starts++;
       this.s.set('starting');
+      if (this.slowStart) {
+        await new Promise<void>((resolve, reject) => {
+          this.held = { release: resolve, cancel: () => reject(new DOMException('The AI was stopped.', 'AbortError')) };
+        });
+      }
       this.s.set('ready');
     }
+  }
+
+  release(): void {
+    this.held?.release();
+    this.held = null;
   }
 
   touch(): void {
@@ -36,6 +50,8 @@ export class FakeRuntime implements ModelRuntime {
 
   async stop(): Promise<void> {
     this.stops++;
+    this.held?.cancel();
+    this.held = null;
     this.s.set('off');
   }
 

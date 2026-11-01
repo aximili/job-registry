@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { activeAi, DEFAULT_SETTINGS, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { startFakeOpenAiServer, type FakeOpenAiServer } from '../../../../tests/fakes/fake-openai-server.ts';
 import { createLlamaServerRuntime } from './llama-server.ts';
 import type { ModelRuntime } from '../runtime.ts';
+
+const DEFAULT_AI = activeAi(DEFAULT_SETTINGS.ai);
 
 const script = fileURLToPath(new URL('../../../../tests/fakes/fake-llama-server.ts', import.meta.url));
 
@@ -47,13 +49,13 @@ type Setup = { runtime: ModelRuntime; port: number; spawned: ChildProcess[]; roo
 async function setup(
   overrides: { args?: string[]; rawArgs?: string[]; idleMinutes?: number; stopWhenIdle?: boolean; startTimeoutSec?: number; exe?: string; port?: number } = {},
   extra: { platform?: NodeJS.Platform; kill?: (pid: number) => Promise<void>; fetch?: typeof fetch; root?: string; killTimeoutMs?: number } = {},
-): Promise<Setup & { config: AiSettings; again: () => ModelRuntime }> {
+): Promise<Setup & { config: SavedAi; again: () => ModelRuntime }> {
   const port = overrides.port ?? (await freePort());
   const root = extra.root ?? mkdtempSync(join(tmpdir(), 'jr-llama-'));
   const logFile = join(root, 'data', 'logs', 'llama.log');
   const spawned: ChildProcess[] = [];
-  const config: AiSettings = {
-    ...DEFAULT_SETTINGS.ai,
+  const config: SavedAi = {
+    ...DEFAULT_AI,
     baseUrl: `http://127.0.0.1:${port}/v1`,
     idleMinutes: overrides.idleMinutes ?? 15,
     stopWhenIdle: overrides.stopWhenIdle ?? true,
@@ -307,7 +309,7 @@ describe('llama-server runtime', () => {
   it('a program Windows refuses to start says so plainly, and never sticks at "starting"', async () => {
     const root = mkdtempSync(join(tmpdir(), 'jr-llama-'));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-    const config: AiSettings = { ...DEFAULT_SETTINGS.ai, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_SETTINGS.ai.managed, exe: process.execPath } };
+    const config: SavedAi = { ...DEFAULT_AI, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_AI.managed, exe: process.execPath } };
     const runtime = createLlamaServerRuntime({
       root,
       logFile: join(root, 'data', 'logs', 'llama.log'),
@@ -334,10 +336,10 @@ describe('llama-server runtime, started with a .bat file', () => {
     if (!o.file) writeFileSync(file, '@echo off\r\n');
     const opened: string[] = [];
     let theirs: FakeOpenAiServer | null = null;
-    const config: AiSettings = {
-      ...DEFAULT_SETTINGS.ai,
+    const config: SavedAi = {
+      ...DEFAULT_AI,
       baseUrl: `http://127.0.0.1:${port}/v1`,
-      managed: { ...DEFAULT_SETTINGS.ai.managed, exe: file, args: ['-m', 'ignored.gguf'], startTimeoutSec: o.startTimeoutSec ?? 20 },
+      managed: { ...DEFAULT_AI.managed, exe: file, args: ['-m', 'ignored.gguf'], startTimeoutSec: o.startTimeoutSec ?? 20 },
     };
     // Opening the file starts "Bonsai 2" on the port, as start_bonsai.bat would.
     const openWindow = async (path: string) => {
@@ -416,7 +418,7 @@ describe('llama-server runtime, started with a .bat file', () => {
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     const file = join(root, 'start.cmd');
     writeFileSync(file, '@echo off\r\n');
-    const config: AiSettings = { ...DEFAULT_SETTINGS.ai, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_SETTINGS.ai.managed, exe: file } };
+    const config: SavedAi = { ...DEFAULT_AI, baseUrl: `http://127.0.0.1:${await freePort()}/v1`, managed: { ...DEFAULT_AI.managed, exe: file } };
     const runtime = createLlamaServerRuntime({ root, logFile: join(root, 'llama.log'), getConfig: () => config, platform: 'darwin' });
     const err = await runtime.ensureRunning().catch((e: unknown) => e);
     expect((err as Error).message).toBe("start.cmd couldn't be opened: a .bat or .cmd file only runs on Windows. Check the program in Settings → AI.");

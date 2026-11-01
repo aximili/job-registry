@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ORIGIN, reset, seedJob } from './helpers.ts';
+import { ORIGIN, reset, savedSettings, seedJob } from './helpers.ts';
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -51,11 +51,11 @@ test.describe('AI settings', () => {
   test('choosing Ollama fills in its address, and saving keeps it after a reload', async ({ page }) => {
     await page.goto('/settings#ai');
     const ai = section(page);
-    await expect(ai.getByLabel('AI server')).toHaveValue('llama-server');
+    await expect(ai.getByLabel('Provider')).toHaveValue('llama-server');
     await expect(ai.getByLabel("Start it for me when it isn't running")).toBeChecked();
     // Exact: each task below has its own "Model for …".
     await expect(ai.getByLabel('Model', { exact: true })).toHaveCount(0);
-    await ai.getByLabel('AI server').selectOption('ollama');
+    await ai.getByLabel('Provider').selectOption('ollama');
     await expect(ai.getByLabel('Server address')).toHaveValue('http://127.0.0.1:11434/v1');
     await expect(ai.getByLabel("Start it for me when it isn't running")).toHaveCount(0);
     // The app never stops Ollama, so there's no idle stop to set.
@@ -65,7 +65,7 @@ test.describe('AI settings', () => {
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
     await page.reload();
-    await expect(section(page).getByLabel('AI server')).toHaveValue('ollama');
+    await expect(section(page).getByLabel('Provider')).toHaveValue('ollama');
     await expect(section(page).getByLabel('Model', { exact: true })).toHaveValue('qwen3:8b');
   });
 
@@ -77,7 +77,7 @@ test.describe('AI settings', () => {
 
   test('Test connection asks for a model when Ollama has none, testing what is on screen', async ({ page }) => {
     await page.goto('/settings#ai');
-    await section(page).getByLabel('AI server').selectOption('ollama');
+    await section(page).getByLabel('Provider').selectOption('ollama');
     await section(page).getByRole('button', { name: 'Test connection' }).click();
     await expect(section(page).getByRole('status')).toContainText('Pick a model. The server has: fake-model.');
   });
@@ -94,8 +94,8 @@ test.describe('AI settings', () => {
     await ai.getByLabel('Options (one per line)').fill('-m\nai/models/other.gguf\n\n--port\n8080');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
-    const settings = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { managed: { args: string[] } } };
-    expect(settings.ai.managed.args).toEqual(['-m', 'ai/models/other.gguf', '--port', '8080']);
+    const { ai: saved } = await savedSettings(page.request);
+    expect(saved.managed.args).toEqual(['-m', 'ai/models/other.gguf', '--port', '8080']);
   });
 
   test('stopping the AI when idle is off until you tick it, then you pick the minutes', async ({ page }) => {
@@ -109,8 +109,8 @@ test.describe('AI settings', () => {
     await ai.getByLabel('Stop it after this many idle minutes').fill('30');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
-    const saved = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { stopWhenIdle: boolean; idleMinutes: number } };
-    expect(saved.ai).toMatchObject({ stopWhenIdle: true, idleMinutes: 30 });
+    const { ai: saved } = await savedSettings(page.request);
+    expect(saved).toMatchObject({ stopWhenIdle: true, idleMinutes: 30 });
     await page.reload();
     await expect(section(page).getByLabel("Stop it when it's idle")).toBeChecked();
     await expect(section(page).getByLabel('Stop it after this many idle minutes')).toHaveValue('30');
@@ -126,25 +126,24 @@ test.describe('AI settings', () => {
     await expect(ai).toContainText('The app never closes that window');
     await ai.getByRole('button', { name: 'Save AI settings' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
-    const settings = (await (await page.request.get('/api/v1/settings')).json()) as { ai: { managed: { exe: string; args: string[] } } };
-    expect(settings.ai.managed.exe).toBe('D:\\aitest\\Bonsai-demo\\start_bonsai.bat');
+    const { ai: saved } = await savedSettings(page.request);
+    expect(saved.managed.exe).toBe('D:\\aitest\\Bonsai-demo\\start_bonsai.bat');
     // The options stay saved, for when you go back to llama-server.exe.
-    expect(settings.ai.managed.args).toContain('-ngl');
+    expect(saved.managed.args).toContain('-ngl');
   });
 
   test.describe('how the AI works on each task', () => {
-    type Task = { model: string | null; temperature: number; maxTokens: number; thinking: boolean; thinkingEffort: string; extra: object };
-    type Saved = { ai: { tasks: Record<string, Task> } };
     const task = (page: Page, name: string) => section(page).getByRole('group', { name, exact: true });
-    const saved = async (page: Page) => (await (await page.request.get('/api/v1/settings')).json()) as Saved;
+    const saved = (page: Page) => savedSettings(page.request);
     const save = (page: Page) => section(page).getByRole('button', { name: 'Save AI settings' }).click();
 
     test('each task has its own row, saved with the rest, and its extra fields stay as they are', async ({ page }) => {
       // Extra request fields, as you might add them to settings.json by hand.
       const extra = { top_k: 20, chat_template_kwargs: { enable_thinking: true } };
-      const { ai } = await saved(page);
-      ai.tasks.rate = { ...ai.tasks.rate!, extra };
-      expect((await page.request.patch('/api/v1/settings', { headers: { origin: ORIGIN }, data: { ai } })).ok()).toBe(true);
+      // ai is the AI in use, inside settings.ai, so the change goes with it.
+      const { settings, ai } = await saved(page);
+      ai.tasks.rate = { ...ai.tasks.rate, extra };
+      expect((await page.request.patch('/api/v1/settings', { headers: { origin: ORIGIN }, data: { ai: settings.ai } })).ok()).toBe(true);
 
       await page.goto('/settings#ai');
       await expect(section(page).getByRole('heading', { name: 'How the AI works on each task' })).toBeVisible();

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiId } from './ai.ts';
 import { Id, IsoDateTime } from './common.ts';
 import { JobSummary } from './jobs.ts';
 
@@ -83,9 +84,14 @@ export const EmailTestResult = z.object({ ok: z.boolean(), detail: z.string() })
 export type EmailTestResult = z.infer<typeof EmailTestResult>;
 
 // Secrets are never sent to the browser: only whether each one is set.
-export const SecretsStatus = z.object({ emailPassword: z.boolean() });
+// aiKeys lists the ids of the AIs that have an API key.
+export const SecretsStatus = z.object({ emailPassword: z.boolean(), aiKeys: z.array(z.string()) });
 export type SecretsStatus = z.infer<typeof SecretsStatus>;
 
-// null or blank removes the password.
-export const UpdateSecretsRequest = z.strictObject({ emailPassword: z.string().nullable() });
+// null or blank removes the password or a key. A secret you leave out stays as it is.
+export const UpdateSecretsRequest = z.strictObject({
+  emailPassword: z.string().nullable().optional(),
+  // API keys by AI id.
+  aiKeys: z.record(AiId, z.string().nullable()).optional(),
+});
 export type UpdateSecretsRequest = z.infer<typeof UpdateSecretsRequest>;

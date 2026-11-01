@@ -2,7 +2,7 @@
 // The profile comes first in the prompt, so llama-server can reuse its cache
 // from one rating to the next.
 
-import { Rating, type AiSettings } from '../../../../shared/contracts/index.ts';
+import { Rating, type SavedAi } from '../../../../shared/contracts/index.ts';
 import { fillPrompt, type Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
 import { trimAd } from './parse-job.ts';
@@ -13,7 +13,7 @@ export type RateInput = { profile: string; preferences: string | null; ad: strin
 export async function rateJobTask(o: {
   provider: AiProvider;
   prompt: Prompt;
-  config: AiSettings;
+  config: SavedAi;
   input: RateInput;
   signal?: AbortSignal;
 }): Promise<Rating> {

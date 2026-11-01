@@ -15,6 +15,7 @@ import {
   readRealSettings,
   REAL_ROOT,
   runCommand,
+  skipForCloud,
   testPort,
 } from './lib.ts';
 
@@ -77,10 +78,12 @@ if (real.settings) {
   const realPort = real.settings.server.port;
   report.info(`the real app on port ${realPort}`, (await healthy(realPort)) ? 'running' : 'not running');
 
-  // The AI that Settings -> AI picks: a server you run yourself, or Bonsai 2
-  // started by the app, which needs its program and model on this PC.
+  // The AI in use (Settings -> AI): a server you run yourself, Bonsai 2
+  // started by the app, which needs its program and model on this PC, or a
+  // cloud AI, which these checks leave alone.
   const ai = appAi(real.settings.ai);
-  if (ai.kind === 'external') {
+  if (ai.kind === 'cloud') skipForCloud(report, ai);
+  else if (ai.kind === 'external') {
     if (await aiServerAnswers(ai.baseUrl)) report.pass('your AI server answers', `${ai.baseUrl} (you run it; the app never starts or stops it)`);
     else report.fail('your AI server answers', `nothing answers at ${ai.baseUrl}. Start it, or change Settings -> AI (see do-by-hand.md).`);
   } else {

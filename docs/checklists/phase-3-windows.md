@@ -33,7 +33,7 @@ Before you start: stop the app with `stop.bat`, run `setup.bat` (it now builds t
 - [ ] **A page it can't read:** if the panel ever says "Couldn't read this job", select the ad text and press **Save selection**. The job saves with that text. Then save that page (**File → Save Page As**, "Web Page, HTML only") and run `npm run ext:check -- path\to\page.html "the page's address"`. Bring the output to the next session.
 - [ ] **Hide:** press **Hide** (or Esc in the panel). It shrinks to a small bar, the cursor stays on **Show**, and it stays that way on the next job page. **Show** brings it back.
 - [ ] **Keyboard:** on a job page, press Tab until you reach the panel (it's last on the page). You can choose a status, type a note and press **Save** with the keyboard alone.
-- [ ] **A first rating while the AI is off (Firefox):** with the pill on "AI off", open a job page. The rating appears once Bonsai has loaded (it can take a minute), or the panel says to reload the page. Note which one.
+- [ ] **A first rating while the AI is off (Firefox):** with the pill on "off" (for example "Bonsai 2 · off"), open a job page. The rating appears once Bonsai has loaded (it can take a minute), or the panel says to reload the page. Note which one.
 - [ ] **After updating the extension:** with a job page open, reload the extension (about:debugging → Reload). Reload the job page: there's one panel, not two.
 
 ## The toolbar button

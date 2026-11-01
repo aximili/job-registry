@@ -2,10 +2,12 @@
 // the background, so saving never waits for the AI. It hands what the AI read
 // to the jobs module, which decides what may be filled in. See §7.1.
 //
-// When the AI can't be reached, a job keeps waiting ("pending", with the
-// reason), and it's read the next time an AI task works. A job is marked
-// "failed", with the reason, when trying again later won't help on its own:
-// the answer never fitted, or the server refused this ad or timed out on it.
+// When the AI can't be reached, or has a problem of its own (no API key, a
+// refused key, a usage limit, busy), a job keeps waiting ("pending", with
+// the reason), and it's read the next time an AI task works, on this AI or
+// another you switch to. A job is marked "failed", with the reason, when
+// trying again later won't help on its own: the answer never fitted, or the
+// server refused this ad or timed out on it.
 
 import type { Job, Posting } from '../../../shared/contracts/index.ts';
 import { AiAnswerError, AiRefusedError, AiUnavailableError, ValidationError } from '../../core/errors.ts';
@@ -28,7 +30,8 @@ export interface EnrichService {
 type Outcome =
   | { kind: 'done' | 'cancelled' }
   // failed: a bad answer. refused: the server refused this ad or timed out.
-  // unavailable: the AI can't be reached at all.
+  // unavailable: the AI can't be reached, or can't take any work right now
+  // (AiAccountError: no key, a refused key, a usage limit, busy).
   | { kind: 'failed' | 'refused' | 'unavailable'; message: string };
 
 const isAbort = (err: unknown): boolean => (err as Error)?.name === 'AbortError';

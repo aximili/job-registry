@@ -1,10 +1,12 @@
 // Settings → AI → "How the AI works on each task": one row per AI task, and
-// how each row maps to that task's block in settings.json (ai.tasks.*).
-// A row leaves out the extra request fields: they stay as they are.
+// how each row maps to that task's block in settings.json (the tasks of a
+// saved AI).
+// A row leaves out the extra request fields: they stay as they are, until
+// the AI's provider changes (forNewProvider).
 
-import type { AiSettings, TaskSettings, ThinkingEffort } from '../../../shared/contracts/index.ts';
+import type { SavedAi, TaskSettings, ThinkingEffort } from '../../../shared/contracts/index.ts';
 
-export type TaskKey = keyof AiSettings['tasks'];
+export type TaskKey = keyof SavedAi['tasks'];
 export type Thinking = 'off' | ThinkingEffort;
 
 export const TASK_ROWS: { key: TaskKey; label: string }[] = [
@@ -68,4 +70,17 @@ export function fromRow(t: TaskSettings, row: TaskRow): TaskSettings {
     temperature: Number(row.temperature),
     model: row.model.trim() || null,
   };
+}
+
+// A task's settings for an AI whose provider changed. Its own model and its
+// extra request fields were for the old provider (Bonsai 2's top_k makes
+// Claude refuse every request), so they go. The rest stays.
+export function forNewProvider(t: TaskSettings): TaskSettings {
+  return { ...t, model: null, extra: {} };
+}
+
+// Whether any task has a model or extra request fields of its own: what a
+// change of provider resets.
+export function hasOwnTaskSettings(tasks: SavedAi['tasks']): boolean {
+  return Object.values(tasks).some((t) => (t.model ?? '').trim() !== '' || Object.keys(t.extra).length > 0);
 }

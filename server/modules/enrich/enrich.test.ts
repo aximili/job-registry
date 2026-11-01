@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { activeAi, DEFAULT_SETTINGS, newSavedAi } from '../../../shared/contracts/index.ts';
 import { FAKE_PARSED, FAKE_RATING, FakeAiProvider, defaultReply } from '../../../tests/fakes/fake-ai-provider.ts';
 import { pastedCapture, seekCapture } from '../../../tests/helpers/jobs.ts';
 import { createTestApp, type TestApp } from '../../../tests/helpers/test-app.ts';
@@ -225,3 +226,85 @@ describe('enrich', () => {
   });
 });
 
+// A problem with the AI as a whole (no key, a refused key, a usage limit, a
+// busy AI) isn't about any one ad: the job waits, and is read once the AI
+// works again, on this AI or after a switch. These go through the app's own
+// connector, with a stand-in for fetch, so no request leaves this computer.
+describe('enrich: a problem with the AI itself', () => {
+  const bonsai = activeAi(DEFAULT_SETTINGS.ai);
+  const openai = newSavedAi('openai', 'OpenAI – mine', ['bonsai-2']);
+  const NEEDS_KEY = 'OpenAI – mine needs an API key. Add it in Settings → AI.';
+  const KEY_REFUSED = 'OpenAI – mine refused its API key. Check the key in Settings → AI.';
+  const LIMIT = "OpenAI – mine says you've reached a usage limit. Wait a while, or switch to another AI from the AI pill at the top.";
+  const BUSY = 'OpenAI – mine is busy right now. Try again in a minute.';
+
+  // The "provider": answers each request with reply(), which a test can change.
+  function cloud(reply: () => Response) {
+    const state = { reply, sent: 0 };
+    const doFetch = (async () => {
+      state.sent++;
+      return state.reply();
+    }) as typeof fetch;
+    return { doFetch, state };
+  }
+  const parsed = () => Response.json({ choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(FAKE_PARSED) }, finish_reason: 'stop' }] });
+  const failing = (status: number) => () => Response.json({ error: { message: 'No.' } }, { status });
+
+  async function cloudApp(doFetch: typeof fetch, key: string | null) {
+    app = await createTestApp({
+      realProvider: true,
+      realRuntime: true,
+      fetch: doFetch,
+      settings: { ai: { active: openai.id, saved: [bonsai, openai] } },
+      ...(key ? { secrets: { aiKeys: { [openai.id]: key } } } : {}),
+    });
+    return app;
+  }
+
+  it.each([
+    ['a usage limit (429)', 429, LIMIT],
+    ['a refused key (401)', 401, KEY_REFUSED],
+    ['a busy AI (529)', 529, BUSY],
+  ])('%s keeps every job waiting with the reason, and they are read once the AI works again', async (_what, status, sentence) => {
+    const c = cloud(failing(status));
+    const app = await cloudApp(c.doFetch, 'sk-oai-1');
+    const waiting = [save(app, pastedCapture('Ad one')), save(app, pastedCapture('Ad two'))];
+    await app.services.enrich.onIdle();
+    for (const job of waiting) expect(app.services.jobs.get(job.id)).toMatchObject({ parseState: 'pending', parseError: sentence });
+    // The pill shows it too.
+    expect(app.services.ai.status()).toMatchObject({ state: 'error', detail: sentence });
+
+    c.state.reply = parsed;
+    expect((await app.services.ai.test()).ok).toBe(true);
+    await app.services.enrich.onIdle();
+    for (const job of waiting) expect(app.services.jobs.get(job.id)).toMatchObject({ parseState: 'done', parseError: null, title: FAKE_PARSED.title });
+  });
+
+  it('with no key saved, the job waits without asking the AI, and is read once a key is saved and the AI works', async () => {
+    const c = cloud(parsed);
+    const app = await cloudApp(c.doFetch, null);
+    const job = save(app);
+    await app.services.enrich.onIdle();
+    expect(app.services.jobs.get(job.id)).toMatchObject({ parseState: 'pending', parseError: NEEDS_KEY });
+    expect(c.state.sent).toBe(0);
+
+    app.services.settings.updateSecrets({ aiKeys: { [openai.id]: 'sk-oai-1' } });
+    expect((await app.services.ai.test()).ok).toBe(true);
+    await app.services.enrich.onIdle();
+    expect(app.services.jobs.get(job.id)).toMatchObject({ parseState: 'done', parseError: null });
+  });
+
+  it('a sweep stops at the first such problem, so it asks the AI once, not once per waiting job', async () => {
+    const c = cloud(parsed);
+    const app = await cloudApp(c.doFetch, 'sk-oai-1');
+    const jobs = [save(app, pastedCapture('A')), save(app, pastedCapture('B')), save(app, pastedCapture('C'))];
+    await app.services.enrich.onIdle();
+    for (const job of jobs) app.services.jobs.setParseState(job.id, 'pending');
+    c.state.reply = failing(429);
+    c.state.sent = 0;
+    expect(app.services.enrich.sweep()).toBe(3);
+    await app.services.enrich.onIdle();
+    expect(c.state.sent).toBe(1);
+    for (const job of jobs) expect(app.services.jobs.get(job.id)).toMatchObject({ parseState: 'pending', parseError: LIMIT });
+  });
+});

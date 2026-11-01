@@ -30,7 +30,7 @@ test('saves the Gmail address and the app password, and never shows the password
   await expect(again.getByLabel('Check Gmail for emails about your jobs')).toBeChecked();
   const settings = await (await request.get('/api/v1/settings')).text();
   expect(settings).not.toContain('abcd');
-  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true });
+  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true, aiKeys: [] });
 });
 
 test('Test connection says whether Gmail answered', async ({ page, request }) => {
@@ -55,7 +55,7 @@ test('Remove takes the app password away', async ({ page, request }) => {
   await section.getByRole('button', { name: 'Save password' }).click();
   await section.getByRole('button', { name: 'Remove' }).click();
   await expect(section.getByLabel('App password')).toBeVisible();
-  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: false });
+  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: false, aiKeys: [] });
 });
 
 test('Replace lets you paste a new app password, or keep the old one', async ({ page }) => {
@@ -77,7 +77,7 @@ test('a typed app password counts for Test connection, so setup takes one press'
   await section.getByRole('button', { name: 'Test connection' }).click();
   await expect(section.getByText('Connected to imap.gmail.com as me@gmail.com.')).toBeVisible();
   await expect(section.getByText('An app password is saved.')).toBeVisible();
-  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true });
+  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true, aiKeys: [] });
 });
 
 test('Save email settings also saves a typed app password', async ({ page, request }) => {
@@ -89,7 +89,7 @@ test('Save email settings also saves a typed app password', async ({ page, reque
   await section.getByLabel('Minutes between checks').fill('15');
   await section.getByRole('button', { name: 'Save email settings' }).click();
   await expect(section.getByText('An app password is saved.')).toBeVisible();
-  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true });
+  expect(await (await request.get('/api/v1/settings/secrets')).json()).toEqual({ emailPassword: true, aiKeys: [] });
   expect((await (await request.get('/api/v1/settings')).json()).email.pollMinutes).toBe(15);
 });
 
