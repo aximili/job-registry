@@ -2,6 +2,7 @@
 // HTTP checks run here; the .bat files and Windows processes only on the PC.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -149,7 +150,7 @@ describe('handover: the test copy', () => {
   // The delete retries for about 7 seconds, as a lock on Windows often clears.
   // A lock is chmod on macOS and Linux; on Windows a live process holds the
   // folder as its working directory, which blocks deleting it.
-  it('keeps its marker when a file in the old copy is locked, so the next run can try again', { timeout: 30_000 }, () => {
+  it('keeps its marker when a file in the old copy is locked, so the next run can try again', { timeout: 30_000 }, async () => {
     const dir = join(temp(), 'copy');
     prepareTestRoot(dir);
     const locked = join(dir, 'zz-locked');
@@ -157,8 +158,10 @@ describe('handover: the test copy', () => {
     writeFileSync(join(locked, 'file.txt'), 'x');
     const holding =
       process.platform === 'win32'
-        ? spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { cwd: locked, stdio: 'ignore', windowsHide: true })
+        ? spawn(process.execPath, ['-e', 'console.log(1); setInterval(() => {}, 1 << 30)'], { cwd: locked, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
         : null;
+    // It holds the folder only once it runs, so the delete waits for its first line.
+    if (holding) await once(holding.stdout!, 'data');
     chmodSync(locked, 0o500);
     try {
       expect(() => prepareTestRoot(dir)).toThrow();

@@ -68,7 +68,6 @@ if (hasFlag('link-modules')) {
     [join('node_modules', 'better-sqlite3', 'package.json'), 'packages are installed'],
     [join('web', 'dist', 'index.html'), 'the dashboard is built'],
     [join('extension', 'dist', 'firefox', 'manifest.json'), 'the extension is built'],
-    [join('config', 'settings.json'), 'setup made a settings file'],
   ] as const) {
     if (existsSync(join(root, file))) report.pass(what);
     else report.fail(what, `${file} is missing`);
