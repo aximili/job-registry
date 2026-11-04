@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_PRESETS, CardRating, EmailClassification, ParsedJob, Rating, THINKING_TOKENS } from '../../../../shared/contracts/index.ts';
+import { AI_PRESETS, BriefAnswer, CardRating, EmailClassification, ParsedJob, PrepAnswer, Rating, THINKING_TOKENS } from '../../../../shared/contracts/index.ts';
 import { fakeFetch, slowStream, type FetchCall } from '../../../../tests/fakes/fake-fetch.ts';
 import { AiAccountError, AiRefusedError, AiUnavailableError } from '../../../core/errors.ts';
 import { toAiSchema } from '../json.ts';
@@ -235,6 +235,8 @@ describe('Claude connector: the request', () => {
     ['Rating', Rating],
     ['CardRating', CardRating],
     ['EmailClassification', EmailClassification],
+    ['BriefAnswer', BriefAnswer],
+    ['PrepAnswer', PrepAnswer],
   ])("the %s schema Claude gets has at most 16 union-type parameters (Claude's limit)", async (name, zodSchema) => {
     const { provider, calls } = connect();
     await provider.chat(ask({ jsonSchema: { name, schema: toAiSchema(zodSchema as never) } }));

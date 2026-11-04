@@ -9,7 +9,7 @@
 import { STATUS_CODES } from 'node:http';
 import { AI_PRESETS } from '../../../../shared/contracts/index.ts';
 import { AiAccountError, AiRefusedError, AiUnavailableError } from '../../../core/errors.ts';
-import type { ProviderConfig } from '../provider.ts';
+import { cantReachSentence, USE_ANOTHER_AI, type ProviderConfig } from '../provider.ts';
 
 // Words in a 4xx body that mean you're out of credit or over a limit. Each
 // provider uses its own status for this (402, 429, 400, even 403), so the
@@ -93,13 +93,11 @@ export function requestError(err: unknown, config: ProviderConfig, stream: boole
         : `${config.name} at ${config.baseUrl} didn't answer within ${config.timeoutSec} seconds.`,
     );
   }
-  return new AiUnavailableError(
-    `Can't reach ${config.name} at ${config.baseUrl}. Check that it's running, or pick another AI in Settings.`,
-  );
+  return new AiUnavailableError(cantReachSentence(config));
 }
 
 const limitSentence = (name: string): string =>
-  `${name} says you've reached a usage limit. Wait a while, or switch to another AI from the AI pill at the top.`;
+  `${name} says you've reached a usage limit. Wait a while, or ${USE_ANOTHER_AI}.`;
 
 // The error in a body. When the body isn't JSON, the text is all there is.
 function readBody(body: string): ProviderError {

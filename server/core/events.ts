@@ -23,6 +23,11 @@ export type AppEvents = {
   'document.saved': { jobId: number; documentId: number };
   'document.sent': { jobId: number; documentId: number };
   'attachment.added': { jobId: number; attachmentId: number };
+  // A brief made or edited, with its updatedAt, so a tab can tell its own
+  // save from another's.
+  'brief.saved': { jobId: number; briefId: number; updatedAt: string };
+  // A prep plan made, with its createdAt.
+  'prep.saved': { jobId: number; planId: number; createdAt: string };
   // The AI in use's state, and which AI it is (its id and name).
   'ai.stateChanged': { state: AiState; detail: string | null; id: string; name: string };
   'enrich.done': { jobId: number; step: 'parse' | 'rate' };

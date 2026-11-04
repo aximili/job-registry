@@ -4,6 +4,8 @@
 // A running task is never interrupted for a higher one.
 // See docs/architecture.md §12.3.
 
+import { ReplacedError } from '../../core/errors.ts';
+
 export type Priority = 'interactive' | 'list' | 'parse' | 'background';
 
 const RANK: Record<Priority, number> = { interactive: 0, list: 1, parse: 2, background: 3 };
@@ -22,7 +24,7 @@ type Entry = {
   seq: number;
   controller: AbortController;
   start: () => Promise<void>;
-  cancel: () => void;
+  cancel: (reason?: () => DOMException) => void;
 };
 
 export interface AiQueue {
@@ -32,15 +34,25 @@ export interface AiQueue {
   onIdle(): Promise<void>;
   // Cancels everything: the running task and every waiting one.
   cancelAll(): void;
+  // Cancels the task with this key, waiting or running: "latest wins" across
+  // queues. It's cancelled with a ReplacedError.
+  cancelKey(key: string): void;
 }
 
 const cancelled = () => new DOMException('The AI task was cancelled.', 'AbortError');
+const replaced = () => new ReplacedError();
 
 export function createAiQueue(): AiQueue {
   const waiting: Entry[] = [];
   let current: Entry | null = null;
   let seq = 0;
   const idleWaiters: (() => void)[] = [];
+
+  function cancelKey(key: string): void {
+    for (const entry of [...waiting, ...(current ? [current] : [])]) {
+      if (entry.key === key) entry.cancel(replaced);
+    }
+  }
 
   function next(): void {
     if (current) return;
@@ -63,11 +75,7 @@ export function createAiQueue(): AiQueue {
         if (task.signal?.aborted) return reject(cancelled());
         const controller = new AbortController();
 
-        if (task.key !== undefined) {
-          for (const other of [...waiting, ...(current ? [current] : [])]) {
-            if (other.key === task.key) other.cancel();
-          }
-        }
+        if (task.key !== undefined) cancelKey(task.key);
 
         let settled = false;
         const entry: Entry = {
@@ -90,13 +98,13 @@ export function createAiQueue(): AiQueue {
               }
             }
           },
-          cancel() {
+          cancel(reason = cancelled) {
             const at = waiting.indexOf(entry);
             if (at !== -1) waiting.splice(at, 1);
-            controller.abort(cancelled());
+            controller.abort(reason());
             if (!settled) {
               settled = true;
-              reject(cancelled());
+              reject(reason());
             }
           },
         };
@@ -109,6 +117,8 @@ export function createAiQueue(): AiQueue {
     cancelAll() {
       for (const entry of [...waiting, ...(current ? [current] : [])]) entry.cancel();
     },
+
+    cancelKey,
 
     pending: () => waiting.length,
     running: () => current !== null,

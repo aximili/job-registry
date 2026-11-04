@@ -6,7 +6,7 @@
 
 import { AiRefusedError, type AiAccountError } from '../../../core/errors.ts';
 import { THINKING_TOKENS, type ThinkingLevel } from '../../../../shared/contracts/index.ts';
-import type { AiProvider, ChatChunk, ChatRequest, ChatResult, ProviderConfig, ProviderHealth } from '../provider.ts';
+import { USE_ANOTHER_AI, type AiProvider, type ChatChunk, type ChatRequest, type ChatResult, type ProviderConfig, type ProviderHealth } from '../provider.ts';
 import { cutOffSentence, httpError, needsKeyError, requestError, streamError } from './http-errors.ts';
 import { HEALTH_TIMEOUT_MS, sseData, timeLimit, trimSlash } from './http.ts';
 
@@ -286,7 +286,7 @@ function stopError(reason: unknown, config: ProviderConfig): AiRefusedError | nu
   }
   // Claude's safety checks stopped it. The same request would stop again.
   if (reason === 'refusal') {
-    return new AiRefusedError(`${config.name} declined to answer this request. You can switch to another AI from the AI pill at the top.`);
+    return new AiRefusedError(`${config.name} declined to answer this request. You can ${USE_ANOTHER_AI}.`);
   }
   return null;
 }

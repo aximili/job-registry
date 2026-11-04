@@ -22,6 +22,14 @@ function parts(localOrIso: string | null): { day: number; month: string; year: n
   return { day: d.getDate(), month: MONTHS[d.getMonth()]!, year: d.getFullYear() };
 }
 
+const LONG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+// "3 November 2026", by the computer's own date: how a cover letter is
+// dated, and what the AI is told today is.
+export function longDate(d: Date): string {
+  return `${d.getDate()} ${LONG_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 export function formatDate(localOrIso: string | null): string {
   const p = parts(localOrIso);
   return p ? `${p.day} ${p.month} ${p.year}` : '';

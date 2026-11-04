@@ -1,6 +1,7 @@
 // HTML to plain text, with paragraphs and bullets kept, for ads and emails.
 
 import { parseHTML } from 'linkedom';
+import { linkText } from '../../shared/mailto.ts';
 
 const BLOCK_TAGS = new Set([
   'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT', 'FIGURE', 'FOOTER', 'FORM',
@@ -30,7 +31,13 @@ export function htmlFragmentToText(html: string): string {
 
 // The little of a parsed HTML node this needs. The server has no browser DOM
 // types on purpose, so a browser-only global can't slip into server code.
-type HtmlNode = { nodeType: number; textContent: string | null; tagName?: string; childNodes: ArrayLike<HtmlNode> };
+type HtmlNode = {
+  nodeType: number;
+  textContent: string | null;
+  tagName?: string;
+  getAttribute?: (name: string) => string | null;
+  childNodes: ArrayLike<HtmlNode>;
+};
 
 function nodeText(node: HtmlNode): string {
   if (node.nodeType === 3) return (node.textContent ?? '').replace(/\s+/g, ' ');
@@ -40,6 +47,7 @@ function nodeText(node: HtmlNode): string {
   if (SKIP_TAGS.has(tag)) return '';
   if (tag === 'BR') return '\n';
   const inner = Array.from(el.childNodes, nodeText).join('');
+  if (tag === 'A') return linkText(inner, el.getAttribute?.('href'));
   if (tag === 'LI') return `\n• ${inner.trim()}\n`;
   if (tag === 'TD' || tag === 'TH') return `${inner.trim()}\t`;
   if (BLOCK_TAGS.has(tag)) return `\n\n${inner.trim()}\n\n`;

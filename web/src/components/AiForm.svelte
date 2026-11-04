@@ -18,7 +18,7 @@
     type AiPresetId,
     type SavedAi,
   } from '../../../shared/contracts/index.ts';
-  import { defaultAiName, presetGroups } from '../lib/ai-list.ts';
+  import { defaultAiName, presetGroups, writerToSend } from '../lib/ai-list.ts';
   import {
     forNewProvider,
     fromRow,
@@ -79,6 +79,8 @@
       card: rowOf(tasks.card),
       write: rowOf(tasks.write),
       email: rowOf(tasks.email),
+      brief: rowOf(tasks.brief),
+      prep: rowOf(tasks.prep),
     };
   }
 
@@ -263,7 +265,10 @@
       }
       const list = isNew ? [...all.saved, edited] : all.saved.map((one) => (one.id === edited.id ? edited : one));
       // A new provider never gets the old one's key: the server deletes it.
-      await api.updateSettings({ ai: { active: all.active, saved: list } });
+      // The writer is left out, so the server keeps it as it is now, unless a
+      // new AI gets the id of a writer that isn't saved any more (a hand
+      // edit): then none, so it never writes by accident.
+      await api.updateSettings({ ai: { active: all.active, writer: writerToSend(all, list), saved: list } });
       // A key can only be saved for an AI that's saved, so it comes second.
       let keyProblem: string | null = null;
       if (typed) {

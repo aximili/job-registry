@@ -1,10 +1,11 @@
 import { createReadStream } from 'node:fs';
-import { Readable } from 'node:stream';
 import multipart from '@fastify/multipart';
-import type { FastifyBaseLogger, FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { AttachQuery, ExportQuery, GenerateRequest, ListDocumentsQuery, SaveDocumentRequest, type GenerateChunk } from '../../../shared/contracts/index.ts';
 import { PAGE_CSP } from '../../../shared/document-page.ts';
-import { AppError, ValidationError } from '../../core/errors.ts';
+import { ValidationError } from '../../core/errors.ts';
+import { sendLines } from '../../core/http/lines.ts';
+import { dashboardOnly } from '../../core/http/security.ts';
 import { IdParams, parseOrThrow } from '../../core/http/validate.ts';
 import { MAX_ATTACHMENT_BYTES, TOO_BIG } from './files.ts';
 import type { DocumentsService } from './service.ts';
@@ -21,23 +22,8 @@ export function attachmentDisposition(fileName: string): string {
   return `attachment; filename="${ascii || 'download'}"; filename*=UTF-8''${encoded}`;
 }
 
-const line = (chunk: GenerateChunk): string => `${JSON.stringify(chunk)}\n`;
-
-// The draft as lines of JSON: text as it comes, then done, or error with
-// a sentence to show. A reader that went away gets nothing more.
-async function* ndjson(stream: AsyncIterable<string>, log: FastifyBaseLogger): AsyncIterable<string> {
-  try {
-    for await (const text of stream) yield line({ kind: 'text', text });
-    yield line({ kind: 'done' });
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') return;
-    if (!(err instanceof AppError)) log.error({ err }, 'Writing a document failed');
-    const message = err instanceof AppError ? err.message : 'Something went wrong while writing. See the log for details.';
-    yield line({ kind: 'error', message });
-  }
-}
-
-export function documentsRoutes(service: DocumentsService): FastifyPluginAsync {
+// heartbeatMs: how often a quiet draft says it's still there (tests make it short).
+export function documentsRoutes(service: DocumentsService, o: { heartbeatMs?: number } = {}): FastifyPluginAsync {
   return async (http) => {
     // File uploads, for attachments only: one file, 15 MB at most.
     await http.register(multipart, { limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1, fields: 4, parts: 5 } });
@@ -86,19 +72,37 @@ export function documentsRoutes(service: DocumentsService): FastifyPluginAsync {
       return reply.type(file.contentType).header('content-disposition', attachmentDisposition(file.fileName)).send(file.body);
     });
 
-    http.post('/jobs/:id/documents/generate', async (req, reply) => {
+    // Writing uses the writing AI, which may cost money, so only the dashboard may.
+    // The draft as lines of JSON: who's writing (waiting, then working), the
+    // text as it comes, then done, or error with a sentence to show. Closing
+    // the editor or pressing Stop ends the request, which stops the AI.
+    http.post('/jobs/:id/documents/generate', { config: dashboardOnly('Only the dashboard can write documents.') }, async (req, reply) => {
       const { id } = parseOrThrow(IdParams, req.params);
-      const { kind } = parseOrThrow(GenerateRequest, req.body);
-      // Closing the editor or pressing Stop ends the request, which stops the AI.
-      const controller = new AbortController();
-      reply.raw.on('close', () => {
-        if (!reply.raw.writableFinished) controller.abort();
-      });
-      const stream = service.generate(id, kind, { signal: controller.signal });
-      return reply
-        .type('application/x-ndjson; charset=utf-8')
-        .header('cache-control', 'no-cache')
-        .send(Readable.from(ndjson(stream, req.log), { objectMode: false }));
+      const { kind, brief, briefId } = parseOrThrow(GenerateRequest, req.body);
+      return sendLines<GenerateChunk>(
+        req,
+        reply,
+        (signal, push) => {
+          // The job, your profile and the brief are checked now, before the reply starts.
+          const stream = service.generate(id, kind, {
+            signal,
+            brief,
+            briefId,
+            onQueued: (by) => push({ kind: 'waiting', by }),
+            onStart: (by) => push({ kind: 'working', by }),
+          });
+          return (async () => {
+            for await (const text of stream) push({ kind: 'text', text });
+            push({ kind: 'done' });
+          })();
+        },
+        {
+          failed: 'Something went wrong while writing. See the log for details.',
+          what: 'Writing a document failed',
+          replaced: 'A newer draft took its place.',
+          heartbeatMs: o.heartbeatMs,
+        },
+      );
     });
 
     http.get('/documents', async (req) => service.listAll(parseOrThrow(ListDocumentsQuery, req.query).kind));

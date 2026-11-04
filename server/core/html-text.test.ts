@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAILTO_CASES } from '../../tests/fixtures/mailto-cases.ts';
 import { htmlFragmentToText, normaliseText } from './html-text.ts';
 
 describe('html-text', () => {
@@ -16,5 +17,13 @@ describe('html-text', () => {
 
   it('tidies Windows line breaks, trailing spaces and long gaps', () => {
     expect(normaliseText('a  \r\n\r\n\r\n\r\nb')).toBe('a\n\nb');
+  });
+
+  describe("keeps a mailto: address that the link's text hides", () => {
+    for (const { html, text } of MAILTO_CASES) {
+      it(html, () => {
+        expect(htmlFragmentToText(html)).toBe(text);
+      });
+    }
   });
 });

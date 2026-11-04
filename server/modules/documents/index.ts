@@ -4,6 +4,8 @@ import type { EventBus } from '../../core/events.ts';
 import type { HttpModule } from '../../core/http/module.ts';
 import type { AiService } from '../ai/index.ts';
 import type { JobsService } from '../jobs/index.ts';
+import type { NotesService } from '../notes/index.ts';
+import type { PrepService } from '../prep/index.ts';
 import type { ProfileService } from '../profile/index.ts';
 import type { DocumentExporter } from './exporter.ts';
 import { createDocumentsRepo } from './repo.ts';
@@ -22,9 +24,13 @@ export function createDocumentsModule(opts: {
   ai: AiService;
   profile: ProfileService;
   jobs: JobsService;
+  notes: NotesService;
+  prep: PrepService;
   exporters: DocumentExporter[];
   filesDir: string;
+  // How often a quiet draft says it's still there (tests make it short).
+  heartbeatMs?: number;
 }): HttpModule<DocumentsService> {
   const service = createDocumentsService({ repo: createDocumentsRepo(opts.db), ...opts });
-  return { service, routes: documentsRoutes(service) };
+  return { service, routes: documentsRoutes(service, { heartbeatMs: opts.heartbeatMs }) };
 }

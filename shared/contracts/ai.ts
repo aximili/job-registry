@@ -46,6 +46,10 @@ const CardTaskSettings = taskSettings({ temperature: 0.2, maxTokens: 512, thinki
 const WriteTaskSettings = taskSettings({ temperature: 0.6, maxTokens: 8192, thinking: true, effort: 'max' });
 // Reading an email: short, and no thinking.
 const EmailTaskSettings = taskSettings({ temperature: 0.1, maxTokens: 1024, thinking: false });
+// The brief before a letter or resume: a short plan, with some thinking.
+const BriefTaskSettings = taskSettings({ temperature: 0.3, maxTokens: 3072, thinking: true, effort: 'medium' });
+// The prep plan for an interview: longer, with a little thinking.
+const PrepTaskSettings = taskSettings({ temperature: 0.4, maxTokens: 4096, thinking: true, effort: 'low' });
 export type TaskSettings = z.infer<typeof ParseTaskSettings>;
 
 const ManagedSettings = z.strictObject({
@@ -99,6 +103,8 @@ export const SavedAi = z.strictObject({
       card: CardTaskSettings,
       write: WriteTaskSettings,
       email: EmailTaskSettings,
+      brief: BriefTaskSettings,
+      prep: PrepTaskSettings,
     })
     .prefault({}),
 });
@@ -165,25 +171,41 @@ function fromOldShape(value: unknown): unknown {
   return { active: one.id, saved: [one] };
 }
 
-// The "ai" section in its own shape only. A change sent to the API uses
-// this, so a change in the older shape is refused, never read as one AI
-// that replaces all the others.
+// Every saved AI's id once, and the AI in use one of them.
+function checkAis(ai: { active: string; saved: SavedAi[] }, ctx: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  for (const one of ai.saved) {
+    if (seen.has(one.id)) ctx.addIssue({ code: 'custom', path: ['saved'], message: `AI id '${one.id}' is used twice.` });
+    seen.add(one.id);
+  }
+  if (!seen.has(ai.active)) {
+    ctx.addIssue({ code: 'custom', path: ['active'], message: `The AI in use, '${ai.active}', isn't one of the saved AIs.` });
+  }
+}
+
+const SavedAis = z.array(SavedAi).min(1, 'Keep at least one AI.');
+
+// The "ai" section in its own shape only.
 export const StrictAiSettings = z
   .strictObject({
     // The id of the AI the whole app uses now.
     active: AiId,
-    saved: z.array(SavedAi).min(1, 'Keep at least one AI.'),
+    // The id of the AI that writes your documents (resumes, cover letters,
+    // briefs and prep plans), or null for the AI in use. It isn't checked
+    // against the saved AIs, so a hand edit that removes that AI still
+    // loads: the AI in use writes then (writingAi).
+    writer: AiId.nullable().default(null),
+    saved: SavedAis,
   })
-  .superRefine((ai, ctx) => {
-    const seen = new Set<string>();
-    for (const one of ai.saved) {
-      if (seen.has(one.id)) ctx.addIssue({ code: 'custom', path: ['saved'], message: `AI id '${one.id}' is used twice.` });
-      seen.add(one.id);
-    }
-    if (!seen.has(ai.active)) {
-      ctx.addIssue({ code: 'custom', path: ['active'], message: `The AI in use, '${ai.active}', isn't one of the saved AIs.` });
-    }
-  });
+  .superRefine(checkAis);
+
+// A change to the "ai" section sent to the API: its own shape only, so a
+// change in the older shape is refused, never read as one AI that replaces
+// all the others. A change that leaves the writer out keeps the saved one:
+// only a writer sent (an id, or null for the AI in use) changes it.
+export const AiSettingsChange = z
+  .strictObject({ active: AiId, writer: AiId.nullable().optional(), saved: SavedAis })
+  .superRefine(checkAis);
 
 // The "ai" section as settings.json is read: the older shape too.
 export const AiSettings = z.preprocess(fromOldShape, StrictAiSettings);
@@ -194,6 +216,15 @@ export function activeAi(ai: AiSettings): SavedAi {
   const found = ai.saved.find((one) => one.id === ai.active);
   if (!found) throw new Error(`The AI in use, '${ai.active}', isn't one of the saved AIs.`);
   return found;
+}
+
+// The AI that writes your documents: the one you picked, if it's still
+// saved, or else the AI in use. inUse says it's the AI in use; missing says
+// you picked one that isn't saved any more.
+export function writingAi(ai: AiSettings): { ai: SavedAi; inUse: boolean; missing: boolean } {
+  const picked = ai.writer === null ? undefined : ai.saved.find((one) => one.id === ai.writer);
+  if (picked) return { ai: picked, inUse: picked.id === ai.active, missing: false };
+  return { ai: activeAi(ai), inUse: true, missing: ai.writer !== null };
 }
 
 // A model file's name, in lower case and without its folder, if it is one.

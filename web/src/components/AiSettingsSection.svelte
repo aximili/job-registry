@@ -1,14 +1,25 @@
 <script lang="ts">
-  // Settings → AI: your saved AIs ("My AIs"), which one is in use, and the
-  // form for one of them. The AI in use opens first. Use this switches the
-  // whole app at once; Duplicate and Delete save at once too. The form saves
-  // only when you press Save AI settings.
+  // Settings → AI: the AI that writes your documents, your saved AIs ("My
+  // AIs"), which one is in use, and the form for one of them. The AI in use
+  // opens first. Use this switches the whole app at once; the writing AI,
+  // Duplicate and Delete save at once too. The form saves only when you
+  // press Save AI settings.
   import { onMount, tick } from 'svelte';
   import { AI_PRESETS, type SavedAi } from '../../../shared/contracts/index.ts';
-  import { duplicateAi, removeAi } from '../lib/ai-list.ts';
+  import {
+    deleteQuestion,
+    duplicateAi,
+    nameOf,
+    removeAi,
+    writerChoices,
+    writerFallback,
+    writerMessage,
+    writerValue,
+  } from '../lib/ai-list.ts';
   import { AI_LABEL, ai, aiKeys, switchAi } from '../lib/ai-state.svelte.ts';
   import { api } from '../lib/api.ts';
   import { app, loadSettings } from '../lib/app-state.svelte.ts';
+  import { debounceLatest } from '../lib/debounce.ts';
   import { friendlyError } from '../lib/errors.ts';
   import { showToast } from '../lib/toast.svelte.ts';
   import AiForm from './AiForm.svelte';
@@ -41,11 +52,32 @@
 
   const all = $derived(app.settings.ai);
   const base = $derived(editing === NEW ? null : (all.saved.find((one) => one.id === editing) ?? null));
-  const nameOf = (id: string) => all.saved.find((one) => one.id === id)?.name ?? 'this AI';
+
+  // The AI that writes your documents: the id you picked, or '' for the AI in use.
+  const writer = $derived(writerValue(all));
+  const fallback = $derived(writerFallback(all));
+  let writerSelect = $state<HTMLSelectElement>();
+
+  // It saves on its own, 400 ms after the last change: on Windows an arrow
+  // key moves a closed list, so arrowing through it saves once, the last pick.
+  // Leaving the list, leaving Settings or closing the page saves at once.
+  const saveWriter = debounceLatest(async (value: string) => {
+    const id = value || null;
+    try {
+      app.settings = await api.useWriter(id);
+      showToast(writerMessage(app.settings.ai, id));
+    } catch (err) {
+      showToast(friendlyError(err));
+      // A refused pick shows what's saved again.
+      if (writerSelect) writerSelect.value = writerValue(app.settings.ai);
+    }
+  }, 400);
 
   onMount(() => {
     editing = app.settings.ai.active;
     ready = true;
+    const flush = () => saveWriter.flush();
+    addEventListener('pagehide', flush);
     api
       .secretsStatus()
       .then((s) => setKeys(s.aiKeys))
@@ -54,12 +86,16 @@
       .ratingsStatus()
       .then((s) => (ratings = s.detail))
       .catch(() => (ratings = ''));
+    return () => {
+      removeEventListener('pagehide', flush);
+      flush();
+    };
   });
 
   // Opening another AI would throw away what you typed, so it asks first.
   function mayLeave(): boolean {
     if (!formDirty) return true;
-    const what = editing === NEW ? 'the new AI' : nameOf(editing);
+    const what = editing === NEW ? 'the new AI' : nameOf(all, editing);
     return confirm(`Your changes to ${what} aren't saved. Discard them?`);
   }
 
@@ -118,9 +154,8 @@
   }
 
   async function remove(id: string) {
-    const name = nameOf(id);
-    const hasKey = keys.includes(id);
-    if (!confirm(`Delete ${name}?${hasKey ? ' Its API key is deleted too.' : ''}`)) return;
+    const name = nameOf(all, id);
+    if (!confirm(deleteQuestion(all, id, keys.includes(id)))) return;
     busy = true;
     try {
       await loadSettings();
@@ -163,6 +198,24 @@
     computer or in the cloud, and switch between them here or from the AI pill at the top.
   </p>
   {#if ready}
+    <div class="writer">
+      <label class="writer-field">
+        <span class="writer-label">Writes your documents</span>
+        <select
+          bind:this={writerSelect}
+          value={writer}
+          onchange={(e) => saveWriter(e.currentTarget.value)}
+          onblur={() => saveWriter.flush()}
+          aria-describedby={fallback ? 'writer-help writer-missing' : 'writer-help'}
+        >
+          {#each writerChoices(all) as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
+        </select>
+      </label>
+      <p id="writer-help" class="muted writer-help">
+        Resumes, cover letters, briefs and prep plans. Ratings, quick marks, reading ads and reading emails stay on the AI in use.
+      </p>
+      {#if fallback}<p id="writer-missing" class="writer-missing">{fallback}</p>{/if}
+    </div>
     <AiList ai={all} {keys} {editing} {busy} onopen={open} onadd={add} onuse={use} onduplicate={duplicate} onremove={remove} />
     {#if editing}
       <div class="below">
@@ -197,9 +250,48 @@
   }
 
   .ai-section > :global(.my-ais),
-  .below {
+  .below,
+  .writer {
     width: 100%;
     max-width: 44rem;
+  }
+
+  /* The writing AI, a setting of its own above My AIs. It reads as a
+     sentence: "Writes your documents: Claude – mine". */
+  .writer {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-3) 0 var(--space-4);
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: var(--space-2);
+  }
+
+  .writer-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .writer-label {
+    font-weight: 700;
+  }
+
+  .writer-field select {
+    flex: 0 1 20rem;
+    min-width: 0;
+  }
+
+  .writer-help {
+    font-size: var(--step--1);
+    max-width: 65ch;
+  }
+
+  .writer-missing {
+    max-width: 65ch;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    background: var(--accent-soft);
   }
 
   .below {

@@ -52,7 +52,7 @@ When you save a job, the app saves it straight away. Then the AI reads the ad in
 
 ### Your AIs
 
-You can save several AIs and switch between them in one click. For example: Bonsai 2 for every day, a smaller model when the PC is busy, and Claude when you want the strongest answers. The app uses one AI at a time, for everything: reading ads, ratings, quick marks, resumes and emails.
+You can save several AIs and switch between them in one click. For example: Bonsai 2 for every day, a smaller model when the PC is busy, and Claude when you want the strongest answers. The app uses one AI at a time, for everything: reading ads, ratings, quick marks, resumes and emails. The one exception is writing: you can pick another AI to write (see [The AI that writes](#the-ai-that-writes)).
 
 Go to **Settings → AI**. **My AIs** lists your AIs, and the form under the list shows the one you pressed.
 
@@ -77,12 +77,20 @@ Go to **Settings → AI**. **My AIs** lists your AIs, and the form under the lis
 
 The providers in the list are Claude (Anthropic API), OpenAI, Google Gemini, DeepSeek, Kimi (Moonshot), Z.ai (GLM), Qwen (Alibaba Cloud), Mistral, xAI (Grok), Groq and OpenRouter. Each comes with its address and a few suggested models, tagged "Best", "Best value", "Fast" and so on (checked on 31 Oct 2026). The **Model** list also shows the provider's own models, and you can always type a name.
 
-- **What it sees:** a cloud AI sees your profile, the ads you save and rate, and (if email is on) your emails. Nothing goes to a cloud AI until you add one and switch to it, and the app never switches by itself.
+- **What it sees:** a cloud AI sees your profile, the ads you save and rate, and (if email is on) your emails. One you pick only to write sees your profile, your guide, and the job you write for (its ad, notes and brief). Nothing goes to a cloud AI until you add one and switch to it or pick it to write, and the app never does either by itself.
 - **What it costs:** each request is billed to the key. Quick marks rate every card on a search page, so they use the most. To spend less, pick a cheaper model for "Quick marks on search lists", or turn quick marks off in the extension's options.
 - **Your keys** are kept in `config\secrets.json` on this PC. They're never shown again, and never sent to the browser, the extension, the logs or an error message. Each key goes only to its own provider. Use **Replace** or **Remove** in the form. Changing an AI's provider removes its key when you save. Each task's own model and extra settings go too, because they were for the old provider.
 - **When something goes wrong,** the AI pill shows a problem and says why in plain words, for example "Claude – mine refused its API key. Check the key in Settings → AI." or "Claude – mine says you've reached a usage limit. Wait a while, or switch to another AI from the AI pill at the top." The app never switches for you. Meanwhile, the ads you save and your emails wait: they're read once the AI works again, on this AI or another you switch to. Saving a new key clears the problem at once.
 - **Subscriptions can't be used.** A Claude Pro or Max plan only works in Claude's own apps (Anthropic's terms), so use an API key from the Claude Console, billed per use. Z.ai's GLM Coding Plan only covers coding tools, so use a pay-per-use Z.ai key. The app uses Z.ai's general API, not the Coding Plan's address.
 - **Qwen:** if Alibaba Cloud gave you a workspace address, put it in **Server address**.
+
+### The AI that writes
+
+Pick one of your AIs to write resumes, cover letters, briefs and prep plans: **Settings → AI → Writes your documents**, or **Change the writing AI** beside any write button. In Settings it saves about 0.4 seconds after you pick it (at once when you leave the list); beside a write button it saves at once. Everything else (reading ads, ratings, quick marks, reading emails) stays on the AI in use. So Bonsai 2 can rate every card for free while Claude writes your letters.
+
+- The writer's name sits beside each write button ("Writes with Claude – mine"), so you always know who writes, and who bills.
+- Its problems show where you write, not on the AI pill. The app never starts or stops a writing AI on this computer that isn't the AI in use: start it yourself.
+- The default is "The AI in use", so nothing changes until you pick one. The app never picks one for you.
 
 Extra request fields are only in `config\settings.json`, under `"ai"` → `"saved"` → your AI → `"tasks"`. If a server refuses a field, for example `reasoning_effort`, remove it for a task with `"extra": { "reasoning_effort": null }`.
 
@@ -90,8 +98,10 @@ Extra request fields are only in `config\settings.json`, under `"ai"` → `"save
 
 On a job's page, under **Documents**, press **New resume** or **New cover letter**. The editor shows your text on the left and the A4 page on the right.
 
-- **Generate** writes a draft from your master profile, aimed at this job. The text arrives as the AI writes it, and **Stop** keeps what's there so far.
-- **The fact-check** looks for numbers, dates, money, percentages and names in the draft. Any your master profile doesn't have are listed ("Not in your profile: 40%") and highlighted in the preview. It never stops you saving or sending, and it can't catch every invented claim, so read each draft yourself.
+- **Before I write:** press **Write the cover letter** (or **Write the resume**). The first time, the AI makes a short brief for you to check: who to write to, the ad's biggest needs with a story from your profile for each, the ad's best line to open with, your gaps, and a few questions only you can answer. Swap a story, drop a need, answer or skip a question, each in a click. Every change saves at once.
+- **Write with it:** press the same button again. The AI writes from your master profile, the job's notes and the brief. The text arrives as it's written, and **Stop** keeps what's there so far. Once a letter or resume is written, the brief folds to one line, and **Show the brief** opens it again. **Skip, just write** writes without a brief, and **New brief** makes a fresh one (your answers carry over).
+- **Add to my profile:** tick it on an answer, and it's added to the end of your master profile, under "Answers from my applications", when you write. Nothing else in the profile changes, and a copy of the old file is kept in `profile\old-versions\`.
+- **The fact-check** looks for numbers, dates, money, percentages and names in the draft. Any your master profile, the job's notes and your answers don't have are listed ("Not in your profile: 40%") and highlighted in the preview. It never stops you saving or sending, and it can't catch every invented claim, so read each draft yourself.
 - **Save version** keeps a new version every time. Nothing is ever overwritten.
 - **Mark as sent** freezes that version with the template as it was then. Later template changes never change what you sent, so you can always see it and print it again. The call sheet shows what you sent.
 - **Print / PDF** opens the page in a new tab. Press Ctrl+P there, choose **Save to PDF** and A4, and untick **Headers and footers** (under More settings).
@@ -100,12 +110,14 @@ On a job's page, under **Documents**, press **New resume** or **New cover letter
 - **Attach file** keeps a PDF or Word file you made elsewhere with the job, up to 15 MB.
 - Text you haven't saved is kept in the browser, so closing the tab doesn't lose it. The editor offers to restore it.
 
+**Get ready:** on a job's page, press **Get ready** for a plan for the interview: what to learn in a day, a small practice project, likely interview questions with the story to tell, questions to ask them, and what to refresh. **New plan** makes another, and the old ones stay under **Earlier plans**. The writing AI makes it, from the same things as the brief.
+
 ### Your profile
 
 Go to **Settings → Profile**:
 - **Master profile:** everything you've done. Paste your full resume, with every job, result and qualification. The AI writes only from this.
 - **Preferences:** the roles you want, your salary floor, locations and deal-breakers. They're used for match ratings.
-- **Resume guide** and **Cover letter guide:** how you want them written. The app comes with starter guides, which you can change.
+- **Resume guide** and **Cover letter guide:** how you want them written. The app comes with starter guides, which you can change. When a newer starter comes with an update, a guide you never changed is updated at start-up. If you changed yours, a note offers the new one, with **See what changes**, **Use the new guide** and **Keep mine**. Your old text is always kept in `profile\old-versions\`.
 
 **Settings → Templates** holds the CSS that styles the page: `resume.css` and `cover-letter.css`. The files live in the `profile` and `templates` folders, so you can edit them in any text editor too.
 
@@ -152,7 +164,7 @@ The toolbar button (or `Alt+Shift+J`) saves a job ad from any other website. To 
 | Logs | `data\logs\` |
 | Settings | `config\settings.json` |
 | Your Gmail app password and AI API keys | `config\secrets.json` |
-| Your profile and writing guides | `profile\` |
+| Your profile and writing guides | `profile\` (with older copies in `profile\old-versions\`) |
 | Resume and cover letter templates | `templates\` |
 | Attached files | `data\files\` |
 

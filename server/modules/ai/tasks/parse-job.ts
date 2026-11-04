@@ -9,10 +9,14 @@ import { runJsonTask } from './json-task.ts';
 export const AD_LIMIT = 12_000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// The AI gets at most 12,000 characters of the ad. The saved ad is never cut.
-export function trimAd(text: string): string {
+// What a cut ad ends with.
+export const AD_CUT = '\n[The rest of the ad was cut.]';
+
+// The AI gets at most 12,000 characters of the ad, or the limit given (a
+// writing task fits it to what's left). The saved ad is never cut.
+export function trimAd(text: string, limit = AD_LIMIT): string {
   const ad = text.trim();
-  return ad.length > AD_LIMIT ? `${ad.slice(0, AD_LIMIT)}\n[The rest of the ad was cut.]` : ad;
+  return ad.length > limit ? `${ad.slice(0, limit)}${AD_CUT}` : ad;
 }
 
 export async function parseJobTask(o: {

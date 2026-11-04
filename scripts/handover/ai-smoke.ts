@@ -223,7 +223,7 @@ try {
   if (mark?.verdict && cardSecs <= 30) report.pass('the AI gives a job card a quick mark', `${cardSecs} s per card; ${mark.verdict}, ${mark.score}`);
   else report.fail('the AI gives a job card a quick mark', mark?.verdict ? `${cardSecs} s for one card (30 s at most)` : card.json?.reason ?? card.json?.error?.message ?? `status ${card.status}`);
 
-  // A resume, written from the sample profile, as the editor's Generate does.
+  // A resume, written from the sample profile, as the editor's Skip, just write does.
   if (id !== undefined) {
     const writeStart = Date.now();
     const res = await fetch(`http://127.0.0.1:${port}/api/v1/jobs/${id}/documents/generate`, {

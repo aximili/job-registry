@@ -8,6 +8,7 @@
   import EditJobDialog from '../components/EditJobDialog.svelte';
   import FollowUpDialog from '../components/FollowUpDialog.svelte';
   import LogCallDialog from '../components/LogCallDialog.svelte';
+  import PrepPanel from '../components/PrepPanel.svelte';
   import Timeline from '../components/Timeline.svelte';
   import { api } from '../lib/api.ts';
   import { friendlyError } from '../lib/errors.ts';
@@ -26,6 +27,7 @@
   let logCall = $state<LogCallDialog>();
   let editJob = $state<EditJobDialog>();
   let followUp = $state<FollowUpDialog>();
+  let prep = $state<PrepPanel>();
 
   async function load() {
     try {
@@ -106,6 +108,8 @@
       event.preventDefault();
       followUp?.open();
     } else if (event.key === 'Escape' && !isTypingTarget(document.activeElement)) {
+      // Not while a plan is being made: Cancel is the way to stop it.
+      if (prep?.isMaking()) return;
       navigate('/');
     }
   }
@@ -130,6 +134,7 @@
       onFollowUpDone={followUpDone}
     />
     <DocumentsPanel jobId={id} documents={sheet.documents} attachments={sheet.attachments} onChanged={load} />
+    <PrepPanel bind:this={prep} jobId={id} />
     <div class="below">
       <Timeline items={buildTimeline(sheet, statusLabel)} />
       <AdText postings={sheet.postings} />

@@ -170,6 +170,26 @@ test.describe('AI settings', () => {
       });
     });
 
+    test('the brief and the prep plan have rows of their own, saved with the rest', async ({ page }) => {
+      await page.goto('/settings#ai');
+      const brief = task(page, 'Making the brief');
+      await expect(brief.getByLabel('Thinking').locator('option:checked')).toHaveText('Medium');
+      await expect(brief.getByLabel('Longest answer')).toHaveValue('3072');
+      await expect(brief.getByLabel('Temperature')).toHaveValue('0.3');
+      const prep = task(page, 'Making the prep plan');
+      await expect(prep.getByLabel('Thinking').locator('option:checked')).toHaveText('Low');
+      await expect(prep.getByLabel('Longest answer')).toHaveValue('4096');
+      await expect(prep.getByLabel('Temperature')).toHaveValue('0.4');
+
+      await brief.getByLabel('Longest answer').fill('4000');
+      await prep.getByLabel('Thinking').selectOption({ label: 'High' });
+      await save(page);
+      await expect(page.getByRole('status').filter({ hasText: 'AI settings saved.' })).toBeVisible();
+      const { ai } = await saved(page);
+      expect(ai.tasks.brief).toMatchObject({ maxTokens: 4000, thinking: true, thinkingEffort: 'medium', temperature: 0.3 });
+      expect(ai.tasks.prep).toMatchObject({ maxTokens: 4096, thinking: true, thinkingEffort: 'high', temperature: 0.4 });
+    });
+
     test('No limit leaves the thinking and the answer to the AI, so Longest answer is off', async ({ page }) => {
       await page.goto('/settings#ai');
       const write = task(page, 'Writing resumes and cover letters');

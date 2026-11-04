@@ -52,7 +52,7 @@ function setup(o: {
   runtime?: (getConfig: () => SavedAi) => ModelRuntime;
 }) {
   const bus = createEventBus(silent);
-  const settings: AiSettings = { active: o.active, saved: o.saved };
+  const settings: AiSettings = { active: o.active, writer: null, saved: o.saved };
   const getConfig = () => activeAi(settings);
   const providers = new Map<string, FakeAiProvider>();
   const provider = (id: string): FakeAiProvider => {
@@ -79,6 +79,7 @@ function setup(o: {
     getAll: () => settings.saved,
     runtime,
     getConfig,
+    getWriter: () => ({ ai: getConfig(), inUse: true }),
     bus,
     logger: silent,
     now: () => new Date(),
@@ -566,6 +567,8 @@ describe('switching while a draft is being written (Review Focus 3)', () => {
     job: 'Role: Senior Engineer',
     ad: 'We want someone who knows TypeScript.',
     today: '31 October 2026',
+    notes: [],
+    brief: null,
   };
   const writes = (provider: FakeAiProvider) => {
     provider.reply = (req) => (req.jsonSchema ? defaultReply(req) : RESUME);

@@ -45,6 +45,8 @@
 
   // Sections with changes you haven't saved: the menu says so.
   let unsaved = $state<Record<SectionId, boolean>>({ profile: false, ai: false, email: false, statuses: false, templates: false, display: false, data: false });
+  // A newer starter guide is ready: the menu points to Profile.
+  let newGuide = $state(false);
 
   // The theme changes the moment you pick one, so Display never has unsaved changes.
   let theme = $state<Theme>(storedTheme());
@@ -59,8 +61,9 @@
   });
 
   // What the menu says beside each name.
-  function noteFor(id: SectionId): { text: string; tone: 'unsaved' | 'bad' | null } | null {
+  function noteFor(id: SectionId): { text: string; tone: 'unsaved' | 'new' | 'bad' | null } | null {
     if (unsaved[id]) return { text: 'Not saved', tone: 'unsaved' };
+    if (id === 'profile' && newGuide) return { text: 'New guide', tone: 'new' };
     // The header pill shows what the AI is doing. The menu only points out a problem.
     if (id === 'ai' && ai.state === 'error') return { text: 'Problem', tone: 'bad' };
     if (id === 'email' && loaded) return { text: app.settings.email.enabled ? 'On' : 'Off', tone: null };
@@ -167,7 +170,7 @@
             >
               <span>{section.label}</span>
               {#if note}
-                <span class="note" class:unsaved={note.tone === 'unsaved'} class:bad={note.tone === 'bad'}>{note.text}</span>
+                <span class="note" class:unsaved={note.tone === 'unsaved' || note.tone === 'new'} class:bad={note.tone === 'bad'}>{note.text}</span>
               {/if}
             </a>
           </li>
@@ -180,6 +183,7 @@
         show={active === 'profile' || active === 'templates' ? active : null}
         bind:unsavedProfile={unsaved.profile}
         bind:unsavedTemplates={unsaved.templates}
+        bind:newGuide
       />
 
       <div hidden={active !== 'ai'}>

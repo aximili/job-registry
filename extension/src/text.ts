@@ -1,6 +1,8 @@
 // A page element's text, laid out the way you'd read it: paragraphs on their
 // own lines and list items as bullets. The same rules as the server's.
 
+import { linkText } from '../../shared/mailto.ts';
+
 const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'BUTTON', 'IFRAME']);
 const BLOCK = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'TR', 'HEADER', 'FOOTER', 'BLOCKQUOTE', 'PRE']);
 
@@ -12,6 +14,7 @@ function walk(node: Node): string {
   if (SKIP.has(tag)) return '';
   if (tag === 'BR') return '\n';
   const inner = Array.from(el.childNodes, walk).join('');
+  if (tag === 'A') return linkText(inner, el.getAttribute('href'));
   if (tag === 'LI') return `\n• ${inner.trim()}\n`;
   if (tag === 'TD' || tag === 'TH') return `${inner.trim()}\t`;
   if (BLOCK.has(tag)) return `\n\n${inner.trim()}\n\n`;

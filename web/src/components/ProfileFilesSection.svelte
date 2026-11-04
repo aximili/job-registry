@@ -1,22 +1,33 @@
 <script lang="ts">
   // Settings → Profile and Templates: your master profile, preferences and
   // writing guides (Markdown), and the CSS templates your resumes and cover
-  // letters are printed with. Each file saves on its own.
+  // letters are printed with. Each file saves on its own. When the app has a
+  // newer starter guide than yours, a note offers it.
   import { onMount } from 'svelte';
-  import type { ProfileFileName } from '../../../shared/contracts/index.ts';
+  import type { GuideName, ProfileFile, ProfileFileName, StarterStatus } from '../../../shared/contracts/index.ts';
   import { api } from '../lib/api.ts';
   import { friendlyError } from '../lib/errors.ts';
+  import { onLive, onReconnect } from '../lib/live.svelte.ts';
   import { setLeaveGuard } from '../lib/router.svelte.ts';
+  import { showToast } from '../lib/toast.svelte.ts';
+  import StarterNote from './StarterNote.svelte';
 
   type Entry = { name: ProfileFileName; label: string; hint: string; rows: number; placeholder?: string };
 
-  // Which of the two parts Settings shows, and which have changes you haven't saved.
+  // Which of the two parts Settings shows, which have changes you haven't
+  // saved, and whether a newer starter guide is ready (the menu says so).
   let {
     show,
     unsavedProfile = $bindable(false),
     unsavedTemplates = $bindable(false),
-  }: { show: 'profile' | 'templates' | null; unsavedProfile?: boolean; unsavedTemplates?: boolean } = $props();
-  type FileState = { text: string; saved: string; busy: boolean; message: string | null; error: string | null };
+    newGuide = $bindable(false),
+  }: { show: 'profile' | 'templates' | null; unsavedProfile?: boolean; unsavedTemplates?: boolean; newGuide?: boolean } = $props();
+  // updatedAt: the file's time when it was loaded or saved here. A save sends
+  // it, so a file that changed since (answers added, a new guide) isn't saved over.
+  type FileState = { text: string; saved: string; updatedAt: string | null; busy: boolean; message: string | null; error: string | null };
+  type Note = { busy: boolean; error: string | null };
+
+  const CHANGED_HERE = 'This file changed since you opened it. Copy your changes, then reload the page to see the new text.';
 
   const EXAMPLE = [
     '# Your Name',
@@ -59,6 +70,11 @@
 
   let files = $state<Partial<Record<ProfileFileName, FileState>>>({});
   let loadError = $state<string | null>(null);
+  // The guides with a newer starter ready, and each note's own state.
+  let starters = $state<StarterStatus[]>([]);
+  let notes = $state<Partial<Record<GuideName, Note>>>({});
+  const newer = $derived(starters.filter((s) => s.state === 'newer'));
+  const entryOf = (name: ProfileFileName) => [...PROFILE, ...TEMPLATES].find((e) => e.name === name)!;
 
   // Files with changes you haven't saved, by label.
   function unsaved(entries: Entry[] = [...PROFILE, ...TEMPLATES]): string[] {
@@ -73,6 +89,7 @@
   $effect(() => {
     unsavedProfile = unsaved(PROFILE).length > 0;
     unsavedTemplates = unsaved(TEMPLATES).length > 0;
+    newGuide = newer.length > 0;
   });
 
   onMount(() => {
@@ -85,18 +102,66 @@
     };
     window.addEventListener('beforeunload', warn);
     void load();
+    void loadStarters();
+    // A file changed: answers added to your profile, a guide used, or a save
+    // in another tab. Each tab skips the echo of its own save.
+    const off = onLive(['profile.changed'], (_name, payload) => {
+      const { name } = payload as { name: ProfileFileName };
+      void refresh(name);
+      if (name === 'resume-guide' || name === 'cover-letter-guide') void loadStarters();
+    });
+    const offReconnect = onReconnect(() => {
+      for (const e of [...PROFILE, ...TEMPLATES]) void refresh(e.name);
+      void loadStarters();
+    });
     return () => {
       setLeaveGuard(null);
       window.removeEventListener('beforeunload', warn);
+      off();
+      offReconnect();
     };
   });
+
+  const loaded = (f: ProfileFile): FileState => ({ text: f.text, saved: f.text, updatedAt: f.updatedAt, busy: false, message: null, error: null });
 
   async function load() {
     try {
       const all = await Promise.all([...PROFILE, ...TEMPLATES].map((e) => api.getProfileFile(e.name)));
-      for (const f of all) files[f.name] = { text: f.text, saved: f.text, busy: false, message: null, error: null };
+      for (const f of all) files[f.name] = loaded(f);
     } catch (err) {
       loadError = friendlyError(err);
+    }
+  }
+
+  // Only a hint: without it, the editors still work.
+  async function loadStarters() {
+    try {
+      starters = await api.starters();
+    } catch {
+      // The next change or reconnect tries again.
+    }
+  }
+
+  // The file as it is now. With no unsaved changes, the editor takes it;
+  // with some, it says the file changed, and keeps what you typed.
+  async function refresh(name: ProfileFileName) {
+    let now: ProfileFile;
+    try {
+      now = await api.getProfileFile(name);
+    } catch {
+      return;
+    }
+    const state = files[name];
+    // A save in flight brings back the newest time itself.
+    if (!state || state.busy || now.updatedAt === state.updatedAt) return;
+    if (state.text === state.saved) {
+      files[name] = loaded(now);
+    } else if (state.text === now.text) {
+      state.saved = now.text;
+      state.updatedAt = now.updatedAt;
+    } else {
+      state.message = null;
+      state.error = CHANGED_HERE;
     }
   }
 
@@ -107,14 +172,53 @@
     state.error = null;
     state.message = null;
     try {
-      const saved = await api.putProfileFile(entry.name, state.text);
+      // A 409 says the file changed since: its sentence shows below.
+      const saved = await api.putProfileFile(entry.name, state.text, state.updatedAt);
       state.saved = saved.text;
       state.text = saved.text;
+      state.updatedAt = saved.updatedAt;
       state.message = 'Saved.';
     } catch (err) {
       state.error = friendlyError(err);
     } finally {
       state.busy = false;
+    }
+  }
+
+  // Back to the guide's editor, once its note has gone.
+  const focusEditor = (name: GuideName) => requestAnimationFrame(() => document.getElementById(`file-${name}`)?.focus());
+
+  async function useStarter(name: GuideName) {
+    const entry = entryOf(name);
+    const label = entry.label.toLowerCase();
+    const state = files[name];
+    if (state && state.text !== state.saved && !confirm(`Your ${label} has changes you haven't saved. Use the new guide anyway? Your unsaved changes will be lost.`)) return;
+    notes[name] = { busy: true, error: null };
+    const note = notes[name]!;
+    try {
+      const guide = await api.starterAction(name, 'use');
+      files[name] = loaded(guide);
+      starters = starters.map((s) => (s.name === name ? { name, state: 'same', diff: null } : s));
+      showToast(`Now using the new ${label}. Your old one is kept in the profile folder, under old-versions.`);
+      focusEditor(name);
+    } catch (err) {
+      note.error = friendlyError(err);
+    } finally {
+      note.busy = false;
+    }
+  }
+
+  async function keepMine(name: GuideName) {
+    notes[name] = { busy: true, error: null };
+    const note = notes[name]!;
+    try {
+      const status = await api.starterAction(name, 'keep');
+      starters = starters.map((s) => (s.name === name ? status : s));
+      focusEditor(name);
+    } catch (err) {
+      note.error = friendlyError(err);
+    } finally {
+      note.busy = false;
     }
   }
 </script>
@@ -126,6 +230,7 @@
       <label class="field">
         <span>{entry.label}</span>
         <textarea
+          id="file-{entry.name}"
           class="mono"
           rows={entry.rows}
           spellcheck={entry.name !== 'resume' && entry.name !== 'cover-letter'}
@@ -156,6 +261,16 @@
     These files stay on this computer, in the <code>profile</code> folder. You can also edit them in any text editor.
   </p>
   {#if loadError}<p class="error" role="alert">{loadError}</p>{/if}
+  {#each newer as status (status.name)}
+    <StarterNote
+      {status}
+      label={entryOf(status.name).label}
+      busy={notes[status.name]?.busy ?? false}
+      error={notes[status.name]?.error ?? null}
+      onuse={() => useStarter(status.name)}
+      onkeep={() => keepMine(status.name)}
+    />
+  {/each}
   {#each PROFILE as entry (entry.name)}{@render editor(entry)}{/each}
 </section>
 

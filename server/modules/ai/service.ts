@@ -3,6 +3,12 @@
 // the header pill. It knows nothing about jobs: text in, typed results out.
 // Each task goes to the AI in use, through that AI's own provider and key. A
 // switch to an AI whose program the app runs starts it at once.
+// Writing goes to the writing AI. When that's another AI, its problems stay
+// where you write, never on the pill, and the app never starts or stops it. A
+// cloud one writes in a lane of its own, so it never waits behind the local
+// AI's ratings; a local one shares the main queue, because there's one GPU.
+// A writing request too long for a local AI is refused before it's queued
+// (budget.ts).
 
 import {
   AI_PRESETS,
@@ -15,6 +21,7 @@ import {
   type CardRating,
   type EmailClassification,
   type ParsedJob,
+  type PrepAnswer,
   type Rating,
   type SavedAi,
 } from '../../../shared/contracts/index.ts';
@@ -22,17 +29,26 @@ import type { Clock } from '../../core/config.ts';
 import { AiAnswerError, AiUnavailableError } from '../../core/errors.ts';
 import type { AppEvents, EventBus } from '../../core/events.ts';
 import type { Logger } from '../../core/logger.ts';
+import type { CutBrief } from './budget.ts';
 import { loadPrompt, PROMPTS_DIR } from './prompts.ts';
-import type { AiProvider } from './provider.ts';
-import { createAiQueue, type Priority } from './queue.ts';
+import { cantReachSentence, USE_ANOTHER_AI, USE_ANOTHER_WRITER, type AiProvider } from './provider.ts';
+import { createAiQueue, type AiQueue, type Priority } from './queue.ts';
 import type { ModelRuntime } from './runtime.ts';
 import { classifyEmailTask, type ClassifyInput } from './tasks/classify-email.ts';
+import { briefRequest, makeBriefTask, type BriefInput } from './tasks/make-brief.ts';
+import { makePrepTask, prepRequest, type PrepInput } from './tasks/make-prep.ts';
 import { parseJobTask } from './tasks/parse-job.ts';
 import { rateCardTask, type CardInput } from './tasks/rate-card.ts';
 import { rateJobTask, type RateInput } from './tasks/rate-job.ts';
-import { writeDocumentTask, type WriteInput } from './tasks/write-document.ts';
+import { writeDocumentTask, writeRequest, type WriteInput } from './tasks/write-document.ts';
 
-export type { CardInput, ClassifyInput, Priority, RateInput, WriteInput };
+export type { BriefInput, CardInput, ClassifyInput, CutBrief, PrepInput, Priority, RateInput, WriteInput };
+
+// For a writing task: onQueued is told the name of the writing AI picked, as
+// the task is queued; onStart the name of the AI it runs on, as it starts
+// (after any wait in the queue). They differ only when the writer changes
+// while the task waits.
+type WritingOptions = { signal?: AbortSignal; key?: string; onQueued?: (by: string) => void; onStart?: (by: string) => void };
 
 export interface AiService {
   parseJob(adText: string, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<ParsedJob>;
@@ -43,9 +59,15 @@ export interface AiService {
   // A quick rating from one card in a search list. It waits behind anything
   // you're waiting for, but goes before reading saved ads.
   rateCard(input: CardInput, opts?: { signal?: AbortSignal; key?: string; priority?: Priority }): Promise<{ rating: CardRating; model: string }>;
-  // A resume or cover letter, as it's written. It holds the AI until the
-  // stream ends, is cancelled, or the reader stops early.
-  writeDocument(input: WriteInput, opts?: { signal?: AbortSignal; key?: string }): AsyncIterable<string>;
+  // A resume or cover letter, as it's written, by the writing AI. It holds
+  // that AI until the stream ends, is cancelled, or the reader stops early.
+  writeDocument(input: WriteInput, opts?: WritingOptions): AsyncIterable<string>;
+  // The brief to check before writing, by the writing AI, cut to its caps.
+  // by is the name of the AI it ran on.
+  briefJob(input: BriefInput, opts?: WritingOptions): Promise<{ brief: CutBrief; by: string }>;
+  // The prep plan for an interview, by the writing AI, cut to its caps and
+  // with no links.
+  prepJob(input: PrepInput, opts?: WritingOptions): Promise<{ plan: PrepAnswer; by: string }>;
   // What one email means. Background work, so anything you're waiting for goes first.
   classifyEmail(input: ClassifyInput, opts?: { signal?: AbortSignal; priority?: Priority }): Promise<EmailClassification>;
   status(): AiStatus;
@@ -78,6 +100,8 @@ export type AiOptions = {
   runtime: () => ModelRuntime;
   // The AI in use.
   getConfig: () => SavedAi;
+  // The AI that writes your documents, and whether it's the AI in use.
+  getWriter: () => { ai: SavedAi; inUse: boolean };
   bus: EventBus;
   logger: Logger;
   now: Clock;
@@ -85,6 +109,9 @@ export type AiOptions = {
 };
 
 type AiStateEvent = AppEvents['ai.stateChanged'];
+
+// A task's work, given the AI it runs on and that AI's provider.
+type AiWork<T> = (signal: AbortSignal, ai: SavedAi, provider: AiProvider) => Promise<T>;
 
 const isAbort = (err: unknown): boolean => (err as Error)?.name === 'AbortError';
 
@@ -116,6 +143,16 @@ function wrongModelFile(ai: SavedAi, all: SavedAi[], models: string[]): string |
   return `Another model (${files[0]}) is running on ${host}, not ${ai.name}'s (${expected}). Close it, then try again.`;
 }
 
+// A writing AI's error, when it isn't the AI in use: the pill can't change
+// it, so its advice points to where you pick the writer. Still the same
+// kind of error.
+function asWriterError(err: unknown): unknown {
+  if (err instanceof AiUnavailableError && err.message.includes(USE_ANOTHER_AI)) {
+    err.message = err.message.replace(USE_ANOTHER_AI, USE_ANOTHER_WRITER);
+  }
+  return err;
+}
+
 // The first ten of a list, then how many more: OpenRouter lists hundreds
 // of models, too many for one sentence.
 const SHOWN = 10;
@@ -141,6 +178,8 @@ export function createAiService(opts: AiOptions): AiService {
     card: loadPrompt(dir, 'rate-card'),
     resume: loadPrompt(dir, 'write-resume'),
     cover_letter: loadPrompt(dir, 'write-cover-letter'),
+    brief: loadPrompt(dir, 'make-brief'),
+    prep: loadPrompt(dir, 'make-prep'),
     email: loadPrompt(dir, 'classify-email'),
   };
 
@@ -237,9 +276,49 @@ export function createAiService(opts: AiOptions): AiService {
     return wrongModelFile(ai, opts.getAll(), health?.ok ? health.models : []);
   }
 
-  // Runs work in the queue once the AI in use's program is running, and
-  // keeps the pill up to date. With status false, the work's result doesn't
-  // count for the pill: it isn't about the AI in use as saved.
+  // A queue task's turn on the AI in use: runs work once the AI's program is
+  // running, and keeps the pill up to date. With status false, the work's
+  // result doesn't count for the pill: it isn't about the AI in use as saved.
+  async function onAiInUse<T>(
+    priority: Priority,
+    sig: AbortSignal,
+    work: (signal: AbortSignal) => Promise<T>,
+    status: boolean,
+  ): Promise<T> {
+    let rt: ModelRuntime;
+    let at: number;
+    // A switch while this task waits for the AI's program (which may stop
+    // that program) means it waits for the new AI's instead.
+    for (;;) {
+      at = switches;
+      rt = await useRuntime();
+      try {
+        await rt.ensureRunning(sig, { background: priority === 'background' });
+      } catch (err) {
+        if (switches !== at && !sig.aborted) continue;
+        publish();
+        throw err;
+      }
+      if (switches === at) break;
+    }
+    busy++;
+    publish();
+    try {
+      const value = await work(sig);
+      if (status && at === switches) failure = null;
+      return value;
+    } catch (err) {
+      // A task that ran on the AI before a switch says nothing about the one in use now.
+      if (status && at === switches && err instanceof AiUnavailableError && !(err instanceof AiAnswerError)) fail(err.message);
+      throw err;
+    } finally {
+      busy--;
+      rt.touch();
+      publish();
+    }
+  }
+
+  // Runs work in the main queue, on the AI in use.
   function queued<T>(
     priority: Priority,
     key: string | undefined,
@@ -247,64 +326,100 @@ export function createAiService(opts: AiOptions): AiService {
     work: (signal: AbortSignal) => Promise<T>,
     o: { status?: boolean } = {},
   ) {
-    const status = o.status ?? true;
-    return queue.run({
-      priority,
+    return queue.run({ priority, key, signal, work: (sig) => onAiInUse(priority, sig, work, o.status ?? true) });
+  }
+
+  // The AI in use and its provider, picked when the task starts: one waiting
+  // in the queue during a switch runs on the new AI, and one already running
+  // keeps the AI it started on. First, a llama-server AI checks that its own
+  // model answers, not another AI's.
+  async function withAiInUse<T>(sig: AbortSignal, work: AiWork<T>): Promise<T> {
+    const ai = opts.getConfig();
+    const provider = providerOf(ai);
+    const wrong = await modelProblem(ai, provider);
+    if (wrong) throw new AiUnavailableError(wrong);
+    return work(sig, ai, provider);
+  }
+
+  // A task on the AI in use.
+  function run<T>(priority: Priority, key: string | undefined, signal: AbortSignal | undefined, work: AiWork<T>) {
+    return queued(priority, key, signal, (sig) => withAiInUse(sig, work));
+  }
+
+  // Each cloud writing AI's own lane, by its id, made when it first writes.
+  const lanes = new Map<string, AiQueue>();
+  const queues = (): AiQueue[] => [queue, ...lanes.values()];
+
+  // Writing on an AI that isn't the AI in use. The app never starts or stops
+  // it, and nothing here touches the pill: its problems go back to where you
+  // write. A local one must answer first, with its own model.
+  async function onAnotherAi<T>(ai: SavedAi, sig: AbortSignal, work: AiWork<T>, onStart?: (ai: SavedAi) => void): Promise<T> {
+    const provider = providerOf(ai);
+    if (AI_PRESETS[ai.preset].group !== 'cloud') {
+      const health = await provider.health().catch(() => null);
+      if (!health?.ok) throw new AiUnavailableError(health?.detail ?? cantReachSentence(ai));
+      const wrong = wrongModelFile(ai, opts.getAll(), health.models);
+      if (wrong) throw new AiUnavailableError(wrong);
+    }
+    // The check can't be cancelled part-way: a task cancelled during it never starts.
+    sig.throwIfAborted();
+    onStart?.(ai);
+    try {
+      return await work(sig, ai, provider);
+    } catch (err) {
+      throw asWriterError(err);
+    }
+  }
+
+  // A writing task, on the writing AI as it is when the task is queued:
+  // - the AI in use: the main queue, as any task. If the writer is another
+  //   AI by the time its turn comes, it runs on that one, off the pill.
+  // - another local AI: the main queue too, because it shares the GPU.
+  // - another cloud AI: that AI's own lane, one task at a time, so it never
+  //   waits behind the local AI's ratings, or holds them up.
+  // "Latest wins" holds across them: a task cancels its key in every other
+  // queue first. onQueued is told the AI picked, as the task is queued;
+  // onStart the AI the work runs on, as it starts.
+  function writing<T>(
+    key: string | undefined,
+    signal: AbortSignal | undefined,
+    work: AiWork<T>,
+    o: { onQueued?: (ai: SavedAi) => void; onStart?: (ai: SavedAi) => void } = {},
+  ): Promise<T> {
+    const picked = opts.getWriter();
+    let target = queue;
+    if (!picked.inUse && AI_PRESETS[picked.ai.preset].group === 'cloud') {
+      target = lanes.get(picked.ai.id) ?? createAiQueue();
+      lanes.set(picked.ai.id, target);
+    }
+    // A request cancelled already cancels nothing, as in a queue of its own.
+    if (key !== undefined && !signal?.aborted) {
+      for (const other of queues()) if (other !== target) other.cancelKey(key);
+    }
+    if (!signal?.aborted) o.onQueued?.(picked.ai);
+    return target.run({
+      priority: 'interactive',
       key,
       signal,
-      work: async (sig) => {
-        let rt: ModelRuntime;
-        let at: number;
-        // A switch while this task waits for the AI's program (which may stop
-        // that program) means it waits for the new AI's instead.
-        for (;;) {
-          at = switches;
-          rt = await useRuntime();
-          try {
-            await rt.ensureRunning(sig, { background: priority === 'background' });
-          } catch (err) {
-            if (switches !== at && !sig.aborted) continue;
-            publish();
-            throw err;
-          }
-          if (switches === at) break;
-        }
-        busy++;
-        publish();
-        try {
-          const value = await work(sig);
-          if (status && at === switches) failure = null;
-          return value;
-        } catch (err) {
-          // A task that ran on the AI before a switch says nothing about the one in use now.
-          if (status && at === switches && err instanceof AiUnavailableError && !(err instanceof AiAnswerError)) fail(err.message);
-          throw err;
-        } finally {
-          busy--;
-          rt.touch();
-          publish();
-        }
+      work: (sig) => {
+        if (!picked.inUse) return onAnotherAi(picked.ai, sig, work, o.onStart);
+        const now = opts.getWriter();
+        if (!now.inUse) return onAnotherAi(now.ai, sig, work, o.onStart);
+        const started: AiWork<T> = (s, ai, provider) => {
+          // The model-file check can't be cancelled part-way either: a task
+          // cancelled during it never starts.
+          s.throwIfAborted();
+          o.onStart?.(ai);
+          return work(s, ai, provider);
+        };
+        return onAiInUse('interactive', sig, (s) => withAiInUse(s, started), true);
       },
     });
   }
 
-  // A task on the AI in use. The AI and its provider are picked when the task
-  // starts: one waiting in the queue during a switch runs on the new AI, and
-  // one already running keeps the AI it started on. First, a llama-server
-  // AI checks that its own model answers, not another AI's.
-  function run<T>(
-    priority: Priority,
-    key: string | undefined,
-    signal: AbortSignal | undefined,
-    work: (signal: AbortSignal, ai: SavedAi, provider: AiProvider) => Promise<T>,
-  ) {
-    return queued(priority, key, signal, async (sig) => {
-      const ai = opts.getConfig();
-      const provider = providerOf(ai);
-      const wrong = await modelProblem(ai, provider);
-      if (wrong) throw new AiUnavailableError(wrong);
-      return work(sig, ai, provider);
-    });
+  // Every queue idle at the same time: the main one and each lane.
+  async function idle(): Promise<void> {
+    while (queues().some((q) => q.running() || q.pending() > 0)) await Promise.all(queues().map((q) => q.onIdle()));
   }
 
   // A switch to another AI. The old runtime stops if the new AI uses another
@@ -479,6 +594,9 @@ export function createAiService(opts: AiOptions): AiService {
     },
 
     async *writeDocument(input, o = {}) {
+      // Too long for the writing AI: refused now, before it waits or starts.
+      // The task checks again on the AI it runs on.
+      writeRequest(prompts[input.kind], input, opts.getWriter().ai);
       // The queue task writes chunks into a buffer; this generator hands them on.
       const controller = new AbortController();
       const cancel = () => controller.abort();
@@ -492,13 +610,18 @@ export function createAiService(opts: AiOptions): AiService {
         wake?.();
         wake = null;
       };
-      const work = run('interactive', o.key, controller.signal, async (signal, ai, provider) => {
-        const prompt = prompts[input.kind];
-        for await (const text of writeDocumentTask({ provider, prompt, config: ai, input, signal })) {
-          buffer.push(text);
-          notify();
-        }
-      }).then(
+      const work = writing(
+        o.key,
+        controller.signal,
+        async (signal, ai, provider) => {
+          const prompt = prompts[input.kind];
+          for await (const text of writeDocumentTask({ provider, prompt, config: ai, input, signal })) {
+            buffer.push(text);
+            notify();
+          }
+        },
+        { onQueued: (ai) => o.onQueued?.(ai.name), onStart: (ai) => o.onStart?.(ai.name) },
+      ).then(
         () => {
           state.ended = true;
           notify();
@@ -528,6 +651,34 @@ export function createAiService(opts: AiOptions): AiService {
       }
     },
 
+    async briefJob(input, o = {}) {
+      // Too long for the writing AI: refused now, as for a document.
+      briefRequest(prompts.brief, input, opts.getWriter().ai);
+      return writing(
+        o.key,
+        o.signal,
+        async (signal, ai, provider) => ({
+          brief: await makeBriefTask({ provider, prompt: prompts.brief, config: ai, input, signal }),
+          by: ai.name,
+        }),
+        { onQueued: (ai) => o.onQueued?.(ai.name), onStart: (ai) => o.onStart?.(ai.name) },
+      );
+    },
+
+    async prepJob(input, o = {}) {
+      // Too long for the writing AI: refused now, as for a document.
+      prepRequest(prompts.prep, input, opts.getWriter().ai);
+      return writing(
+        o.key,
+        o.signal,
+        async (signal, ai, provider) => ({
+          plan: await makePrepTask({ provider, prompt: prompts.prep, config: ai, input, signal }),
+          by: ai.name,
+        }),
+        { onQueued: (ai) => o.onQueued?.(ai.name), onStart: (ai) => o.onStart?.(ai.name) },
+      );
+    },
+
     status() {
       const ai = opts.getConfig();
       return { ...current(), id: ai.id, name: ai.name, preset: ai.preset, baseUrl: ai.baseUrl };
@@ -551,8 +702,8 @@ export function createAiService(opts: AiOptions): AiService {
 
     async stop() {
       switchStart?.abort();
-      queue.cancelAll();
-      await queue.onIdle();
+      for (const q of queues()) q.cancelAll();
+      await idle();
       await (runtime ?? opts.runtime()).stop();
       failure = null;
       publish();
@@ -560,10 +711,10 @@ export function createAiService(opts: AiOptions): AiService {
 
     stopNow() {
       switchStart?.abort();
-      queue.cancelAll();
+      for (const q of queues()) q.cancelAll();
       (runtime ?? opts.runtime()).stopNow();
     },
 
-    onIdle: () => queue.onIdle(),
+    onIdle: idle,
   };
 }

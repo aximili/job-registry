@@ -5,6 +5,8 @@ import {
   AiCheckRequest,
   AiModelsResult,
   AiSettings,
+  Brief,
+  BriefEdits,
   Capture,
   DEFAULT_AI_ID,
   DEFAULT_SETTINGS,
@@ -12,12 +14,16 @@ import {
   IsoDateTime,
   JobCard,
   newAiId,
+  PrepAnswer,
+  PrepPlan,
   Rating,
   sameAddressWarning,
   SaveJobRequest,
   SetFollowUpRequest,
   Settings,
   Status,
+  UseWriterRequest,
+  writingAi,
   type SavedAi,
 } from './index.ts';
 
@@ -126,11 +132,17 @@ describe('contracts: saved AIs', () => {
   it("your old settings file loads as one saved AI, with nothing lost", () => {
     const s = Settings.parse(oldFile);
     expect(s.ai.active).toBe('bonsai-2');
+    // No writing AI of its own: the AI in use writes, as before.
+    expect(s.ai.writer).toBeNull();
     expect(s.ai.saved).toHaveLength(1);
     const { id, name, ...rest } = s.ai.saved[0]!;
     expect({ id, name }).toEqual({ id: 'bonsai-2', name: 'Bonsai 2' });
     // Every old field, exactly as it was: the .bat program, the edited tasks and their extra fields.
-    expect(rest).toEqual(oldFile.ai);
+    // The brief and the prep plan are newer, so they get their defaults.
+    const { brief, prep, ...oldTasks } = rest.tasks;
+    expect({ ...rest, tasks: oldTasks }).toEqual(oldFile.ai);
+    expect(brief).toEqual(bonsai.tasks.brief);
+    expect(prep).toEqual(bonsai.tasks.prep);
     expect(rest.managed.exe).toBe('D:\\aitest\\Bonsai-demo\\start_bonsai.bat');
     expect(rest.tasks.write).toEqual(oldFile.ai.tasks.write);
     expect(rest.tasks.card).toEqual(oldFile.ai.tasks.card);
@@ -148,9 +160,11 @@ describe('contracts: saved AIs', () => {
   });
 
   it('a file in the new shape loads as it is', () => {
-    const ai = { active: 'claude-mine', saved: [bonsai, claude] };
+    const ai = { active: 'claude-mine', writer: 'bonsai-2', saved: [bonsai, claude] };
     expect(AiSettings.parse(ai)).toEqual(ai);
     expect(activeAi(AiSettings.parse(ai))).toEqual(claude);
+    // A Phase 8 file has no writer: the AI in use writes.
+    expect(AiSettings.parse({ active: 'claude-mine', saved: [bonsai, claude] })).toEqual({ ...ai, writer: null });
   });
 
   it('refuses an AI in use that is not saved, no saved AI, and one id used twice', () => {
@@ -194,8 +208,65 @@ describe('contracts: saved AIs', () => {
   });
 
   it('activeAi gives the saved AI that is in use', () => {
-    expect(activeAi({ active: 'claude-mine', saved: [bonsai, claude] as never })).toBe(claude);
-    expect(activeAi({ active: 'bonsai-2', saved: [bonsai, claude] as never })).toBe(bonsai);
+    expect(activeAi({ active: 'claude-mine', writer: null, saved: [bonsai, claude] as never })).toBe(claude);
+    expect(activeAi({ active: 'bonsai-2', writer: null, saved: [bonsai, claude] as never })).toBe(bonsai);
+  });
+});
+
+describe('contracts: the AI that writes your documents', () => {
+  const bonsai = activeAi(DEFAULT_SETTINGS.ai);
+  const claude = { ...bonsai, id: 'claude-mine', name: 'Claude – mine', preset: 'custom', baseUrl: 'https://api.example.com/v1' };
+  const two = (writer: string | null) => AiSettings.parse({ active: 'bonsai-2', writer, saved: [bonsai, claude] });
+
+  it('an empty settings file has no writing AI of its own, so the AI in use writes', () => {
+    expect(Settings.parse({}).ai.writer).toBeNull();
+    expect(DEFAULT_SETTINGS.ai.writer).toBeNull();
+  });
+
+  it('your old one-AI settings file has no writing AI either', () => {
+    expect(Settings.parse({ ai: { preset: 'ollama', model: 'qwen3:8b' } }).ai.writer).toBeNull();
+  });
+
+  it('writingAi: none picked means the AI in use', () => {
+    const ai = two(null);
+    expect(writingAi(ai)).toEqual({ ai: bonsai, inUse: true, missing: false });
+    // The saved AI itself, as activeAi gives it.
+    expect(writingAi(ai).ai).toBe(ai.saved[0]);
+  });
+
+  it('writingAi: another saved AI writes, and it is not the AI in use', () => {
+    expect(writingAi(two('claude-mine'))).toEqual({ ai: claude, inUse: false, missing: false });
+  });
+
+  it('writingAi: picking the AI in use itself is the same as none', () => {
+    expect(writingAi(two('bonsai-2'))).toEqual({ ai: bonsai, inUse: true, missing: false });
+  });
+
+  it("writingAi: a writer that isn't saved any more falls back to the AI in use, and says so", () => {
+    // A hand edit that removes the AI still loads.
+    const gone = two('claude-gone');
+    expect(gone.writer).toBe('claude-gone');
+    expect(writingAi(gone)).toEqual({ ai: bonsai, inUse: true, missing: true });
+  });
+
+  it('refuses a writer that is not an AI id', () => {
+    for (const writer of ['Claude', 'claude mine', '', 'x'.repeat(41), 7]) {
+      expect(AiSettings.safeParse({ active: 'bonsai-2', writer, saved: [bonsai] }).success, String(writer)).toBe(false);
+    }
+  });
+
+  it('every saved AI has settings for making the brief and the prep plan', () => {
+    const fresh = activeAi(Settings.parse({}).ai);
+    expect(fresh.tasks.brief).toEqual({ model: null, temperature: 0.3, maxTokens: 3072, thinking: true, thinkingEffort: 'medium', extra: {} });
+    expect(fresh.tasks.prep).toEqual({ model: null, temperature: 0.4, maxTokens: 4096, thinking: true, thinkingEffort: 'low', extra: {} });
+  });
+
+  it('a request to pick the writing AI: an id, or null for the AI in use', () => {
+    expect(UseWriterRequest.parse({ id: 'claude-mine' })).toEqual({ id: 'claude-mine' });
+    expect(UseWriterRequest.parse({ id: null })).toEqual({ id: null });
+    expect(UseWriterRequest.safeParse({}).success).toBe(false);
+    expect(UseWriterRequest.safeParse({ id: 'Claude' }).success).toBe(false);
+    expect(UseWriterRequest.safeParse({ id: 'claude-mine', active: 'bonsai-2' }).success).toBe(false);
   });
 });
 
@@ -374,5 +445,80 @@ describe('contracts: follow-ups', () => {
     const long = SetFollowUpRequest.safeParse({ on: '2026-11-05', note: 'x'.repeat(201) });
     expect(long.success).toBe(false);
     expect(long.error?.issues[0]?.message).toBe('Keep the reason to 200 characters or fewer.');
+  });
+});
+
+describe('contracts: the saved brief', () => {
+  const story = { title: 'Moving to TypeScript', text: 'I moved the web app to TypeScript.' };
+  const brief = {
+    id: 1,
+    jobId: 2,
+    by: 'Bonsai 2',
+    createdAt: '2026-11-03T01:00:00.000Z',
+    updatedAt: '2026-11-03T01:00:00.000Z',
+    approvedAt: null,
+    contact: { name: null, email: null, recruiter: false, organisation: null },
+    opening: { quote: 'Ship faster.', why: 'I cut build times.', inAd: true },
+    needs: [{ need: 'TypeScript', stories: [story, story], chosen: 1, dropped: false }],
+    gaps: [],
+    questions: [],
+  };
+
+  it("refuses a need whose chosen story isn't one of its stories, or a need with no stories, but reads a brief with no needs", () => {
+    expect(Brief.parse(brief).needs[0]!.chosen).toBe(1);
+    expect(Brief.safeParse({ ...brief, needs: [{ ...brief.needs[0], chosen: 2 }] }).success).toBe(false);
+    expect(Brief.safeParse({ ...brief, needs: [{ ...brief.needs[0], stories: [], chosen: 0 }] }).success).toBe(false);
+    // The AI found none: it's saved as it is, and the page says so.
+    expect(Brief.parse({ ...brief, needs: [] }).needs).toEqual([]);
+  });
+
+  it('takes only the edits you can make: trimmed, within their caps, and nothing else', () => {
+    expect(BriefEdits.parse({ contact: { name: '  Alex  ', recruiter: true } })).toEqual({ contact: { name: 'Alex', recruiter: true } });
+    expect(BriefEdits.safeParse({ contact: { name: 'Alex', recruiter: true, email: 'alex@example-recruit.com.au' } }).success).toBe(false);
+    expect(BriefEdits.safeParse({ gaps: [] }).success).toBe(false);
+    expect(BriefEdits.safeParse({ needs: [{ chosen: 3, dropped: false }] }).success).toBe(false);
+    expect(BriefEdits.safeParse({ needs: Array(4).fill({ chosen: 0, dropped: false }) }).success).toBe(false);
+    const answer = (text: string) => ({ questions: [{ answer: text, skipped: false, addToProfile: true }] });
+    // 240 after trimming is fine; 241 is not.
+    expect(BriefEdits.safeParse(answer(` ${'x'.repeat(240)} `)).success).toBe(true);
+    expect(BriefEdits.safeParse(answer('x'.repeat(241))).success).toBe(false);
+    // Up to 10 questions: your answers carried from the last brief, then the AI's new ones.
+    const questions = (n: number) => ({ questions: Array(n).fill({ answer: null, skipped: false, addToProfile: false }) });
+    expect(BriefEdits.safeParse(questions(10)).success).toBe(true);
+    expect(BriefEdits.safeParse(questions(11)).success).toBe(false);
+    // A saved brief is read whatever its number of questions.
+    const many = Array(12).fill({ question: 'Q?', why: 'W.', answer: null, skipped: false, addToProfile: false, addedAt: null });
+    expect(Brief.parse({ ...brief, questions: many }).questions).toHaveLength(12);
+  });
+});
+
+describe('contracts: the saved prep plan', () => {
+  const topic = {
+    topic: 'Go basics',
+    why: 'The ad lists Go.',
+    steps: ['Read about Go types.', 'Rewrite a small script in Go.'],
+    hours: 4,
+    afterwards: "I've learnt Go's basics.",
+  };
+  const plan = {
+    id: 4,
+    jobId: 2,
+    by: 'Bonsai 2',
+    createdAt: '2026-11-03T01:00:00.000Z',
+    learn: [topic],
+    project: { title: 'A build-time dashboard', what: 'A small app.', touches: ['Go'], hours: 6, afterwards: 'I built a small tool.' },
+    interview: [],
+    ask: [],
+    refresh: [],
+  };
+
+  it('reads a topic left with one step or none, and takes one from the AI too: its 2 to 4 is only asked for', () => {
+    for (const steps of [[], ['Do the Go tour.']]) {
+      expect(PrepPlan.parse({ ...plan, learn: [{ ...topic, steps }] }).learn[0]!.steps).toEqual(steps);
+      expect(PrepAnswer.parse({ ...plan, learn: [{ ...topic, steps }] }).learn[0]!.steps).toEqual(steps);
+    }
+    // And a plan with empty lists, or none made by a known AI.
+    expect(PrepPlan.parse({ ...plan, learn: [], by: null }).learn).toEqual([]);
+    expect(PrepPlan.safeParse({ ...plan, createdAt: 'yesterday' }).success).toBe(false);
   });
 });

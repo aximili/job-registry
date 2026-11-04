@@ -1,12 +1,14 @@
 // Writes a resume or cover letter from your master profile, streamed as it's
-// written. The instructions and your profile come first in the prompt, so
-// llama-server can reuse its cache; the job and its ad come last. Only the
-// answer is passed on: the model's thinking never reaches a document.
+// written. The four writing tasks share the prompt's system part (the rules
+// and your profile), so llama-server can reuse its cache from one to the
+// next; the task, the job, your notes, the brief, the guide and the ad come
+// after, the ad last. Only the answer is passed on: the model's thinking
+// never reaches a document.
 
-import type { SavedAi } from '../../../../shared/contracts/index.ts';
-import { fillPrompt, type Prompt } from '../prompts.ts';
+import type { JobNote, SavedAi, WriterBrief } from '../../../../shared/contracts/index.ts';
+import { briefBlock, capJob, fitRequest, notesBlock } from '../budget.ts';
+import type { Prompt } from '../prompts.ts';
 import type { AiProvider } from '../provider.ts';
-import { trimAd } from './parse-job.ts';
 
 export type WriteInput = {
   kind: 'resume' | 'cover_letter';
@@ -17,7 +19,24 @@ export type WriteInput = {
   ad: string;
   // For the cover letter's date, such as "28 October 2026".
   today: string;
+  // The job's notes, newest first. Every one counts.
+  notes: JobNote[];
+  // The brief you checked, or null for the AI to plan the document itself.
+  brief: WriterBrief | null;
 };
+
+// The request for one AI, fitted to it. Refused when it can't fit.
+export function writeRequest(prompt: Prompt, input: WriteInput, ai: SavedAi): { system: string; user: string } {
+  const values = {
+    profile: input.profile.trim(),
+    guide: input.guide?.trim() || 'No guide given.',
+    job: capJob(input.job) || 'No details yet.',
+    notes: notesBlock(input.notes),
+    brief: briefBlock(input.brief, input.kind),
+    today: input.today,
+  };
+  return fitRequest(prompt, values, input.ad, ai);
+}
 
 export async function* writeDocumentTask(o: {
   provider: AiProvider;
@@ -27,18 +46,12 @@ export async function* writeDocumentTask(o: {
   signal?: AbortSignal;
 }): AsyncIterable<string> {
   const task = o.config.tasks.write;
-  const values = {
-    profile: o.input.profile.trim(),
-    guide: o.input.guide?.trim() || 'No guide given.',
-    job: o.input.job.trim() || 'No details yet.',
-    ad: trimAd(o.input.ad),
-    today: o.input.today,
-  };
+  const { system, user } = writeRequest(o.prompt, o.input, o.config);
   const stream = o.provider.chatStream(
     {
       messages: [
-        { role: 'system', content: fillPrompt(o.prompt.system, values) },
-        { role: 'user', content: fillPrompt(o.prompt.user, values) },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
       model: task.model || o.config.model || undefined,
       temperature: task.temperature,

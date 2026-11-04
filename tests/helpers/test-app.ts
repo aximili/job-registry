@@ -3,8 +3,9 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pino } from 'pino';
+import type { z } from 'zod';
 import type { Settings } from '../../shared/contracts/index.ts';
 import { buildApp, type App, type Fakes } from '../../server/app.ts';
 import { resolvePaths, type Clock } from '../../server/core/config.ts';
@@ -41,7 +42,8 @@ export async function createTestApp(
   opts: {
     now?: Clock;
     fetch?: typeof fetch;
-    settings?: Partial<Settings>;
+    // Written to config/settings.json as it is, so the app fills in the defaults.
+    settings?: z.input<typeof Settings>;
     // Written to config/secrets.json, as you'd save them in Settings.
     secrets?: { emailPassword?: string | null; aiKeys?: Record<string, string> };
     port?: number;
@@ -54,6 +56,11 @@ export async function createTestApp(
     realProvider?: boolean;
     // To read what the app logs. Silent unless given.
     logger?: Logger;
+    // Written under the app folder before the app starts (for example
+    // 'profile/resume-guide.md'), for the tests of what happens at start-up.
+    files?: Record<string, string>;
+    // How often a quiet AI reply says it's still there, so a test needn't wait 20 seconds.
+    heartbeatMs?: number;
   } = {},
 ): Promise<TestApp> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'jr-app-')));
@@ -65,6 +72,10 @@ export async function createTestApp(
   if (opts.secrets) {
     mkdirSync(paths.config, { recursive: true });
     writeFileSync(paths.secrets, JSON.stringify(opts.secrets));
+  }
+  for (const [name, text] of Object.entries(opts.files ?? {})) {
+    mkdirSync(dirname(join(root, name)), { recursive: true });
+    writeFileSync(join(root, name), text);
   }
   // Tests never talk to a real AI or a real mailbox: fakes unless given others.
   const fakes: Fakes = {
@@ -84,6 +95,7 @@ export async function createTestApp(
     now: opts.now,
     fetch: opts.fetch,
     version: '0.0.0-test',
+    heartbeatMs: opts.heartbeatMs,
   }, wiring);
 
   async function request(method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {

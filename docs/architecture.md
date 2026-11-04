@@ -42,7 +42,7 @@ When two goals pull against each other, the higher one wins.
 
 | # | Goal | What it means in practice |
 |---|------|---------------------------|
-| 1 | **Private** | All data stays on your PC, unless you choose a cloud AI (Phase 8). That AI sees your profile, the ads you save and rate, and (if email is on) your emails, but only after you add it with your own API key and switch to it. Its note in Settings → AI says so, and the app never switches to it by itself. The server listens on `127.0.0.1` only. The AI runs locally by default. Nothing calls a cloud service unless you add one. |
+| 1 | **Private** | All data stays on your PC, unless you choose a cloud AI (Phase 8). That AI sees your profile, the ads you save and rate, and (if email is on) your emails, but only after you add it with your own API key and switch to it. A cloud AI you pick only to write (Phase 9) sees your profile, your guide, and the job you write for: its ad, its notes and its brief. Its note in Settings → AI says so, and the app never picks or switches to it by itself. The server listens on `127.0.0.1` only. The AI runs locally by default. Nothing calls a cloud service unless you add one. |
 | 2 | **Fast to find** | From the first keystroke to search results takes under 50 ms on 1,000 jobs. Opening a call sheet takes under 200 ms. |
 | 3 | **Fast to save** | Saving never waits for the AI. The AI fills in details afterwards. |
 | 4 | **Maintainable** | Small modules with clear owners. Outside systems sit behind interfaces. The rules are checked by a script, not just written down. |
@@ -76,7 +76,7 @@ flowchart LR
 - **The extension** reads only the job pages you open. It never crawls sites in the background.
 - **The app** stores everything and owns all the logic.
 - **The local AI** is a separate program the app talks to over HTTP. The app can start and stop it.
-- **A cloud AI** is optional (Phase 8). You can save several AIs, and the app uses one at a time. It sends your data to a cloud AI only while it's the AI in use, with the key you saved for it. Test connection and the model list can reach any AI you're setting up, but they send none of your data.
+- **A cloud AI** is optional (Phase 8). You can save several AIs, and the app uses one at a time, plus (Phase 9) one you pick to write. It sends your data to a cloud AI only while it's the AI in use or the writing AI, with the key you saved for it. Test connection and the model list can reach any AI you're setting up, but they send none of your data.
 - **Gmail** is optional and read-only (Phase 5).
 
 ---
@@ -125,7 +125,7 @@ flowchart TB
 
 | Container | Technology | What it does | Talks to |
 |-----------|-----------|--------------|----------|
-| Node server | Node.js LTS, TypeScript (run directly, no build), Fastify | API, business logic, serves the dashboard, manages the AI process | SQLite, files, the AI in use (a local server or a cloud AI's API), IMAP |
+| Node server | Node.js LTS, TypeScript (run directly, no build), Fastify | API, business logic, serves the dashboard, manages the AI process | SQLite, files, the AI in use and the writing AI (a local server or a cloud AI's API), IMAP |
 | Dashboard | Svelte 5 + Vite, built to static files | Search, call sheet, job details, document editor, settings, inbox | Server API, plus a live event stream (SSE) |
 | Extension | TypeScript + Svelte, built with esbuild, two manifests (Firefox, Chrome) | Reads job pages, shows the save and rating panel, toolbar popup | Server API, **from the background script only** |
 | SQLite database | `better-sqlite3`, WAL mode, FTS5 | Jobs, ads, contacts, notes, documents, search index | — |
@@ -145,16 +145,17 @@ The server is split **by feature**. Each module owns its own data. No other modu
 | Module | Owns | Public functions (examples) | Depends on |
 |--------|------|-----------------------------|------------|
 | `system` | backups, health check, shutdown, logs | `health()`, `backupNow()`, `shutdown()` | — |
-| `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `useAi(id)` (switch the AI in use), `statuses()`, `secrets()` (only whether the password is set, and which AIs have a key), `emailPassword()`, `aiKey(id)`, `updateSecrets()` | — |
-| `profile` | `profile/*.md`, `templates/*.css` | `read(name)`, `file(name)`, `write(name, text)`, `hash()`, `installStarters()` | — |
+| `settings` | `config/settings.json`, `config/secrets.json` | `get()`, `update(patch)`, `useAi(id)` (switch the AI in use), `useWriter(id)` (pick the writing AI, or null for the AI in use), `statuses()`, `secrets()` (only whether the password is set, and which AIs have a key), `emailPassword()`, `aiKey(id)`, `updateSecrets()` | — |
+| `profile` | `profile/*.md`, `templates/*.css`, `profile/old-versions/`, `profile/.starter-versions.json` | `read(name)`, `file(name)`, `write(name, text, { updatedAt })` (refused when the file changed since `updatedAt`), `hash()`, `syncStarters()` (at start-up, §13), `starters()`, `useStarter(name)`, `keepStarter(name)`, `appendAnswers(lines)`, `answerLines()` | — |
 | `capture` | nothing (stateless) | `fromUrl(url)`, `fromText(text)` | — |
-| `ai` | AI process and queue (no tables) | `parseJob()`, `rateJob()` and `rateCard()` (each returns `{ rating, model }`: the rating, and the identity of the model that made it), `writeDocument()` (streamed), `classifyEmail()`, `status()`, `test()` (the AI in use), `check()` (any AI, saved or not), `models()` (any AI's model list), `modelIdentity(task)`, `stop()` | — |
+| `ai` | AI process, queue and lanes (no tables) | `parseJob()`, `rateJob()` and `rateCard()` (each returns `{ rating, model }`: the rating, and the identity of the model that made it), `writeDocument()` (streamed), `briefJob()` and `prepJob()` (each returns its answer and `by`, the AI it ran on), `classifyEmail()`, `status()`, `test()` (the AI in use), `check()` (any AI, saved or not), `models()` (any AI's model list), `modelIdentity(task)`, `stop()`. The four writing tasks run on the writing AI (§12.6) | — |
 | `jobs` | `jobs`, `postings`, `status_history` | `save()`, `check()`, `checkMany()`, `get()`, `list()`, `update()`, `changeStatus()`, `addPosting()`, `applyParsed()`, `setParseState()`, `setRating()`, `listIdsByParseState()`, `setFollowUp()`, `listFollowUps()` | — |
 | `contacts` | `contacts`, `job_contacts`, `interactions` | `create()`, `update()`, `linkToJob()`, `logInteraction()`, `listForJob()`, `findByPhoneDigits()` | — |
 | `notes` | `notes` | `add()`, `update()`, `remove()`, `listForJob()` | — |
 | `ratings` | `rating_cache`, `card_rating_cache` | `rate(input, { signal, key })`, `rateCard(card, { signal, key })`, `lookupCards(cards)` | `ai`, `profile` |
 | `enrich` | nothing | listens for new ads, then parses and rates them; `reparse(jobId)`, `sweep()` (jobs still waiting) | `jobs`, `ai`, `ratings` |
-| `documents` | `documents`, `attachments`, `data/files/` | `list()`, `listAll()`, `get()`, `saveVersion()`, `copyFrom()`, `markSent()`, `latestSent()`, `render()`, `exporters()`, `export()`, `generate()`, `attach()`, `listAttachments()`, `attachmentFile()` | `ai`, `profile`, `jobs` |
+| `prep` | `briefs`, `prep_plans` | `brief(jobId)`, `makeBrief(jobId, { signal, onLine })` (streamed), `editBrief(id, edits)`, `approvedBrief(jobId, briefId?)` (the brief as the writer gets it, marked as written with), `addAnswersToProfile(id)`, `plans(jobId)`, `makePlan(jobId, { signal, onLine })` (streamed) | `ai`, `profile`, `jobs`, `notes` |
+| `documents` | `documents`, `attachments`, `data/files/` | `list()`, `listAll()`, `get()`, `saveVersion()`, `copyFrom()`, `markSent()`, `latestSent()`, `render()`, `exporters()`, `export()`, `generate()` (with the job's notes, and its brief when asked), `attach()`, `listAttachments()`, `attachmentFile()` | `ai`, `profile`, `jobs`, `notes`, `prep` |
 | `search` | `search_index` | `query(q)`, `reindexJob(id)`, `rebuild()` | `jobs`, `contacts`, `notes` |
 | `callsheet` | nothing (read-only view) | `get(jobId)`: everything for the one-screen view | `jobs`, `contacts`, `notes`, `documents` |
 | `email` | `email_suggestions`, `email_state` | `checkNow()`, `status()`, `test()`, `listSuggestions()`, `confirm()`, `dismiss()`, `start()` / `stop()` (the timer) | `ai`, `jobs`, `contacts`, `notes` |
@@ -162,7 +163,7 @@ The server is split **by feature**. Each module owns its own data. No other modu
 
 Every module also uses `core` (config, database connection, events, errors, logger) and `shared` (contracts and pure helpers).
 
-**Modules get their settings as plain functions.** For example, `ai` receives `getConfig()` (the AI in use), `getAll()` (every saved AI), `getKey(id)` and `providerFor(ai, key)` from `app.ts`. It never imports the `settings` module. So only `app.ts` knows where settings and keys come from.
+**Modules get their settings as plain functions.** For example, `ai` receives `getConfig()` (the AI in use), `getWriter()` (the writing AI, and whether it's the AI in use), `getAll()` (every saved AI), `getKey(id)` and `providerFor(ai, key)` from `app.ts`. It never imports the `settings` module. So only `app.ts` knows where settings and keys come from.
 
 ### 4.2 Allowed dependencies
 
@@ -176,6 +177,7 @@ flowchart TB
     search
     enrich
     documents
+    prep
     ratings
   end
   subgraph base["Foundation modules: no module dependencies"]
@@ -196,7 +198,8 @@ flowchart TB
   email --> ai & jobs & contacts & notes
   search --> jobs & contacts & notes
   enrich --> jobs & ai & ratings
-  documents --> ai & profile & jobs
+  documents --> ai & profile & jobs & notes & prep
+  prep --> ai & profile & jobs & notes
   ratings --> ai & profile
   base --> core
   top --> core
@@ -208,6 +211,7 @@ Why it's shaped like this:
 - **`ai` knows nothing about jobs.** It takes text in and gives typed results back. It can be tested with plain strings.
 - **`search` reads through services, not tables.** It rebuilds a job's index entry by asking `jobs`, `contacts` and `notes` for the current data.
 - **`callsheet` is a read-only view.** It joins data from four modules for one screen, so the dashboard makes one request instead of six.
+- **`prep` sits under `documents`** (Phase 9). `documents` asks `prep` for the brief it writes with, and `prep` never calls `documents`. The brief and the prep plan share one module because they're made the same way, from the same inputs. `ai` still knows nothing about jobs: `prep` hands it text and gets typed answers back.
 
 ### 4.3 Inside a module
 
@@ -233,17 +237,19 @@ export function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}) {
   const db = openDb(opts.paths.db);               // runs migrations, WAL mode, foreign keys on
   const bus = createEventBus(logger);
   const settings = createSettingsModule({ paths: opts.paths, bus });
-  const profile = createProfileModule({ dir: opts.paths.profile });  // profile.changed comes with the Phase 4 editors
+  const profile = createProfileModule({ dir: opts.paths.profile, templatesDir, startersDir, bus, now });
+  profile.service.syncStarters();                  // missing starters copied in, an untouched earlier guide updated (§13)
 
   // The AIs. Each saved AI gets its own provider, with its key and its preset's dialect.
   const aiConfig = () => activeAi(settings.get().ai);           // the AI in use
+  const aiWriter = () => writingAi(settings.get().ai);          // the AI that writes (§12.6)
   const providerFor = (one: SavedAi, key: string | null) => fakes.ai ??
     (AI_PRESETS[one.preset].dialect.connector === 'anthropic' ? createAnthropicProvider : createOpenAiCompatibleProvider)(
       () => ({ name: one.name, preset: one.preset, baseUrl: one.baseUrl, model: one.model, timeoutSec: one.timeoutSec,
-               apiKey: key, dialect: AI_PRESETS[one.preset].dialect }));   // the AI in use's is kept (below)
+               apiKey: key, dialect: AI_PRESETS[one.preset].dialect }));   // the AI in use's and the writer's are kept (below)
   const getKey = (id: string) => /* only for a preset that takes a key */ settings.aiKey(id);
   const ai = createAiModule({
-    providerFor, getKey, getAll: () => settings.get().ai.saved, getConfig: aiConfig,
+    providerFor, getKey, getAll: () => settings.get().ai.saved, getConfig: aiConfig, getWriter: aiWriter,
     // Chosen before each task: CloudRuntime, LlamaServerRuntime (the app starts it) or NoopRuntime (you run it).
     runtime: () => fakes.runtime ?? pickRuntime(aiConfig()),
     bus,
@@ -254,8 +260,11 @@ export function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}) {
   const notes = createNotesModule({ db, bus });
   const ratings = createRatingsModule({ db, ai: ai.service, profile: profile.service });
   createEnrichModule({ bus, jobs: jobs.service, ai: ai.service, ratings: ratings.service });
+  const prep = createPrepModule({ db, bus, ai: ai.service, profile: profile.service,
+                                  jobs: jobs.service, notes: notes.service });
   const documents = createDocumentsModule({ db, bus, ai: ai.service, profile: profile.service,
-                                            jobs: jobs.service, filesDir: opts.paths.files,
+                                            jobs: jobs.service, notes: notes.service, prep: prep.service,
+                                            filesDir: opts.paths.files,
                                             exporters: [printHtmlExporter, docxExporter] });
   const search = createSearchModule({ db, bus, jobs: jobs.service, contacts: contacts.service, notes: notes.service });
   const callsheet = createCallsheetModule({ jobs: jobs.service, contacts: contacts.service,
@@ -270,7 +279,7 @@ export function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}) {
   registerSecurity(http, opts.server);            // Host and Origin checks, JSON-only writes
   registerErrorHandler(http);                     // AppError → HTTP status
   for (const m of [settings, profile, capture, ai, jobs, contacts, notes, ratings,
-                   documents, search, callsheet, email, live, system]) {
+                   prep, documents, search, callsheet, email, live, system]) {
     http.register(m.routes, { prefix: '/api/v1' });
   }
   serveDashboard(http, opts.paths.webDist);
@@ -282,8 +291,10 @@ Tests call the same `buildApp` with fakes, such as `FakeAiProvider`, `FakeRuntim
 
 **The AI's wiring, in more detail:**
 - **A provider per AI.** `providerFor` picks the adapter by the preset's `dialect.connector`: Claude's own connector for `anthropic`, the OpenAI-style one for every other preset (§6.1). So the service can test, or list the models of, any AI, not only the one in use.
-- **One kept provider.** Only the AI in use's provider is kept, while its settings and key stay the same, so a connector keeps what it learnt (Claude's model limits). It's kept only for the saved object itself, never for a form's copy, so a test with a typed key leaves nothing behind. Any `settings.changed` with `ai` drops it, so a deleted AI's key leaves memory too.
-- **Three runtimes,** made once: a cloud AI gets `CloudRuntime`, a llama-server the app starts gets `LlamaServerRuntime`, and anything you run yourself gets `NoopRuntime`, which checks the AI in use's provider (§6.2).
+- **Two kept providers.** The providers of the AI in use and of the writing AI (Phase 9) are kept, by AI id, while their settings and keys stay the same, so a connector keeps what it learnt (Claude's model limits) between drafts. They're kept only for the saved objects themselves, never for a form's copy, so a test with a typed key leaves nothing behind. Any `settings.changed` with `ai` drops both (a writer change too), so a deleted AI's key leaves memory as well.
+- **The writing AI** is `writingAi(settings.ai)` (`shared/contracts/ai.ts`): the AI you picked to write, if it's still saved, or else the AI in use. `getWriter()` hands the AI service that AI and whether it's the AI in use (§12.6).
+- **Three runtimes,** made once: a cloud AI gets `CloudRuntime`, a llama-server the app starts gets `LlamaServerRuntime`, and anything you run yourself gets `NoopRuntime`, which checks the AI in use's provider (§6.2). They're for the AI in use only: a writing AI that isn't in use never gets one, so the app never starts or stops it.
+- **The starters** are synced once, as the profile module is made. A file that can't be copied or updated is logged as a warning and left as it was, and the app starts.
 - **Keys** come from `settings.aiKey(id)`, read fresh each time. An AI whose preset takes no key never reads `secrets.json`, so a broken file can't stop Bonsai 2.
 
 ---
@@ -304,8 +315,10 @@ Events let modules react to each other without calling each other. All event nam
 | `interaction.logged` | `{ interactionId, contactId, jobId }` | contacts | search, live |
 | `document.saved` / `document.sent` | `{ jobId, documentId }` | documents | live |
 | `attachment.added` | `{ jobId, attachmentId }` | documents | live |
-| `profile.changed` | `{ name }` | profile, when a file is saved in Settings | live. Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
-| `settings.changed` | `{ keys }`: the sections that changed. `ai` for any change to your AIs, a switch included. `secrets` only when the Gmail app password changes, never its value. `aiKeys` only when an AI's API key is saved, replaced or removed, never the key (one request that changes both says `["secrets", "aiKeys"]`). The AI still reads its key each time | settings | ai (a new AI in use: switch, §12.5; an edit to the AI in use: the runtime follows, the old one stops if it changed, and the pill's problem clears if the AI in use changed; on `aiKeys`, a new key for the AI in use clears the pill's problem), `app.ts` (on `ai`, drops the provider it kept), email (on `email` or `secrets`, never `aiKeys`: check at once when email was just turned on, otherwise restart the timer), live (the dashboard reloads the settings, and the AI pill which AIs have a key) |
+| `brief.saved` | `{ jobId, briefId, updatedAt }` | prep, when a brief is made, edited, or its answers are added to the master profile | live (the editor reloads the brief when it's about the job on screen, and skips the echo of its own save by `updatedAt`) |
+| `prep.saved` | `{ jobId, planId, createdAt }` | prep, when a plan is made | live (the job page reads its plans again on every `prep.saved` for its job, its own included) |
+| `profile.changed` | `{ name }` | profile, when a file is saved in Settings, answers are added to the master profile (Phase 9), or a starter guide is used. Not when start-up updates a guide: nothing is open yet | live (an editor with no unsaved changes reloads; one with changes warns). Ratings don't need it: they work out the profile hash from the files each time, so a hand edit counts at once |
+| `settings.changed` | `{ keys }`: the sections that changed. `ai` for any change to your AIs, a switch and a new writing AI included. `secrets` only when the Gmail app password changes, never its value. `aiKeys` only when an AI's API key is saved, replaced or removed, never the key (one request that changes both says `["secrets", "aiKeys"]`). The AI still reads its key each time | settings | ai (a new AI in use: switch, §12.5; an edit to the AI in use: the runtime follows, the old one stops if it changed, and the pill's problem clears if the AI in use changed; on `aiKeys`, a new key for the AI in use clears the pill's problem), `app.ts` (on `ai`, drops the providers it kept), email (on `email` or `secrets`, never `aiKeys`: check at once when email was just turned on, otherwise restart the timer), live (the dashboard reloads the settings, and the AI pill which AIs have a key) |
 | `ai.stateChanged` | `{ state, detail, id, name }`: the state of the AI in use, and which AI that is | ai, when the state changes, and when the AI in use changes even if the state doesn't (a switch, a rename) | live (the AI pill); enrich (on `ready`, reads jobs that were waiting for the AI) |
 | `enrich.done` / `enrich.failed` | `{ jobId, step, error? }` | enrich | live |
 | `email.suggestionsAdded` | `{ count }` | email, at the end of a check that added cards | live (the Inbox and the header's count) |
@@ -385,6 +398,7 @@ The four local presets share one dialect (`'llama'`, `json_schema`, `max_tokens`
 - **Two kinds of error.** No key, a refused key, a usage limit and busy are about the AI as a whole: every request would fail the same way. They're an `AiAccountError`, so a job or an email waits for the AI (§7.1, §7.5). Every other HTTP error, a moderation refusal and a timeout are about this one request: an `AiRefusedError`. Both extend `AiUnavailableError`, so the pill shows either.
 - A refused key or a usage limit isn't retried, and never switches to another AI. It shows in the pill as a problem, with its sentence, until a task works again, you change the AI in use's settings, or you save a new key for it.
 - A cloud AI's cut-off sentence leaves out llama-server's `-c` advice: its context isn't yours to change.
+- **A writing AI's advice** (Phase 9). When the writing AI isn't the AI in use, the pill can't change it. So the AI service swaps the closing advice of a usage limit or a declined request ("switch to another AI from the AI pill at the top") for "pick another writing AI beside the button, or in Settings → AI". The error keeps its class. Both advice texts live in `ai/provider.ts`, beside `cantReachSentence`.
 
 ### 6.2 `ModelRuntime` — starting and stopping the AI program
 
@@ -407,6 +421,8 @@ interface ModelRuntime {
 | `CloudRuntime` | A cloud AI. There's no program to start, stop or check, so it's always `ready`, and Z.ai and Qwen (no model list) still work. A task that fails (a refused key, a usage limit) shows as `error` through the AI service, the same way a failed task on any AI does. |
 
 `app.ts` picks the runtime for the AI in use before each task. When it changes, for example on a switch from Bonsai 2 to Claude, the old one is stopped, so a llama-server the app started stops holding GPU memory. A switch between two AIs on the same runtime stops it too, which cancels a start in progress and makes a server you run yourself be checked again. The one exception: two llama-servers the app starts share one runtime, and a ready one is left alone (a change to the program, arguments or address still restarts it). A switch to an AI the app starts starts it at once (§12.5).
+
+The runtime is for the AI in use only. A writing AI that isn't the AI in use (§12.6) is never started or stopped by the app, even a Bonsai 2 with "Start it for me" ticked: one GPU can't run two models well, and a second program would fight the first. It's used if it answers.
 
 ### 6.3 `MailSource` — reading email
 
@@ -615,7 +631,7 @@ sequenceDiagram
 
 The queue also enforces "latest wins" per key. A new task with the same key cancels the older one, even if the browser didn't abort it.
 
-### 7.4 Generate a resume, check it, send it
+### 7.4 Write a resume, check it, send it
 
 ```mermaid
 sequenceDiagram
@@ -627,7 +643,7 @@ sequenceDiagram
   participant Jobs as jobs
   participant AI as AI queue
 
-  You->>UI: Click Generate resume
+  You->>UI: Click Skip, just write (with a brief, see §7.8)
   UI->>API: POST /jobs/42/documents/generate (streamed reply)
   API->>Docs: generate(42, resume)
   Docs->>Prof: Read master profile and resume guide
@@ -662,7 +678,9 @@ The fact-check is plain code in `shared/fact-check.ts`. The browser runs it 300 
   - a label ("Deloitte:", "Telstra |"), one of a list ("Python, Go") or a line of its own ("- Kubernetes").
 - **Flags are the draft's own text**, so the preview can highlight them. Only whole words and numbers are highlighted.
 
-Generating streams NDJSON: one `GenerateChunk` per line (`text`, then `done`, or `error` with a sentence to show). So the editor can tell a finished draft from a cut-off one. Pressing **Stop** or closing the tab ends the request, which cancels the AI task. Nothing is saved until you press **Save version**. Text you haven't saved is kept in the browser's `localStorage` (`jr-draft:<jobId>:<kind>`) until you save or discard it.
+Generating streams NDJSON: one `GenerateChunk` per line: `waiting` and `working` (each with `by`, who's writing, Phase 9), then `text`, then `done`, or `error` with a sentence to show. So the editor can tell a finished draft from a cut-off one. Pressing **Stop** or closing the tab ends the request, which cancels the AI task. Nothing is saved until you press **Save version**. Text you haven't saved is kept in the browser's `localStorage` (`jr-draft:<jobId>:<kind>`) until you save or discard it.
+
+Since Phase 9 the draft is written by the writing AI (§12.6), with the job's notes, and usually with a brief you checked first (§7.8). The fact-check then counts the job's notes and the brief's answers as facts from you, beside the master profile.
 
 ### 7.5 Email suggestion, then you confirm
 
@@ -780,6 +798,50 @@ sequenceDiagram
 - **Off switch:** the extension's options, "Rate the jobs in search results". With no master profile, no card gets a mark (the panel already says why). Coming back to the tab looks the cards up again, so a profile you've added meanwhile counts.
 - **After the extension is updated or reloaded,** the old copy on an open page can't reach the browser any more. Its card watcher stops for good; reloading the page starts the new copy.
 
+### 7.8 Write with a brief ("Before I write", Phase 9)
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant UI as Dashboard editor
+  participant API as Server API
+  participant Prep as prep
+  participant Prof as profile
+  participant Docs as documents
+  participant AI as AI (writing AI's queue or lane)
+
+  You->>UI: Write the cover letter (the job has no brief yet)
+  UI->>API: POST /jobs/42/brief (streamed reply)
+  API->>Prep: makeBrief(42)
+  Prep->>AI: briefJob (profile, job, ad, notes, earlier answers)
+  AI-->>UI: waiting (by), then working (by), through the API
+  AI-->>Prep: the brief, cut to its caps
+  Prep->>Prep: check the quote against the ad, carry earlier answers, insert a new row
+  Prep-->>UI: done, with the brief (the focus moves to its heading)
+  You->>UI: Swap a story, drop a need, answer a question, tick Add to my profile
+  UI->>API: PATCH /briefs/7 (each change, as you make it)
+  You->>UI: Write the cover letter
+  UI->>API: POST /briefs/7/answers-to-profile
+  API->>Prep: addAnswersToProfile(7)
+  Prep->>Prof: appendAnswers(lines): old copy to old-versions/ first
+  Prep-->>UI: added 1 (the toast says so)
+  UI->>API: POST /jobs/42/documents/generate { kind, brief: 'use', briefId: 7 }
+  API->>Docs: generate(42, cover_letter)
+  Docs->>Prep: approvedBrief(42, 7)
+  Docs->>AI: writeDocument with the brief block and the notes
+  AI-->>UI: waiting, working, then Markdown as it's written
+```
+
+The rules:
+- **Checking it is the point.** A new brief is shown for you to check, and never written from straight away. With a brief already there, the main button writes with it. **Skip, just write** writes without one (`brief: 'skip'`, the default, so older callers and the handover's scripts work as before).
+- **A new brief is a new row.** The newest is the job's brief; older ones stay. It carries your answered questions from the job's last brief first, with their answers and whether they were added to your profile, then the AI's new questions (a question that repeats one already there is left out), up to 10 in all. So **New brief** never loses an answer. The AI gets those answers too, so it doesn't ask again.
+- **Only the newest brief takes edits.** An edit to an older one, or a write with a `briefId` that isn't the newest, is a 409: "There's a newer brief for this job. Reload the page to see it." So nothing is written with a brief you haven't seen.
+- **Cut, never refused.** The brief's lists and texts are cut to their caps (§12.8), and any link is removed. A brief with no needs is kept as it is, and the screen says so.
+- **The quote is checked.** When the opening line isn't word for word in the ad (spaces and case ignored), the brief says "This line isn't word for word in the ad. Check it." It's a warning, not a refusal.
+- **"Add to my profile"** happens when you press the main write button, just before it writes. Each ticked answer not yet added becomes one line under `## Answers from my applications` at the end of the master profile, made the first time: `- 3 Nov 2026, Senior Engineer at Example Co: {question} {answer}`. Nothing else in the file changes, its line endings and byte-order mark included, and a copy goes to `profile/old-versions/` first. Each answer is added once (the brief remembers when); one already in that section isn't written again. An answer you change after it was added goes in again as a new dated line, and the old line stays. Changing the master profile changes its hash, so each job is rated once more.
+- **"Written with."** `approved_at` is set when a write with the brief starts, even if it's then stopped.
+- **Get ready works the same way.** `POST /jobs/42/prep` streams `waiting`, `working`, then `done` with the plan, from the profile, the job, its ad, its notes, and the newest brief's needs, gaps and answers when there is one (without marking it written with). A new plan is a new row, and the old ones stay.
+
 ---
 
 ## 8. Data model
@@ -796,6 +858,8 @@ erDiagram
   JOBS ||--o{ DOCUMENTS : has
   JOBS ||--o{ ATTACHMENTS : has
   JOBS |o--o{ EMAIL_SUGGESTIONS : "suggested for"
+  JOBS ||--o{ BRIEFS : "checked before writing"
+  JOBS ||--o{ PREP_PLANS : "getting ready"
 
   JOBS {
     integer id PK
@@ -938,6 +1002,22 @@ erDiagram
     text key PK "cursor, lastCheckAt, lastError, lastAdded, refused:<message id>"
     text value
   }
+  BRIEFS {
+    integer id PK
+    integer job_id FK
+    text brief_json "the brief as you've edited it (BriefBody)"
+    text made_by "the name of the AI that made it"
+    text approved_at "when a document was last written with it"
+    text created_at
+    text updated_at
+  }
+  PREP_PLANS {
+    integer id PK
+    integer job_id FK
+    text plan_json "PrepBody"
+    text made_by "the name of the AI that made it"
+    text created_at
+  }
   SEARCH_INDEX {
     text kind "job or contact"
     integer ref_id
@@ -957,13 +1037,14 @@ erDiagram
 - **Attachments** are stored as `data/files/<jobId>/<8 hex>-<clean name>`, with `stored_path` relative to `data/files/`, so a moved data folder still works.
 - **Rating caches** (`rating_cache`, `card_rating_cache`) are keyed by the ad or the card, and by `profile_hash`. That column holds two short hashes: one of your master profile and preferences together (`profile.hash()`), then `:` and one of the model identity (`AiService.modelIdentity`, §12.5). So a change to either file, or a switch to another model, rates afresh, and a model you used before finds its own ratings again. Rows from before Phase 8 have no model part, so they're never matched: each job is rated once more the first time you see it. There's no migration.
 - **Follow-ups** are one date and an optional reason per job, set only through `PUT /jobs/:id/follow-up`. Nothing else changes them: not a status change, an edit, the AI or archiving (archived jobs are just left out of the list).
+- **Briefs and prep plans** (Phase 9, `007_prep.sql`, owned by `prep`) are a new row each time, and the old rows stay. The newest brief is the job's brief, and only it takes edits. Both are read newest first, by id. Their JSON is checked by zod on every read and write. A newest brief that can't be read is logged and counts as none, so **New brief** gets you past it. A plan that can't be read is logged and left out of the list.
 - **Jobs are archived, never deleted**, so history and links stay whole. Deleting for real is a separate, deliberate action in settings.
 - **Unique keys:**
   - `postings.canonical_url` is unique.
   - So is `(source_site, external_id)` when `external_id` is set.
   - So is `(job_id, kind, version)` for documents.
 - **`SEARCH_INDEX`** is an FTS5 virtual table using the `unicode61` tokeniser, with prefix indexes for 2 and 3 characters. Phone numbers are searched separately, through `contacts.phone_digits`, so a search matches any part of the number.
-- **Migrations:** numbered SQL files in `server/core/db/migrations/` (`001_init.sql`, …). The runner applies new ones in order, inside a transaction, and records the version in `PRAGMA user_version`. It backs up the database before each migration.
+- **Migrations:** numbered SQL files in `server/core/db/migrations/` (`001_init.sql`, …, `007_prep.sql`). The runner applies new ones in order, inside a transaction, and records the version in `PRAGMA user_version`. It backs up the database before each migration.
 
 ---
 
@@ -980,7 +1061,7 @@ erDiagram
 | `validation` | 400 | Also used for a 415 (a body that isn't JSON). |
 | `forbidden` | 403 | The Host or Origin check failed (§13). |
 | `not_found` | 404 | |
-| `conflict` | 409 | An ad that is already saved on another job, or an edit to a sent document. Possible duplicates are not errors: see `POST /jobs`. |
+| `conflict` | 409 | An ad that is already saved on another job, or an edit to a sent document. An edit to a brief that isn't the job's newest, or a write with one (Phase 9). A profile file saved over a change made since the editor loaded it. Possible duplicates are not errors: see `POST /jobs`. |
 | `ai_unavailable` | 503 | |
 | `internal` | 500 | |
 
@@ -1010,14 +1091,23 @@ erDiagram
 | | `POST /ratings/card` `{ card, key? }` · `POST /ratings/cards/lookup` `{ cards }` (1–100) | A quick mark for one job card, from cache or the AI, as `{ rating, cached, reason }` (`rating` is a `CardRating`, null with a `reason` when there's no master profile). Closing the request cancels it · what's known without the AI: `{ results: (CardMark \| null)[], reason }`, where a `CardMark` is `{ kind: "full" \| "quick", verdict, score, reason }` |
 | Documents | `GET /jobs/:id/documents` · `POST /jobs/:id/documents` `{ kind, markdown, origin }` or `{ fromDocumentId }` | List · save a version (201) or copy one |
 | | `GET /documents?kind=` · `GET /documents/:id` | Every job's versions of one kind, with the job's title and company, for "Start from another job's version" · one version, with its Markdown |
-| | `POST /jobs/:id/documents/generate` `{ kind }` | Streamed Markdown as NDJSON (`application/x-ndjson`): `{kind:"text",text}` lines, then `{kind:"done"}` or `{kind:"error",message}`. A missing job (404) or master profile (400) is refused before the stream starts. Nothing is saved |
+| | `POST /jobs/:id/documents/generate` `{ kind, brief?, briefId? }` | Streamed Markdown as NDJSON (see **Streams** below): `{kind:"waiting",by}`, `{kind:"working",by}`, `{kind:"text",text}` lines, then `{kind:"done"}` or `{kind:"error",message}`. `brief` is `'use'` (write with the job's newest brief, and mark it written with) or `'skip'` (the default). Refused before the stream starts: a missing job (404) or master profile (400); `'use'` with no brief (400, "Make a brief first, or press Skip, just write."); `'use'` with a `briefId` that isn't the newest (409). A request too long for a local writing AI (§12.7) ends at once with that `error` line, before it's queued. Replaced: "A newer draft took its place." Nothing is saved. Dashboard-only (Phase 9) |
 | | `POST /documents/:id/sent` · `GET /documents/:id/render` · `GET /documents/:id/export?format=` | Freeze · print view, with a strict Content Security Policy · download (`Content-Disposition: attachment`) |
 | | `GET /documents/exporters` | Which export buttons to show |
 | Attachments | `POST /jobs/:id/attachments?kind=resume\|cover_letter\|other` (multipart, one `file`) · `GET /attachments/:id` | Attach (201): up to 15 MB, PDF, Word, RTF, text or OpenDocument only · download |
-| Profile | `GET /profile/:name` · `PUT /profile/:name` `{ text }` | `master-profile`, `preferences`, `resume-guide`, `cover-letter-guide` (Markdown in `profile/`) and `resume`, `cover-letter` (CSS in `templates/`), as `{ name, text, updatedAt }`. `PUT` is dashboard-only |
-| Settings | `GET /settings` · `PATCH /settings` · `PUT /settings/ai/active` `{ id }` · `GET /settings/secrets` · `PUT /settings/secrets` `{ emailPassword?, aiKeys? }` | Secrets are never returned: `/settings/secrets` answers `{ emailPassword: true \| false, aiKeys: [the ids of the saved AIs that have a key] }`. A `PATCH` replaces each section it holds. Its `ai` must be the whole `{ active, saved }`: the older one-AI shape is refused, so it can't replace every saved AI with one. A `PATCH` that deletes an AI, or changes its provider, deletes that AI's key in the same save · `PUT /settings/ai/active` switches the AI in use, and answers with the settings · In `PUT /settings/secrets`, a secret left out stays as it is, and null or blank removes it. `aiKeys` is `{ "<AI id>": key or null }`, for saved AIs only. Spaces and line breaks in a pasted key are dropped. A refusal never quotes what was sent, since it may be a key. Every write here is dashboard-only, not from extensions (§13) |
+| Briefs (Phase 9) | `GET /jobs/:id/brief` · `POST /jobs/:id/brief` · `PATCH /briefs/:id` · `POST /briefs/:id/answers-to-profile` | `{ brief }`: the job's newest, or null · make a new one, streamed (`waiting`, `working`, `alive`, then `done` with the brief, or `error`); replaced: "A newer brief for this job took its place." · an edit (`BriefEdits`: the contact's name and "from a recruiter", each need's chosen story and dropped, each question's answer, skipped and "Add to my profile"; each list sent has one entry per item, in order). A name is 120 characters at most, an answer 240. 409 when the brief isn't the job's newest · adds each ticked answer not yet added to the master profile, as `{ added }`. Every POST and PATCH is dashboard-only |
+| Prep plans (Phase 9) | `GET /jobs/:id/prep` · `POST /jobs/:id/prep` | `{ plans }`, newest first · make a new one, streamed as a brief is (`done` carries the plan); replaced: "A newer plan for this job took its place." Dashboard-only |
+| Profile | `GET /profile/:name` · `PUT /profile/:name` `{ text, updatedAt? }` · `GET /profile/starters` · `POST /profile/:name/starter` `{ action }` | `master-profile`, `preferences`, `resume-guide`, `cover-letter-guide` (Markdown in `profile/`) and `resume`, `cover-letter` (CSS in `templates/`), as `{ name, text, updatedAt }`. `PUT` is dashboard-only. With `updatedAt` (the time the editor loaded, null for a missing file), a file that has changed since is refused with 409: "This file changed since you opened it. Reload the page to see the new text, then make your change again." Without it, the text is saved as it is (scripts and older callers) · each guide's state against the app's starter: `same`, `newer` (with a line-by-line `diff` from your guide to the starter) or `yours` (you kept yours) · `'use'` puts the starter in (your old text goes to `profile/old-versions/` first) and answers with the file; `'keep'` remembers this starter, and answers with the state. Dashboard-only |
+| Settings | `GET /settings` · `PATCH /settings` · `PUT /settings/ai/active` `{ id }` · `PUT /settings/ai/writer` `{ id }` · `GET /settings/secrets` · `PUT /settings/secrets` `{ emailPassword?, aiKeys? }` | Secrets are never returned: `/settings/secrets` answers `{ emailPassword: true \| false, aiKeys: [the ids of the saved AIs that have a key] }`. A `PATCH` replaces each section it holds. Its `ai` must be the whole `{ active, saved }`, with `writer` optional: the older one-AI shape is refused, so it can't replace every saved AI with one. A `PATCH` that deletes an AI, or changes its provider, deletes that AI's key in the same save. A `PATCH` that leaves `writer` out keeps the saved one; a writer that isn't saved after the save becomes null, so a later AI with the same id never writes by accident · `PUT /settings/ai/active` switches the AI in use, and answers with the settings · `PUT /settings/ai/writer` picks the writing AI (`id` null: the AI in use), and answers with the settings; an unknown id is refused with "There's no saved AI with that id." (the id is never quoted) · In `PUT /settings/secrets`, a secret left out stays as it is, and null or blank removes it. `aiKeys` is `{ "<AI id>": key or null }`, for saved AIs only. Spaces and line breaks in a pasted key are dropped. A refusal never quotes what was sent, since it may be a key. Every write here is dashboard-only, not from extensions (§13) |
 | AI | `GET /ai/status` · `POST /ai/test` · `POST /ai/check` `{ ai, key? }` · `POST /ai/models` `{ ai, key? }` | `{ state, detail, id, name, preset, baseUrl }` for the AI in use · tests the AI in use, as saved: `{ ok, detail, models, replyMs }`, sent the way reading an ad is (the parse task's model, thinking and extra fields, and a small JSON schema); never an HTTP error. A failed test also shows in the pill · tests any AI, saved or not (Settings → AI's form), with the key typed or else that AI's saved key; the same answer as `/ai/test`. Nothing is saved. The pill changes only when the form is the AI in use exactly as saved, with no key typed: then it's the same test as `/ai/test`. Only the AI in use waits in the queue and may start its program · that AI's model list, as `{ ok, models, detail }`. `check` and `models` are dashboard-only, and a key sent in never comes back |
 | Email | `GET /email/status` · `POST /email/check` · `POST /email/test` · `GET /email/suggestions` · `POST /email/suggestions/:id/confirm` `{ jobId?, status? }` · `POST /email/suggestions/:id/dismiss` | `{ enabled, configured, checking, lastCheckAt, lastError, lastAdded, pending }` · check now (400 "Connect Gmail first: Settings → Email." until it's set up), then the status · `{ ok, detail }`, never an HTTP error · the pending cards, newest first · confirm: `jobId` picks another job, `status` null only adds the note; left out, both follow the card (409 when already handled) · dismiss. Every POST is dashboard-only |
+
+**Streams** (`server/core/http/lines.ts`, Phase 9). A draft, a brief and a prep plan each reply as NDJSON (`application/x-ndjson`), one JSON object per line, through one helper:
+- `waiting` comes as the task is queued, with `by`, the writing AI picked then. `working` comes when the AI starts, with `by`, the AI it runs on. They differ only when you change the writer while the task waits.
+- **A heartbeat:** after 20 seconds with nothing sent, the reply sends `{ "kind": "alive" }`. Bonsai 2 can think quietly for minutes, and Firefox gave up on a quiet reply in Phase 5. Clients ignore it.
+- **The end** is always `done` or `error` with a sentence, so a cut-off reply is never taken for a finished one. A task replaced by a newer one for the same thing (the queue cancels it with a `ReplacedError`) ends with its own sentence. A stop with the app, or the reader's own cancel, ends with nothing more.
+- **Refused before the reply starts:** a missing job, no master profile, no brief, a stale brief. Those are plain HTTP errors, not lines. A request too long for a local AI (§12.7) is refused before it's queued, as the reply's only line, an `error`.
+- **Leaving early** (Stop, Cancel, a closed tab) ends the request, which cancels the AI task.
 
 ---
 
@@ -1029,9 +1119,9 @@ erDiagram
 |------|------|
 | `/` | Search box (focused on load), a **Follow up** section ("Due" with how late, "Coming up" for the next 7 days, a **Done** per job; shown only when there's something in it) + job list with status filter chips |
 | `/board` | Board: a column per status in your order (closed ones with **Show closed statuses**, remembered in `localStorage`), plus an "Other" column for a status your settings no longer have. Each card shows the role, company, date applied and any follow-up, and has a **Move to** menu with a **Move** button. Choosing in the menu never moves the card by itself (on Windows an arrow key changes a closed menu, and a typed letter does everywhere); **Move** does. Drag a card to another column (a drag carries its own data type, so dragged text never moves a job; nothing can be dropped on Other), or use **Move**: the card moves at once, the status change is sent (`POST /jobs/:id/status`, so it's in the history), the move is announced and the focus stays on the card's menu (or goes to the Board heading when its new column is hidden). A refused move puts the card back, says why, and keeps the focus on it |
-| `/jobs/:id` | Call sheet at the top. Then the full ad, documents, attachments and a timeline |
-| `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: text on the left, live A4 preview on the right, fact-check list, version picker, Generate and Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
-| `/settings` | A menu down the side, and one section at a time beside it: Profile, AI, Email, Statuses, Templates, Display, Your data. Each section has its own address (`/settings#ai`), so links, reload and Back land on it, and moving to one puts the focus on its heading. Every section stays on the page while it's hidden, so moving between them never loses what you typed (and never asks); the menu marks a section with unsaved changes "Not saved", Email "On" or "Off", and AI "Problem" when it has one. Leaving Settings with unsaved profile files still asks. On a narrow screen the menu runs along the top. The sections: Statuses, AI (see **Settings → AI** below), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (master profile, preferences, the two guides), Templates (the two CSS files), Display (the theme: Match this computer, Light or Dark; it changes at once and this browser remembers it), backups |
+| `/jobs/:id` | Call sheet at the top. Then documents and attachments, then **Get ready** (see below), then the timeline and the full ad, side by side |
+| `/jobs/:id/documents/:docId` · `/jobs/:id/documents/new?kind=resume\|cover_letter` | Editor: the brief (**Before I write**, below) with the writer line and the main write button, text on the left, live A4 preview on the right, fact-check list, version picker, Stop, Save version, Mark as sent, Print / PDF, one button per exporter, Start from another job's version |
+| `/settings` | A menu down the side, and one section at a time beside it: Profile, AI, Email, Statuses, Templates, Display, Your data. Each section has its own address (`/settings#ai`), so links, reload and Back land on it, and moving to one puts the focus on its heading. Every section stays on the page while it's hidden, so moving between them never loses what you typed (and never asks); the menu marks a section with unsaved changes "Not saved", Profile "New guide" when a newer starter guide is ready, Email "On" or "Off", and AI "Problem" when it has one. Leaving Settings with unsaved profile files still asks. On a narrow screen the menu runs along the top. The sections: Statuses, AI (see **Settings → AI** below), Email (on or off, Gmail address, the app password with **Save password**, **Replace** and **Remove**, minutes between checks; **Save email settings** and **Test connection** save a typed password too), Profile (the starter note at the top when a newer starter guide is ready, then the master profile, preferences and the two guides; see **Settings → Profile** below), Templates (the two CSS files), Display (the theme: Match this computer, Light or Dark; it changes at once and this browser remembers it), backups |
 | `/inbox` | Inbox: the last check ("Last checked 5 min ago · 2 new emails", or why it failed), **Check now**, and one card per email: what it is ("Rejection", "Not sure" when the AI wasn't), sender and date, subject, summary, the job ("Senior Engineer at Atlassian · now Applied") or "No job matched", the question ("Mark as Rejected?"), a status picker with "Don't change the status", **Confirm** (**Add note** when the status won't change), **Pick another job** ("Pick a job" when none matched; a search that Escape closes) and **Dismiss**. The last-check line is announced when a check ends, and the focus moves to the next card after Confirm or Dismiss, and to the status after a pick. Nothing changes until you confirm. The header's **Inbox** link shows how many wait |
 
 **The AI pill** (`AiSwitcher`, in the header on every page)
@@ -1042,6 +1132,11 @@ erDiagram
 - The menu is drawn in the page's colours, not the band's (`.off-band` in `app.css`).
 
 **Settings → AI**
+- **Writes your documents** (Phase 9; its own setting above My AIs, picked from screenshots, design-first, Task 9, option A): a list above My AIs, "The AI in use ({name})" first, then every saved AI by name. Its help line says "Resumes, cover letters, briefs and prep plans. Ratings, quick marks, reading ads and reading emails stay on the AI in use." (it's the list's description, `aria-describedby`).
+  - It saves by itself (`PUT /settings/ai/writer`) about 400 ms after the last change, because on Windows an arrow key changes a closed list one step at a time, so arrowing through it saves once. It saves at once when you leave the list, leave Settings or close the page (the request goes with `keepalive`). The toast says "{name} writes your documents now." or "The AI in use writes your documents now.". A refused save says why, and the list goes back to what's saved. A pick made in another tab shows here too.
+  - When the AI picked isn't saved any more (a hand edit), a note says "Your writing AI isn't saved any more, so {name}, the AI in use, writes.", and the list's description includes it.
+  - Deleting the AI that writes adds "{name} also writes your documents. After this, the AI in use writes them." to the question.
+  - A change to the AI section (**Save AI settings**, **Duplicate**, **Delete**) leaves the writer out, so the server keeps the one saved now and drops one that isn't saved after the change. It sends none (null) only when a new AI or a copy would get the id of a writer that isn't saved any more.
 - **My AIs:** one line per saved AI, with its name, provider and model ("Claude (Anthropic API) · claude-sonnet-5-5"; for Bonsai 2, the model file it runs), and **In use** or **Use this**, **Duplicate** and **Delete**. A cloud AI with no key says "No API key yet". Pressing an AI opens it in the form under the list, and that line carries the accent down its edge. The AI in use opens first.
   - **Use this** switches at once, as the pill does.
   - **Duplicate** saves "{name} (copy)" straight after the original ("(copy 2)", "(copy 3)" … when that name is taken), with every setting but never the key. It opens the copy with its name selected.
@@ -1053,17 +1148,54 @@ erDiagram
   - **API key**, for a provider that takes one: a password field with **Get a key** (the provider's page, in a new tab). Once a key is saved, it shows "Key saved" with **Replace** and **Remove** (Remove works at once). A key never comes back to the page. A key only ever goes to the provider it was saved for: when a save changes an AI's provider, the server deletes that AI's key (`settings.update`), whatever the page knew. The form warns "The key saved for {provider} is removed when you save." as soon as you pick another provider, even one that takes no key.
   - **Model:** a box you can type in, with a list. Our suggestions come first, with their tags ("Best value"), then the provider's own list (`POST /ai/models`, with the key you typed or the saved one), asked for the first time you open the list. Typing narrows the list. A provider that needs a model (every one but Bonsai 2's llama-server) can't be saved without one: "Model: pick one from the list, or type its name." Test connection can go without, and then names the first ten models the server has ("…, and 390 more").
   - For llama-server: "Start it for me when it isn't running" with the program or .bat file. For a program, its options and "Stop it when it's idle" (off by default) with the minutes. For a .bat file or a server you start yourself, an optional **Model file**, so the app can tell when another model answers on that address.
-  - "How the AI works on each task": one row per task (reading ads, rating a job, quick marks on search lists, writing resumes and cover letters, reading emails). Each row has Thinking (Off, Low, Medium, High, No limit), Longest answer (tokens; off with No limit, when it keeps its saved number), Temperature and Model (blank uses the one above). Each task's `extra` fields stay as they are, until the AI's provider changes: then each task's own model and `extra` fields were for the old provider (Bonsai 2's `top_k` makes Claude refuse every request), so the Model boxes empty, the form says "Each task's own model and extra settings are reset for the new provider.", and saving drops them. Going back to the saved provider before you save brings the models back.
+  - "How the AI works on each task": one row per task, in the order of the work (reading ads, rating a job, quick marks on search lists, making the brief, writing resumes and cover letters, making the prep plan, reading emails). Each row has Thinking (Off, Low, Medium, High, No limit), Longest answer (tokens; off with No limit, when it keeps its saved number), Temperature and Model (blank uses the one above). Each task's `extra` fields stay as they are, until the AI's provider changes: then each task's own model and `extra` fields were for the old provider (Bonsai 2's `top_k` makes Claude refuse every request), so the Model boxes empty, the form says "Each task's own model and extra settings are reset for the new provider.", and saving drops them. Going back to the saved provider before you save brings the models back.
 - **Test connection** tests what's in the form, with the key you typed or else the saved one (`POST /ai/check`). It never saves. It changes the AI pill only when the form is the AI in use exactly as saved, with its saved key, so once a usage limit has passed, a good test clears the problem and the jobs waiting for the AI are read. Its result goes away when you change the provider, address, key or model, so it never describes something else. For the AI in use it waits its turn and may start its program. Any other AI is tested at once, and its program is never started.
 - **Save AI settings** reloads the settings and checks the form against them (so a name or id another tab has just taken is caught), then saves the whole AI section (`{ active, saved }`, never the older single-AI shape), then the key you typed, then reloads which AIs have a key. The toast says "AI settings saved.", or "Added {name}." for a new AI. A problem shows as a sentence beside the buttons.
-- The "Right now" line stays above the list, and the menu's "Problem" mark stays on the AI section.
+- The "Right now" line stays above the list, and the menu's "Problem" mark stays on the AI section. Both are about the AI in use only: a writing AI's problems show where you write.
+
+**The writer line** (`WriterLine`, Phase 9, in the editor and beside **Get ready**)
+- "Writes with {name}" sits beside the main button, so you always see who writes before you press it. When the writer isn't saved any more, it says "Your writing AI isn't saved any more, so {name}, the AI in use, writes." instead.
+- Its change control ("Change the writing AI") opens the same list as Settings: "The AI in use ({name})", then every saved AI. A pick saves at once (`PUT /settings/ai/writer`), with the same toast as Settings. It's a menu button, and works by keyboard as the AI pill's menu does: Enter, Space or ↓ opens it, ↑ and ↓ move, Enter picks, Escape closes it and puts the cursor back.
+- A writing AI's problems (no key, a refused key, a usage limit, can't reach it, too long) show here, where you write, as the stream's error. They never touch the pill.
+
+**Before I write** (`BriefPanel`, the editor's brief, Phase 9)
+- **The heading is "Before I write".** The parts are **Contact**, **Opening line**, **Needs**, **Gaps** and **Questions**. The main write button ("Write the cover letter" or "Write the resume") is the boldest thing on the page, with **Skip, just write** and **New brief** beside it. Each is one click.
+- **Where it sits:** a card above Save version, the text and the preview, picked from screenshots (design-first, Task 10, option B). Contact and Opening line share a row, the needs sit side by side, then Gaps and Questions (one column on a narrow screen). The buttons stick to the foot of the window while the card is on screen.
+- **Folding:** the card folds to one line once the editor has a draft: when the editor opens with text, and when a new draft's first words arrive. Typing into an empty editor doesn't fold it. Folded, it says "2 needs · 1 answer · Made by Bonsai 2, 4 Nov" with **Show the brief**, which opens it again; then **Skip, just write** and **New brief** show, and **Hide the brief** folds it. While a draft is written, the folded card still shows the progress line and **Stop**. A new brief opens the card. A sent version has no brief.
+- **Leaving:** closing or reloading the tab asks first while you have unsaved text, or while a brief or a draft is being made.
+- **No brief yet:** the main button makes one first (`POST /jobs/:id/brief`). The progress line says "Waiting for {name}…", then "{name} is making the brief… {m:ss}", with **Cancel**. It's announced (`aria-live`). When the brief is done, it's shown for checking, never written from, and the focus moves to its heading. **Skip, just write** also cancels a brief being made.
+- **What you can change**, each in a click or two, and each saved as you make it (`PATCH /briefs/:id`; typing waits until you pause):
+  - **Contact:** the name (120 characters at most) and **From a recruiter**. Those two are all you change here; the email and organisation are as the AI found them.
+  - **Opening line:** the ad's line and why it fits you. When it isn't word for word in the ad, "This line isn't word for word in the ad. Check it." shows beside it.
+  - **Needs:** each need with its chosen story. One click swaps in one of its other stories. **Drop** leaves the need out of the writing, and **Bring back** puts it back. A brief with no needs says so plainly.
+  - **Gaps:** each must-have you lack, with your nearest real evidence, to read.
+  - **Questions:** type an answer (240 characters at most), or **Skip**. **Add to my profile** ticks an answer to go into your master profile. Answers carried from the last brief come first, and show that they're earlier answers.
+- **Writing with it:** the main button waits for any edit still saving, adds the ticked answers (`POST /briefs/:id/answers-to-profile`; the toast says "Added 1 answer to your master profile." or "Added {n} answers to your master profile."), then writes with `brief: 'use'` and the brief's id. The draft's progress line names who's writing.
+- **A newer brief** (a 409 on an edit or a write, or `brief.saved` from another tab): the editor loads the newest and says "There's a newer brief for this job, so it's shown here now. Check it again." A brief or draft replaced by a newer one says so in its own sentence ("A newer brief for this job took its place."), not as a failure.
+- **The fact-check** counts the job's notes and the brief's answers as facts from you, beside the master profile.
+- **Keyboard:** the brief's controls come in reading order, then the buttons. Escape never loses what you typed.
+
+**Get ready** (`PrepPanel`, on the job page, Phase 9)
+- **Where it sits:** one sheet under Documents, with every part open, picked from screenshots (design-first, Task 11, option A). The call sheet stays the boldest thing at the top of the page.
+- One button, **Get ready**, makes a prep plan (`POST /jobs/:id/prep`), with the writer line beside it. The progress line says "Waiting for {name}…", then "{name} is making your plan… {m:ss}", with **Cancel**, and is announced. While a plan is being made, Esc doesn't leave the page (**Cancel** stops it), and closing or reloading the tab asks first.
+- A finished plan shows under the heading **Get ready**, and the focus moves there. Its five parts: **Learn in a day** (each topic with why it matters, its steps, the hours and what you can honestly say afterwards; a topic whose steps were all links still shows, with one step or none), **A practice project**, **Likely interview questions** (each with the story to tell), **Questions to ask them** and **Refresh before the interview**.
+- **New plan** makes another. The old ones stay under **Earlier plans**, by date, newest first, and any one opens. A plan replaced by a newer one says "A newer plan for this job took its place.".
+- A plan can't be edited, and its steps aren't ticked off. It reloads on `prep.saved` for the job on screen.
+
+**Settings → Profile** (Phase 9 additions)
+- **A newer starter guide** (`StarterNote`): when a guide's state is `newer` (`GET /profile/starters`), a banner at the top of Profile, above the editors, names the guide and says "A newer starter guide is ready." with **See what changes**, **Use the new guide** and **Keep mine**, one click each. It was picked from screenshots (design-first, Task 12). The side menu marks Profile "New guide" while a note is there.
+  - **See what changes** opens (and closes) the line-by-line diff from your guide to the new starter. Runs of unchanged lines are folded ("Show 3 unchanged lines", one click to open). Removed and added lines are told apart by more than colour: a `−` or `+` and a word only screen readers hear.
+  - **Use the new guide** asks first when the guide's editor has unsaved changes. Your old text goes to `profile/old-versions/`, the editor shows the new guide, and the toast says "Now using the new {label}. Your old one is kept in the profile folder, under old-versions." (`{label}` is "cover letter guide" or "resume guide").
+  - **Keep mine** remembers you've seen this starter, so the note goes until a newer one comes.
+- **The editors send the `updatedAt` they loaded** with each save. A 409 means the file changed meanwhile (answers added, a new guide used): the editor shows the server's sentence ("This file changed since you opened it. Reload the page to see the new text, then make your change again.") and keeps your text. It doesn't reload.
+- **On `profile.changed`,** an editor with no unsaved changes reloads. One with unsaved changes keeps your text and says "This file changed since you opened it. Copy your changes, then reload the page to see the new text." A change to a guide also checks the starter note again.
 
 **Structure**
-- **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiSwitcher` (the AI pill), `AiSettingsSection` with `AiList` and `AiForm` (Settings → AI), `ModelPicker`, `EmailSettingsSection`, `SuggestionCard`, `JobPicker`, `FollowUps`, `FollowUpDialog`, `BoardCard`. `InboxPage` is the Inbox and `BoardPage` the board.
+- **Folders:** `web/src/pages/` holds one component per page (`DocEditorPage` is the editor). `web/src/components/` holds shared pieces: `SearchBox`, `JobList`, `CallSheet`, `Timeline`, `LogCallDialog`, `NewJobDialog`, `SamePrompt`, `DocumentsPanel`, `DocPreview`, `FactCheckList`, `CopyFromDialog`, `ProfileFilesSection`, `AiSwitcher` (the AI pill), `AiSettingsSection` with `AiList` and `AiForm` (Settings → AI), `ModelPicker`, `EmailSettingsSection`, `SuggestionCard`, `JobPicker`, `FollowUps`, `FollowUpDialog`, `BoardCard`, and (Phase 9) `BriefPanel`, `WriterLine`, `PrepPanel` and `StarterNote`. `InboxPage` is the Inbox and `BoardPage` the board.
 - **The preview** is an iframe with `sandbox=""` whose `srcdoc` is `documentPage(...)` from `shared/document-page.ts`, the same page the print view serves. It's redrawn 300 ms after you stop typing. A sent version uses its frozen CSS. Fact-check flags are `<mark>`ed in the preview only, never in print.
 - **API calls:** `web/src/lib/api.ts` creates the shared typed API client. Pages load data when they open.
 - **Light and dark:** every colour in `web/src/app.css` is a `light-dark()` pair, so one list of tokens covers both themes. With no choice made, the browser follows the computer. Settings → Display sets `data-theme` on `<html>` (`web/src/lib/theme.ts`, kept in `localStorage`), and a small script in `index.html` applies it before the page first draws. The header is a band of ink in both themes; the extension keeps its own colours.
-- **Live updates:** `web/src/lib/live.svelte.ts` listens to `GET /events`. A page reloads its data only when an event is about what's on screen, such as `job.updated` for the open job. There's no global state library.
+- **Live updates:** `web/src/lib/live.svelte.ts` listens to `GET /events`. A page reloads its data only when an event is about what's on screen, such as `job.updated` for the open job, or `brief.saved` and `prep.saved` for its job. The editor skips the echo of its own brief saves by the event's `updatedAt`. **Get ready** reads its plans again on every `prep.saved` for its job, its own included, which is cheap and always right. There's no global state library.
 - **Markdown:** rendered by `shared/markdown.ts` (`marked`, GFM, line breaks kept). It escapes any raw HTML, turns links other than `http:`, `https:` and `mailto:` into plain text, and shows images as their alt text. The page shell carries a Content Security Policy (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'`) as a meta tag, and the print view sends it as a header too. Every `<` in template CSS becomes the CSS escape `\3c`, so a template can't end its own `<style>`.
 
 **Keyboard**
@@ -1072,7 +1204,7 @@ erDiagram
 |-----|--------|
 | `/` or `Ctrl+K` | Jump to search |
 | `↑` `↓` `Enter` | Move through and open results |
-| `Esc` | Clear search, or go back |
+| `Esc` | Clear search, or go back (on a job page, not while a plan is being made) |
 | `N` | New job |
 | `Ctrl+V` (when not typing in a field) | New job from the clipboard |
 | `L` | Log a call (on a job page) |
@@ -1110,6 +1242,7 @@ flowchart LR
 
 - **Content scripts** run only on Seek, LinkedIn and Indeed (`matches` in the manifest: `au.seek.com`, `nz.seek.com`, the older `www.seek.com.au` and `www.seek.co.nz`, `*.linkedin.com`, `*.indeed.com`). A Seek job from any of these addresses gets the same stable link, `www.seek.com.au/job/<id>` (or `www.seek.co.nz`), so it's the same job. On any other site, the popup's **Save this page** injects the generic reader (`generic.js`) once, using `activeTab` and `scripting`, so the extension doesn't need permission to read every website.
 - **Readers** (`extension/src/sites/`): each site's selectors first, then the page's own JobPosting data (only when its title matches the title on screen), then nothing. On the three job sites, the ad's header facts (title, company, location, work type, salary) go above the description in the saved ad text, because the salary is often only in the header. A reader returns `null` until the ad's text is there, and when a split pane's own job link names another job. The generic reader uses your selection (over 200 characters), then the JobPosting data, then Readability. `npm run ext:check -- page.html URL` runs a reader on a page you saved.
+- **Contact emails** (Phase 9). Seek shows a contact as "••••@example.com.au", and only the `mailto:` link holds the address. So a `mailto:` link whose text doesn't show its address in full keeps it: "••••@example.com.au (alex@example.com.au)", or "email Alex (alex@example.com.au)". Text that shows it (any case) stays as it is, and an empty link becomes the address. The address is the part before any `?`, decoded, and only one with an `@` counts. The extension's `text.ts` and the server's `core/html-text.ts` (ads and HTML email) share the rule (`shared/mailto.ts`) and one table of test cases. `parse-job.md` says the address in brackets after such a link is the real one.
 - **Single-page sites:** Seek, LinkedIn and Indeed change the job without reloading the page. The page watcher (`watcher.ts`) checks the URL and the job id every 500 ms, and on page changes. On Seek's home page the address never changes: a Recommended card opens the job in a pop-over (`#homepageDrawer`), and the job id comes from the pop-over's own links. Closing it leaves the job. When the id changes, it waits up to 5 seconds for that job's details, ignoring a pane that still shows the last job, reports the job, and reports again if more of it arrives in that time. If nothing arrives, the panel says it couldn't read the job and offers **Save selection** and **Save page**.
 - **The panel** is a Svelte component in a shadow root (closed, so the site's scripts can't read your saved status or rating; the test build opens it). The site's CSS can't break it, and it can't break the site. It shows which job it's about, then one of: checking; already saved ("Saved · Applied 12 Oct", **Open in Job Registry**); likely the same as another job (**Same job** / **Different job**); new (**Save**, with Saved or Applied and an optional note); couldn't read; the app isn't running (**Try again**). The rating shows below. **Hide** (or Esc) tucks it away, and it stays tucked away. It starts in the bottom-right corner. You drag it by its top bar, and resize it from any edge or corner. It keeps that place and size on every page (`panelPlace` in the extension's storage, as distances from the right and bottom of the window, so it stays in its corner when the window changes size), and always stays inside the window. A double-click on the bar puts it back in the corner at its usual size. The bar stays in view while the rest scrolls. A site's pop-over can hold the focus inside itself and stop the mouse wheel elsewhere (Seek's home page does, with react-focus-lock and react-remove-scroll). So the panel's host carries `data-no-focus-lock`, which focus-lock leaves alone, and stops wheel and touch moves from reaching the page, so you can still type a note and scroll the panel.
 - **Card marks** (`cards.ts`, `marks.ts`): on a search list, each job card gets a small mark after its title: "Strong 84", "Good 68 · quick", "Saved · Applied 12 Oct", or "Rating…" while the AI reads it. The mark itself shows the verdict and score. Its tooltip holds the AI's one-line reason, plus "Quick rating from the card. Open the job for a full rating." for a quick mark. A saved job's tooltip also gives its rating, if it has one. Each mark is a closed shadow root (open in the test build), with its words and its tooltip inside, so the site's CSS can't touch it and the site's scripts can't read your rating. It sits above the card's own click-through link, so its tooltip shows. The card watcher reads the list every second, so cards that load as you scroll (LinkedIn) get marks too, and a mark the site redraws away is put back, never twice. See §7.7.
@@ -1138,14 +1271,18 @@ flowchart LR
 | `parseJob` | ad text (the page's `JobPosting` fields are already on the job, and the AI never overwrites them) | `ParsedJob` (JSON schema) | parse (background for the start-up sweep) | off | no |
 | `rateJob` | master profile, preferences, ad | `Rating` (JSON schema) | interactive | off | no |
 | `rateCard` | master profile, preferences, one job card as plain text (title, company, location, then the rest) | `CardRating`: `{ reason, verdict, score }`, the reason one sentence (JSON schema) | list | off (`tasks.card`: temperature 0.2, 512 tokens) | no |
-| `writeDocument` | kind, master profile, guide, the job's fields as plain text, its newest ad, today's date (cover letters) | Markdown | interactive, key `doc-<jobId>-<kind>` | on (`tasks.write`: temperature 0.6, effort max, so no limits; its 8192 tokens apply at Low, Medium and High) | yes: it holds the queue until the stream ends, is cancelled, or the reader stops |
+| `writeDocument` | kind, master profile, guide, the job's fields as plain text (its contact included), the job's notes, the brief block (or "No brief: plan it yourself, as my guide says."), its newest ad, today's date. On the writing AI (§12.6) | Markdown | interactive, key `doc-<jobId>-<kind>` | on (`tasks.write`: temperature 0.6, effort max, so no limits; its 8192 tokens apply at Low, Medium and High) | yes: it holds its queue until the stream ends, is cancelled, or the reader stops |
+| `briefJob` (Phase 9) | master profile, the job's fields, its newest ad, its notes, the answers from the job's last brief (newest first, so a new brief doesn't ask again), today's date. On the writing AI | `BriefAnswer` (JSON schema), in this order: contact, needs (each with its best story and up to 2 others), opening, gaps, questions. Then cut to its caps and checked (§12.8) | interactive, key `brief-<jobId>` | on (`tasks.brief`: temperature 0.3, 3,072 tokens, Medium) | its lines only (§9 Streams) |
+| `prepJob` (Phase 9) | master profile, the job's fields, its newest ad, its notes, the newest brief's needs, gaps and answers (or "No brief yet."), today's date. On the writing AI | `PrepAnswer` (JSON schema): learn, project, interview, ask, refresh. Then cut to its caps, with links removed (§12.8) | interactive, key `prep-<jobId>` | on (`tasks.prep`: temperature 0.4, 4,096 tokens, Low) | its lines only |
 | `classifyEmail` | sender, subject, date, the email's new text (quoted history cut, a forward kept, 4,000 characters at most), up to 5 candidate jobs as `[id] Title at Company (Status)` | `{ event, jobId, company, role, confidence, summary }`: a `jobId` that wasn't a candidate becomes null; summary 200 and names 120 characters at most. The suggested status is plain code, not the AI (§7.5) | background | off (`tasks.email`: temperature 0.1, 1024 tokens) | no |
 
-- **Settings per task, per AI:** each saved AI has its own block for each task (`ai.saved[].tasks.parse`, `.rate`, `.card`, `.write`, `.email`), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings, and a "light" copy of an AI can think less. Settings → AI shows all but `extra` (§10). Every task runs on the AI in use, with that AI's settings.
+- **Settings per task, per AI:** each saved AI has its own block for each task (`ai.saved[].tasks.parse`, `.rate`, `.card`, `.brief`, `.write`, `.prep`, `.email`), with model, temperature, maxTokens, thinking, thinkingEffort and extra request fields. So you can use the 27B model for documents and a smaller, faster one for ratings, and a "light" copy of an AI can think less. Settings → AI shows all but `extra` (§10). Every task runs on the AI in use, with that AI's settings, except the four writing tasks (`writeDocument`, `briefJob`, `prepJob`), which run on the writing AI with its own (§12.6).
 - **Thinking off** is `reasoning_effort: "none"` on the local presets (§6.1). Bonsai 2 thinks at length by default, so tasks that don't need it turn it off. Its `"low"` thinks about as long as `"xhigh"` (PrismML's KNOWN_ISSUES.md), so each level's limit is what keeps Low, Medium and High apart. On a cloud AI, each level is sent the way its dialect says, and "off" asks for the least thinking the provider takes, with Medium's room on top of the longest answer.
 - **Prompts are text files** in `server/modules/ai/prompts/*.md`, with `{{placeholders}}`. You can change wording without touching code. Every AI gets the same prompts.
 - **Prompt order helps the cache.** The fixed part comes first and the ad comes last. llama-server reuses the cached start of the prompt, so repeat ratings are much faster. The two rating prompts (`rate-job.md` and `rate-card.md`) share one system part, word for word: who you are, your profile and your preferences. Each one's own rules go in the user part, before the ad or card. So moving between a full rating and quick marks keeps the cache (a test checks the two system parts match). Claude's connector marks that system part for Anthropic's prompt caching, which makes repeat requests cheaper. Most other cloud providers cache a repeated start by themselves.
-- **Size limits:** ad text over about 12,000 characters is trimmed. The 32K context leaves room for the profile (usually 3–6K tokens), the ad and the answer.
+- **The four writing prompts share one system part too** (Phase 9: `make-brief.md`, `make-prep.md`, `write-resume.md`, `write-cover-letter.md`), word for word: who I am to the AI, the rules for every task (facts only from my profile, my notes and my answers; never invent; never claim a "Don't claim" item; Australian spelling), then the master profile. Each task's own rules, the guide, the job, the brief, the notes and the ad go in the user part. So llama-server reuses about 21k tokens of profile from the brief to the letter to the plan (most of a minute each time on Bonsai 2), and Claude's caching covers it too. A test checks the four match. Preferences stay out of the writing tasks: the guides say never to mention salary.
+- **Notes and answers in the prompts.** The job's notes are mine and true, and the AI follows any wishes in them. A note whose text starts "Email," sums up an email I got: true about the job, but not a fact about me or my wishes. My answers settle any "To confirm" or ⚠ item they answer, but never a "Don't claim" item. The brief is my plan, and its stories come from my profile, so every fact in a story must also be in my profile, my notes or my answers.
+- **Size limits:** ad text over about 12,000 characters is trimmed. For the writing tasks, each part has a cap and the ad gets what's left on a local AI (§12.7).
 
 ### 12.2 Structured output
 
@@ -1159,10 +1296,12 @@ flowchart LR
 
 ### 12.3 Queue
 
-- **One task runs at a time**, because there's one GPU.
+- **One task runs at a time** in the main queue, because there's one GPU.
+- **Lanes** (Phase 9). A writing task on a cloud writing AI that isn't the AI in use goes into that AI's own lane: a queue of its own, made when it first writes, one task at a time. So a long Claude draft never waits behind Bonsai 2's ratings, or holds them up, and one at a time keeps the order simple and stays clear of the provider's rate limits. A writing task on the AI in use, or on another **local** AI, goes through the main queue at `interactive` priority: it shares the GPU. When the AI in use is a cloud AI and the writer is a local one, the local write waits in the main queue with the cloud tasks. That's rare, and it keeps the GPU rule whole.
 - **Priority:** `interactive` (you're waiting) > `list` (quick marks on the search list you're looking at) > `parse` > `background`. A waiting task jumps ahead of lower ones, but never stops one that's already running. `list` may start the AI (only `background` never does).
 - **Cancelling:** every task takes an `AbortSignal`. Cancelling removes a waiting task, or aborts the HTTP call of a running one.
-- **"Latest wins" keys:** a new task with the same key cancels the older one. Ratings use a key per browser tab.
+- **"Latest wins" keys:** a new task with the same key cancels the older one. Ratings use a key per browser tab; a draft `doc-<jobId>-<kind>`, a brief `brief-<jobId>` and a plan `prep-<jobId>`. It holds across lanes: a keyed writing task first calls `cancelKey(key)` on every other queue. A task cancelled this way gets a `ReplacedError` (`core/errors.ts`, an `AbortError` like any cancel), so a reply still being read can say a newer one took its place (§9 Streams). A request that is already cancelled cancels nothing.
+- **Stopping:** `stop()`, `stopNow()` and `onIdle()` cover the main queue and every lane.
 - **Idle timer:** each task calls `runtime.touch()` when it ends, which resets the idle timer. The timer only runs when the AI's `stopWhenIdle` is on (off by default).
 - **A switch** (§12.5) never cancels a task on purpose. A task picks the AI and its provider when it starts running, so one already running finishes on the AI it started on. If stopping the old program cuts it short, it fails as a stop does, and a draft keeps its text so far. Tasks still waiting, and every task after, run on the new AI. A task waiting for the old AI's program to start waits for the new AI's instead.
 
@@ -1178,7 +1317,7 @@ These settings belong to each saved Bonsai 2 AI (`managed`, `stopWhenIdle`, `idl
 
 ### 12.5 Saved AIs and switching (Phase 8)
 
-You can save any number of AIs and switch the one in use in one click. The whole app uses one AI at a time, for every task. Decision record: [0011](decisions/0011-several-ais-and-cloud-providers.md).
+You can save any number of AIs and switch the one in use in one click. The whole app uses one AI at a time, for every task, except writing when you pick another AI to write (§12.6). Decision record: [0011](decisions/0011-several-ais-and-cloud-providers.md).
 
 **The settings** (`shared/contracts/ai.ts`)
 - `ai` is `{ active, saved }`. Each saved AI has every field the one-AI section had before (`preset`, `baseUrl`, `model`, `timeoutSec`, `stopWhenIdle`, `idleMinutes`, `managed`, `tasks`), plus `id` and `name`. There's always at least one, `active` names one of them, ids are unique, and an unknown field is refused, as everywhere in settings. With no `ai` section, there's one AI: `bonsai-2`, "Bonsai 2", with the defaults.
@@ -1223,6 +1362,84 @@ The task settings (thinking, temperature) don't count, so "Bonsai 27B" and "Bons
 - A cloud AI's model list is best effort (Z.ai and Qwen have none): the test's short chat decides.
 - `models()` (`POST /ai/models`) lists any AI's models the same way, for the form's Model box.
 
+### 12.6 The writing AI (Phase 9)
+
+You can pick one saved AI to do the writing: resumes, cover letters, the brief and the prep plan. Everything else (reading ads, ratings, quick marks, reading emails) stays on the AI in use. So Bonsai 2 can rate every card for free while Claude writes your letters. Decision record: [0012](decisions/0012-writing-ai-and-briefs.md).
+
+**The setting** (`shared/contracts/ai.ts`)
+- The `ai` section gains `writer`: an AI id, or `null` for "the AI in use" (the default, so an old file works as before).
+- `writer` isn't checked against the saved AIs when the file loads, so a hand edit that removes that AI still loads. `writingAi(ai)` gives `{ ai, inUse, missing }`: the writer if it's saved, else the AI in use, with `missing` true when `writer` names an AI that isn't saved.
+- A save whose `writer` isn't among the saved AIs after the save sets it to `null`, as a deleted AI's key goes. So a later AI that gets the same id never becomes the writer by accident. A change that leaves `writer` out keeps the saved one.
+- `PUT /settings/ai/writer` sets it at once and sends `settings.changed` with `ai`. The app never picks a writer by itself.
+
+**Where each writing task runs**
+- **The writer is the AI in use:** everything is as before. The task goes through the main queue, the pill shows its state and problems, and the app starts its program if it runs it.
+- **The writer is another AI:** the task runs on that AI, with that AI's own task settings and key. Its problems (no key, a refused key, a usage limit, can't reach it, the wrong model file) come back where you write, as the stream's error. They never set the pill's problem, its state or "Right now", and their advice points to the writer, not the pill (§6.1).
+  - **A local writer** is never started or stopped by the app (§6.2). It's used if it answers; otherwise its own "Can't reach {name} at {address}…" sentence shows. The model-file check (§12.5) still runs, so another model answering on its address says so. It shares the main queue.
+  - **A cloud writer** gets its own lane (§12.3).
+- **The writer changes while a task waits or runs.** A running task finishes on the AI it started on, and its `by` names that AI. A task queued for another AI runs on that AI. A task queued while the AI in use writes runs on the writer as it is when its turn comes, so its `working` line can name another AI than its `waiting` line. The next task uses the new writer, or falls back to the AI in use.
+- **Providers:** `app.ts` keeps the writing AI's provider as it keeps the AI in use's (§4.4), so Claude's connector keeps its model limits between drafts.
+
+### 12.7 The budget: what fits in Bonsai 2's window (Phase 9)
+
+Bonsai 2 has a window of 32,768 tokens. With a long master profile, a writing request could fill it and leave no room to think, and then fail with "out of room". So every writing request is fitted before it's sent (`server/modules/ai/budget.ts`, plain strings in and out, so it's tested without an AI).
+
+**The rule.** A request should fit in about 27,000 tokens in the worst case, leaving about 5,700 to think and answer. The app counts **4 characters a token** (measured at 4.08 on a real profile, so a little cautious). A request may hold **108,000 characters** (`REQUEST_CHARS`).
+
+**Fixed caps** (characters):
+
+| Part | Cap |
+|------|-----|
+| The job's notes, newest first, each with its date | 1,200 in all (`NOTES_CAP`). Whole notes until the cap; the one that crosses it is cut with "…"; older ones are left out, with "(Older notes left out.)". None: "No notes." Every note counts, the email reader's too |
+| One answer you type | 240 (`ANSWER_CAP`) |
+| The answers from the job's last brief, for a new brief | 2,000 in all (`ANSWERS_CAP`) |
+| The brief as the writer gets it, answers included | 4,500 (`BRIEF_CAP`) |
+| The job's details (role, company, contact, lists) | 2,000 (`JOB_CAP`) |
+| The ad | 12,000, as before (`AD_LIMIT`) |
+
+**Fitting the ad.** On an AI on this computer, the ad gets what's left of the 108,000 characters after everything else, up to its 12,000 and never less than 2,000 (`AD_FLOOR`). A cut ad ends with "[The rest of the ad was cut.]", as before, and a job with no ad text says "No ad saved.". A cloud AI's window is far bigger, so it gets the plain caps only.
+
+**When it still doesn't fit.** The profile grows with each answer you add, and your guide is yours to lengthen, so a request can pass 108,000 even with the ad at its floor.
+- Up to **120,000 characters** (`HARD_CHARS`, about 30,000 tokens), it's sent anyway: a little less room to think, but it usually works.
+- Over that, it's refused before anything is sent, where you write: "This is too long for {name}: about {n} characters, and it fits about 108,000. Shorten your master profile or your guide, or pick a cloud AI to write (Settings → AI)." It's a `ValidationError`, never an `AiUnavailableError`, so the pill never shows it. A cloud AI is never refused.
+
+**The brief block's shares.** The brief's own caps add up to more than its block, so each part of the block the writer gets has a share: contact 200, opening line 450, needs 1,600, gaps 750, answers 1,500 (4,500 in all). Every item is kept: a part over its share cuts each item's text evenly, with "…", so the longest lose the most. The resume and the prep plan leave out the contact and the opening line. Dropped needs and skipped questions never reach the writer. The saved brief and the screen keep everything.
+
+**Measured worst case** on the user's real profile (about 86,000 characters, about 21,000 tokens), with the real prompts and starter guides and every cap full (3 Nov 2026, by a script kept outside the repo; counts only):
+
+| Request | Characters | The ad gets |
+|---------|-----------:|-------------|
+| Brief | 105,570 | all of it (12,000) |
+| Prep plan | 106,769 | all of it (12,000) |
+| Cover letter, with a brief | 108,000 | about 4,650 |
+| Resume, with a brief | 108,000 | about 2,550 (above the 2,000 floor) |
+
+A test builds each request with a made-up profile of 86,000 characters, every cap full and a 20,000-character ad, and checks it's 108,000 characters or fewer on a local AI, and that a cloud AI gets the ad up to 12,000.
+
+**The answer's room.** A brief gets 3,072 tokens plus 2,048 for thinking (Medium), and a plan 4,096 plus 512 (Low): both stay inside the window with a 27,000-token request. Writing keeps No limit thinking (the user's Phase 7 pick), so on Bonsai 2 a full request leaves about 5,700 tokens to think and write: enough for a letter, tight for a long resume. That's best effort. A cut-off answer gives the usual "out of room" sentence; the fix is a cloud writing AI, or Writing's thinking at Medium.
+
+### 12.8 The brief and the prep plan (Phase 9)
+
+**Cut, never refused.** The JSON Schema asks for at most 3 needs (each with up to 2 other stories), 5 gaps and 5 questions, as `maxItems`, so llama-server's grammar keeps to them. The least sizes are only hints (`minItems`, which Claude drops), and zod never refuses a short list: a refused answer costs a second, paid try. The service then cuts each list and text to its cap:
+
+| Part | Cap (characters) |
+|------|------------------|
+| Contact's name, email, organisation | 120 each |
+| A need | 160 |
+| A story's title, and its text | 80, and 320 |
+| The opening quote, and why it fits | 300, and 240 |
+| A gap, and its evidence | 160, and 240 |
+| A question, and why it's asked | 160 each |
+| An answer you type | 240 |
+
+A prep plan keeps up to 5 topics to learn (2 to 4 steps each), 6 things the project touches, 6 interview questions, 5 questions to ask and 8 items to refresh. Its texts are cut to 320 characters, each step to 200, and the hours to between a quarter of an hour and 8.
+
+**No links.** Both prompts ask for no links or web addresses, and the service removes anything that looks like one (`http://`, `https://`, `www.`) from every text before saving. A topic whose steps were all links keeps what's left, even one step or none.
+
+**The quote check.** The server looks for the opening quote in the ad, with spaces and case ignored, and saves whether it's there (`opening.inAd`). A quote that lost a link counts as not there.
+
+**Questions.** Only where the answer would change the document: a must-have the profile is silent on, a "To confirm" or ⚠ item the ad touches, or whether something can be named. Never what the profile, the notes or the earlier answers already say. A new brief carries the last brief's answered questions first, then the AI's new ones, leaving out any that repeat one already there (spaces and case ignored), 10 in all.
+
 ---
 
 ## 13. Cross-cutting concerns
@@ -1233,7 +1450,7 @@ The task settings (thinking, temperature) don't count, so "Bonsai 27B" and "Bons
 - server port
 - backup folder
 - statuses
-- your saved AIs and the one in use (`ai.active`, `ai.saved`: each with its name, preset, address, model, task settings, and for Bonsai 2 its program and whether to stop it when idle; §12.5)
+- your saved AIs, the one in use and the one that writes (`ai.active`, `ai.writer`, `ai.saved`: each with its name, preset, address, model, task settings, and for Bonsai 2 its program and whether to stop it when idle; §12.5, §12.6)
 - auto-rate
 - email (`enabled`, `address`, `host`, `port`, `mailbox`, `pollMinutes`, `firstCheckDays`, `maxPerCheck`; off by default).
 
@@ -1256,6 +1473,7 @@ Each status has these settings:
 
 **Errors**
 - `server/core/errors.ts` defines `AppError` and its subclasses: `NotFound`, `Validation`, `Conflict` and `AiUnavailable`.
+- It also defines `ReplacedError` (Phase 9): not an `AppError` but a cancel (a `DOMException` named `AbortError`), used when a newer task for the same thing takes a task's place (§12.3).
 - One Fastify error handler maps them to the error shape in §9.
 - Unknown errors are logged with a stack trace and returned as `internal`, without leaking details.
 
@@ -1267,19 +1485,27 @@ Each status has these settings:
 - **Origin check on writes:** every `POST`, `PATCH`, `PUT` and `DELETE` must carry an Origin that is the dashboard itself, `moz-extension://…` or `chrome-extension://…`. Writes must also be JSON or multipart uploads, so a plain HTML form on another website can't submit to the app.
 - **CORS:** none, for anyone. Job Registry's extension reaches the server through its host permission, so it doesn't need CORS; with CORS, any other installed extension could read your data. (Changed in Phase 3; the earlier plan allowed CORS for extension origins.)
 - **nosniff:** every reply says `X-Content-Type-Options: nosniff`.
-- **Dashboard-only writes:** a route can declare `config: dashboardOnly(message)`, and then refuses extension origins too. `PATCH /settings`, `PUT /settings/ai/active` and `PUT /settings/secrets` do: settings choose which program the app runs and where your profile and ads are sent, so no installed extension may change them or switch the AI. So do `POST /ai/check` and `POST /ai/models`, because they take an API key and an address from the request.
+- **Dashboard-only writes:** a route can declare `config: dashboardOnly(message)`, and then refuses extension origins too. `PATCH /settings`, `PUT /settings/ai/active` and `PUT /settings/secrets` do: settings choose which program the app runs and where your profile and ads are sent, so no installed extension may change them or switch the AI. So do `POST /ai/check` and `POST /ai/models`, because they take an API key and an address from the request. Since Phase 9, so do `PUT /settings/ai/writer`, `POST /jobs/:id/documents/generate`, `POST /jobs/:id/brief`, `PATCH /briefs/:id`, `POST /briefs/:id/answers-to-profile`, `POST /jobs/:id/prep` and `POST /profile/:name/starter`: a cloud writing AI spends money on each request, and a brief's answers become facts in your profile. The extension never calls them.
 - **Markdown:** escaped and sandboxed (see §10).
 - **Email:** read-only over IMAP with TLS. Every `/email` write and the secrets endpoint are dashboard-only, so no installed extension can confirm a suggestion or read the password. An email's text is only data: the AI may only pick a candidate job, and the status comes from plain code.
 - **Phone access over the home network** was offered in Phase 6 and not chosen, so the server still listens on `127.0.0.1` only. Adding it would need a passcode and a session cookie first.
 
 **Backups**
 - On each start, and every 24 hours while running, the app uses SQLite's online backup (safe while the app runs). Copies go to `backupDir`. The newest copy from each of the last 14 days that have one is kept (`backups.keep`). One backup runs at a time, so a second request joins the one already running.
-- In the same pass, three folders are copied into the backup folder: `data/files/` (attachments) to `<backupDir>/files/`, plus `profile/` and `templates/` under their own names. Git never keeps the last two, so this is their only copy outside the app folder.
+- In the same pass, three folders are copied into the backup folder: `data/files/` (attachments) to `<backupDir>/files/`, plus `profile/` and `templates/` under their own names (with `profile/old-versions/` inside). Git never keeps the last two, so this is their only copy outside the app folder.
   - Only new and changed files are copied, by size and by time within 2 seconds (FAT and OneDrive keep times to 2 seconds). Nothing in the backup is deleted, so a file removed by mistake is still there.
   - A file that can't be copied is logged and skipped. The rest are still copied, and the database backup still counts.
 
 **Profile, templates and attachments**
-- `profile/` (your Markdown files) and `templates/` (the CSS) are git-ignored. The starters in `starters/profile/` and `starters/templates/` (the two guides and the two templates) are copied in at start-up wherever a file is missing, and never over one. There's no starter master profile or preferences file, because one would be rated as if it were yours.
+- `profile/` (your Markdown files) and `templates/` (the CSS) are git-ignored. The starters in `starters/profile/` and `starters/templates/` (the two guides and the two templates) come with the app. There's no starter master profile or preferences file, because one would be rated as if it were yours.
+- **At start-up** (`profile.syncStarters()`, Phase 9):
+  - A missing guide or template is copied in.
+  - A guide that is exactly an earlier starter, and whose current starter you haven't seen yet, is replaced by the new starter, and its old text is kept (below). "Exactly" ignores Windows line endings, a byte-order mark and a missing final line break, because Git for Windows checks `.md` files out with CRLF, and editors add or drop the last line break. The earlier starters are known by their SHA-256 (`STARTER_HISTORY` in `server/modules/profile/starters.ts`, checked against git by a test). When a guide changes, its old version's hash goes into that list.
+  - Anything else is left alone, and Settings → Profile offers the new guide (§10).
+  - A file that can't be copied or updated is logged as a warning and left as it was. The app still starts.
+  - The templates are only ever copied in when missing: they haven't changed.
+- **What you've seen** lives in `profile/.starter-versions.json` (`{ name: starter hash }`), written when a starter is copied, updated, used or kept. With no record (every install before Phase 9), the starter you had was an earlier one. Once you've seen the current starter, a guide that matches an earlier one is one you put back yourself, so it stays.
+- **Old text is never lost.** Before the app replaces a guide (at start-up or with **Use the new guide**) or adds answers to the master profile, it copies the file to `profile/old-versions/<name>-<YYYY-MM-DD-HHMMSS>.md` (local time; `-2`, `-3` … when that name is taken; never over a file already there). The names have no characters Windows refuses.
 - Attachments: 15 MB at most, and only `.pdf .docx .doc .rtf .txt .odt` files (by extension). The name is cleaned: no path, no characters Windows refuses, no device names like `CON`, and 100 characters at most. Downloads are always `Content-Disposition: attachment`, with `nosniff`.
 - Keep the live database out of OneDrive. Pointing the backup folder at OneDrive is fine.
 
@@ -1302,6 +1528,12 @@ Each status has these settings:
 | AI connectors and switching | each preset's request body (thinking, JSON, token limit, temperature), keys in headers, the error sentences, keys taken out of errors; the Claude connector against a fake Messages API (schemas, thinking, streaming, stop reasons); switching (a quick A → B → A, a draft during a switch, the model-file check), ratings per model | Vitest with an injected `fetch`, and the AI service with fakes. No real cloud call runs in any test | `tests/fakes/fake-fetch.ts`, `FakeAiProvider`, `FakeRuntime` |
 | Architecture | the dependency rules in §15 | `npm run check:deps` | — |
 | Email | the first filter, `suggestStatus`, email text; the service (checks, cursor, confirm, the timer); the IMAP adapter | Vitest, table-driven; the service through `buildApp`; the adapter against hoodiecrow-imap (a strict IMAP server for tests, dev only) on a free port, without TLS | `FakeMailSource`, fake AI |
+| Writing AI and lanes (Phase 9) | each writing task on the writing AI with its own task settings and key; ratings stay on the AI in use; a writing AI's failure never sets the pill, and its advice points to the writer; a cloud writer's task runs while a local task holds the main queue; a local writer that doesn't answer fails with its sentence and is never started; latest wins across lanes (`ReplacedError`); stop covers every lane; a writer change while a task waits | Vitest, the AI service with fakes (`writer.test.ts`) | `FakeAiProvider`, `FakeRuntime` |
+| The budget (Phase 9) | every cap, the notes cut, the brief block's shares, the fit, the hard stop and its sentence; the worst case: a made-up 86,000-character profile, every cap full and a 20,000-character ad, each writing request 108,000 characters or fewer on a local AI; the four writing prompts' shared system part | Vitest, plain strings (`budget.test.ts`, `prompts.test.ts`) | none |
+| Briefs and plans (Phase 9) | cutting long lists and text, links removed, the quote check, edits and the 409, answers to the profile (the heading made once, lines at the end of its section, nothing else changed, the copy in `old-versions/`, each answer once), carried answers, `generate` with `'use'` and `'skip'`, plans newest first; the streams (heartbeat, the "replaced" sentence) | Vitest, through `buildApp` with an in-memory database | fake AI (`tests/fakes/smart-fake-ai.ts` answers briefs and plans) |
+| Starters and guides (Phase 9) | an earlier starter replaced at start-up with its copy kept, a changed guide left alone, CRLF and the final line break ignored, the history table against `git log` and `git show` (when git is there), use and keep, the diff helper; each guide's word limit and required lines, and no real names (a check that reads SHA-256 hashes from git-ignored `.superpowers/real-name-hashes.json`, skipped with a reason where that file is missing, such as the Windows PC) | Vitest, table-driven, CRLF copies of the old starters in `tests/fixtures/starters/` | none |
+| Contact emails (Phase 9) | the `mailto:` rule, one table of cases for both readers | Vitest + `linkedom` (extension) and the server's HTML reader | — |
+| Dashboard, Phase 9 | `brief.spec.ts`: make a brief, check it and write with it; skip and write; a new brief carries your answers; cancel; the writer line; an edit that lands on an older brief; a quote not in the ad; the whole flow by keyboard alone. `prep.spec.ts`: Get ready and its five parts, a new plan and earlier plans, cancel, a newer plan taking the place of one being made, by keyboard alone. `writer.spec.ts`: the writing AI in Settings → AI (a pick, its save timing, a refused pick, another tab, saving, copying and deleting AIs, a writer that isn't saved any more). `profile.spec.ts`: the starter note (the diff, use, keep, by keyboard alone) and the editors' `updatedAt` check | Playwright, Firefox and Chromium, fake AI only | fake AI wired by `app.ts` |
 | Windows scripts | `setup.bat`, `start.bat`, `stop.bat`, `download-ai.bat`, shortcuts, llama-server on Windows | The handover checks (`scripts/handover/`, run by Bonsai 2 from `docs/handover/runbook.md`) on a test copy of the app; their logic and HTTP checks are tested on the Mac in `tests/handover.test.ts`, against a fake llama-server | fake llama-server (Mac only) |
 
 **When the site fixtures need refreshing:** if a job site changes its layout, save a new copy of the page into the fixtures. The failing test then shows exactly which field broke.
@@ -1356,6 +1588,10 @@ Each status has these settings:
 
 **Add or rename a status:** Settings → Statuses. History stays valid because it stores status ids.
 
+**Change a starter guide** (`starters/profile/*.md`): keep it within its word limit (`tests/starter-guides.test.ts`), use only made-up examples, and add the old version's SHA-256 to `STARTER_HISTORY` in `server/modules/profile/starters.ts` (`tests/starter-history.test.ts` checks the list against git). Then a user's untouched copy is updated at the next start, and a changed one gets the note in Settings → Profile.
+
+**Pick which AI writes:** Settings → AI → **Writes your documents**, or the writer line beside a write button. No code change.
+
 **Add a new module**
 1. Create a folder with `index.ts`, `service.ts`, `repo.ts` and `routes.ts`, plus a migration if it owns tables.
 2. Wire it in `app.ts`.
@@ -1387,6 +1623,11 @@ Each status has these settings:
 | An API key leaks | Someone else spends your credit | Keys live only in git-ignored `config/secrets.json` (§13). They never reach the browser, logs, errors, backups or the handover's test copy (only `eval:parse`, with or without `--ai`, copies the key of the AI it runs into its temporary copy, and deletes it at the end), and a provider's error text has the key removed. Each key goes only to its own provider, and changing an AI's provider deletes its key. The file isn't encrypted, like the Gmail password |
 | Two local AIs share one address, and the old one is still answering | The wrong model rates or writes, without saying so | The model-file check (§12.5) stops each task with a sentence that names the AI still running. It reads only `.gguf` names, so a server that reports an alias isn't checked; then the switch's warning is all you get. The Windows checklist looks at what PrismML's llama-server lists |
 | A subscription can't be used | You can't use the Claude Pro or Max plan, or Z.ai's GLM Coding Plan, that you already pay for | Their terms allow those only in their own or listed tools. The app says so where you add the AI, and uses a pay-per-use API key instead (decision 0011) |
+| A writing request overflows Bonsai 2's window (Phase 9). The profile grows with each answer you add, and your guide is yours to lengthen | A brief or letter fails with "out of room", after minutes of work | Every part has a cap, and the ad gets what's left on a local AI (§12.7). Measured on the real profile, the worst case fits with the resume's ad above its floor. Over 120,000 characters, the request is refused at once with a sentence that says what to shorten, or to pick a cloud AI to write. Writing at No limit on Bonsai 2 is best effort; the Windows checklist times it on the 27B |
+| A cloud writing AI costs money for every brief, plan and draft (Phase 9) | A bill you didn't expect | Nothing picks a cloud writer by itself: the default is the AI in use. The writer's name sits beside every write button. Nothing writes without your click, and a new brief is shown for checking, never written from. Every route that uses the writing AI is dashboard-only, so no installed extension can start one. One task at a time in its lane. Claude caches the profile at the start of each prompt, shared by the four writing prompts |
+| The AI invents in a brief or a plan (Phase 9): a link, an employer fact the ad doesn't give, or a claim the profile says not to make | A letter built on something untrue | The prompts forbid all three. Links are removed in code. The quote check warns when the opening line isn't in the ad. You check the brief before anything is written, and the fact-check counts only your profile, notes and answers |
+| The app replaces a guide you changed (Phase 9) | Your writing rules are lost | Start-up replaces a guide only when it's exactly an earlier starter (by hash, after line endings) and you haven't seen the current one. Its old text goes to `profile/old-versions/` first, and is backed up. Anything else waits for your click in Settings → Profile |
+| A real detail of yours ends up in the repo (Phase 9's inputs held a real ad and real letters, and the budget was measured on your real profile) | Your personal details on GitHub | Every fixture, test, prompt and guide example is made up. The real profile was read only to count its length, by a script kept outside the repo. A test checks the guides, prompts and fixtures against SHA-256 hashes of real names, kept in a git-ignored file |
 
 ---
 

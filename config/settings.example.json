@@ -87,6 +87,7 @@
   ],
   "ai": {
     "active": "bonsai-2",
+    "writer": null,
     "saved": [
       {
         "id": "bonsai-2",
@@ -154,6 +155,22 @@
             "maxTokens": 1024,
             "thinking": false,
             "thinkingEffort": "medium",
+            "extra": {}
+          },
+          "brief": {
+            "model": null,
+            "temperature": 0.3,
+            "maxTokens": 3072,
+            "thinking": true,
+            "thinkingEffort": "medium",
+            "extra": {}
+          },
+          "prep": {
+            "model": null,
+            "temperature": 0.4,
+            "maxTokens": 4096,
+            "thinking": true,
+            "thinkingEffort": "low",
             "extra": {}
           }
         }

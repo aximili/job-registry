@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { localDate } from './dates.ts';
+import { localDate, longDate } from './dates.ts';
 
 it('uses the local (Sydney) date, not the UTC date', () => {
   expect(localDate(new Date('2026-10-28T22:30:00Z'))).toBe('2026-10-29');
@@ -22,4 +22,9 @@ it('shortDate leaves out this year, for the extension panel', async () => {
   expect(shortDate('2026-10-12', now)).toBe('12 Oct');
   expect(shortDate('2025-12-01', now)).toBe('1 Dec 2025');
   expect(shortDate(null, now)).toBe('');
+});
+
+it('longDate writes the month in full, as a letter is dated, by the local date', () => {
+  expect(longDate(new Date(2026, 10, 3, 0, 30))).toBe('3 November 2026');
+  expect(longDate(new Date(2026, 0, 5, 23, 30))).toBe('5 January 2026');
 });

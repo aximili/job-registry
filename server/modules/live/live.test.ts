@@ -73,3 +73,32 @@ it('streams email events, so the Inbox and its count update', async () => {
   expect(text).toContain('event: email.suggestionHandled\ndata: {"suggestionId":3,"state":"dismissed"}\n\n');
   controller.abort();
 });
+
+// With the brief's updatedAt, so a tab can tell its own save's echo from another's.
+it('streams brief events, so the editor reloads a brief changed in another tab', async () => {
+  const port = await freePort();
+  app = await createTestApp({ port });
+  await app.http.listen({ host: '127.0.0.1', port });
+  const controller = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${port}/api/v1/events`, { signal: controller.signal });
+  const reader = res.body!.getReader();
+  await waitFor(() => app!.services.live.clientCount() === 1);
+  app.bus.emit('brief.saved', { jobId: 7, briefId: 3, updatedAt: '2026-11-03T01:00:00.000Z' });
+  const text = await readUntil(reader, 'brief.saved');
+  expect(text).toContain('event: brief.saved\ndata: {"jobId":7,"briefId":3,"updatedAt":"2026-11-03T01:00:00.000Z"}\n\n');
+  controller.abort();
+});
+
+it('streams prep plan events, so the job page shows a plan made in another tab', async () => {
+  const port = await freePort();
+  app = await createTestApp({ port });
+  await app.http.listen({ host: '127.0.0.1', port });
+  const controller = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${port}/api/v1/events`, { signal: controller.signal });
+  const reader = res.body!.getReader();
+  await waitFor(() => app!.services.live.clientCount() === 1);
+  app.bus.emit('prep.saved', { jobId: 7, planId: 4, createdAt: '2026-11-03T01:00:00.000Z' });
+  const text = await readUntil(reader, 'prep.saved');
+  expect(text).toContain('event: prep.saved\ndata: {"jobId":7,"planId":4,"createdAt":"2026-11-03T01:00:00.000Z"}\n\n');
+  controller.abort();
+});

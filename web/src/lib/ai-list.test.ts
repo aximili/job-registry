@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { AI_PRESETS, newSavedAi, StrictAiSettings, type AiPresetId, type AiSettings, type SavedAi } from '../../../shared/contracts/index.ts';
-import { aiSummary, defaultAiName, deleteBlock, duplicateAi, noKeyYet, presetGroups, removeAi, switchMessage } from './ai-list.ts';
+import {
+  aiSummary,
+  defaultAiName,
+  deleteBlock,
+  deleteQuestion,
+  duplicateAi,
+  nameOf,
+  noKeyYet,
+  presetGroups,
+  removeAi,
+  switchMessage,
+  writerChoices,
+  writerFallback,
+  writerMessage,
+  writerToSend,
+  writerValue,
+} from './ai-list.ts';
 
 // Three saved AIs, as the user might have them: Bonsai 2 in use.
 function three(): AiSettings {
@@ -61,6 +77,18 @@ describe('duplicateAi', () => {
     expect(StrictAiSettings.safeParse(thrice).success).toBe(true);
   });
 
+  it('leaves the writer out, so a pick made meanwhile stays, unless the copy gets the id of a writer that is not saved', () => {
+    // Left out, the server keeps the writer as it is now.
+    expect(duplicateAi({ ...three(), writer: 'claude-mine' }, 'bonsai-2')).not.toHaveProperty('writer');
+    expect(duplicateAi(three(), 'bonsai-2')).not.toHaveProperty('writer');
+    // A hand edit can leave a writer that isn't saved: the server drops it.
+    expect(duplicateAi({ ...three(), writer: 'an-old-ai' }, 'bonsai-2')).not.toHaveProperty('writer');
+    // But a copy that gets that very id must never write by accident.
+    const copysId = duplicateAi({ ...three(), writer: 'bonsai-2-copy' }, 'bonsai-2');
+    expect(copysId.saved[1]!.id).toBe('bonsai-2-copy');
+    expect(copysId.writer).toBeNull();
+  });
+
   it('keeps a long name within 60 characters', () => {
     const ai = three();
     ai.saved[0]!.name = 'B'.repeat(60);
@@ -80,6 +108,13 @@ describe('removeAi and deleteBlock', () => {
     expect(deleteBlock(ai, 'claude-mine')).toBeNull();
     expect(removeAi(ai, 'claude-mine').saved.map((s) => s.id)).toEqual(['bonsai-2', 'bonsai-2b-light']);
     expect(ai.saved).toHaveLength(3);
+  });
+
+  it('leaves the writer out: the server keeps it, or drops the AI deleted', () => {
+    const writes = { ...three(), writer: 'claude-mine' };
+    expect(removeAi(writes, 'claude-mine')).not.toHaveProperty('writer');
+    expect(removeAi(writes, 'bonsai-2b-light')).not.toHaveProperty('writer');
+    expect(removeAi({ ...three(), writer: 'an-old-ai' }, 'claude-mine')).not.toHaveProperty('writer');
   });
 
   it('refuses the AI in use, with the sentence to show', () => {
@@ -186,3 +221,74 @@ describe('switchMessage, to an AI with no key', () => {
   });
 });
 
+
+describe('deleteQuestion', () => {
+  it('asks, and says when its key and its writing go too', () => {
+    const ai = three();
+    expect(deleteQuestion(ai, 'bonsai-2b-light', false)).toBe('Delete Bonsai 2B light?');
+    expect(deleteQuestion(ai, 'claude-mine', true)).toBe('Delete Claude – mine? Its API key is deleted too.');
+    const writes = { ...ai, writer: 'claude-mine' };
+    expect(deleteQuestion(writes, 'claude-mine', true)).toBe(
+      'Delete Claude – mine? Its API key is deleted too. Claude – mine also writes your documents. After this, the AI in use writes them.',
+    );
+    expect(deleteQuestion(writes, 'claude-mine', false)).toBe(
+      'Delete Claude – mine? Claude – mine also writes your documents. After this, the AI in use writes them.',
+    );
+    // Another AI writes: this one's question stays as it was.
+    expect(deleteQuestion(writes, 'bonsai-2b-light', false)).toBe('Delete Bonsai 2B light?');
+  });
+});
+
+describe('the writing AI setting', () => {
+  it('lists "The AI in use ({name})" first, then every saved AI by name', () => {
+    expect(writerChoices(three())).toEqual([
+      { value: '', label: 'The AI in use (Bonsai 2)' },
+      { value: 'bonsai-2', label: 'Bonsai 2' },
+      { value: 'bonsai-2b-light', label: 'Bonsai 2B light' },
+      { value: 'claude-mine', label: 'Claude – mine' },
+    ]);
+    expect(writerChoices({ ...three(), active: 'claude-mine' })[0]).toEqual({ value: '', label: 'The AI in use (Claude – mine)' });
+  });
+
+  it('shows the AI you picked while it is saved, and else the AI in use', () => {
+    expect(writerValue(three())).toBe('');
+    expect(writerValue({ ...three(), writer: 'claude-mine' })).toBe('claude-mine');
+    // Picking the AI in use by name keeps it, even after a switch.
+    expect(writerValue({ ...three(), writer: 'bonsai-2' })).toBe('bonsai-2');
+    expect(writerValue({ ...three(), writer: 'an-old-ai' })).toBe('');
+  });
+
+  it('says who writes now, after a pick', () => {
+    expect(writerMessage(three(), 'claude-mine')).toBe('Claude – mine writes your documents now.');
+    expect(writerMessage(three(), null)).toBe('The AI in use writes your documents now.');
+  });
+
+  it('says so when the AI you picked is not saved any more', () => {
+    expect(writerFallback(three())).toBeNull();
+    expect(writerFallback({ ...three(), writer: 'claude-mine' })).toBeNull();
+    expect(writerFallback({ ...three(), writer: 'an-old-ai' })).toBe("Your writing AI isn't saved any more, so Bonsai 2, the AI in use, writes.");
+  });
+});
+
+describe('writerToSend', () => {
+  it('leaves the writer out (the server keeps it, or drops one that is not saved after the change)', () => {
+    const writes = { ...three(), writer: 'claude-mine' };
+    expect(writerToSend(writes, writes.saved)).toBeUndefined();
+    expect(writerToSend(writes, writes.saved.filter((s) => s.id !== 'claude-mine'))).toBeUndefined();
+    expect(writerToSend(three(), three().saved)).toBeUndefined();
+    expect(writerToSend({ ...three(), writer: 'an-old-ai' }, three().saved)).toBeUndefined();
+  });
+
+  it('sends none when a new AI would get the id of a writer that is not saved any more', () => {
+    const gone = { ...three(), writer: 'claude-work' };
+    const added = [...gone.saved, { ...newSavedAi('anthropic', 'Claude – work', []), id: 'claude-work' }];
+    expect(writerToSend(gone, added)).toBeNull();
+  });
+});
+
+describe('nameOf', () => {
+  it("is a saved AI's name, or 'this AI'", () => {
+    expect(nameOf(three(), 'claude-mine')).toBe('Claude – mine');
+    expect(nameOf(three(), 'an-old-ai')).toBe('this AI');
+  });
+});

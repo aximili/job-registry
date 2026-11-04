@@ -2,16 +2,17 @@
 // so a test can paste an ad and see its own details come back:
 //   line 1 → role, line 2 → company, the first "$…" amount or range → salary,
 //   lines starting with "- " or "• " → requirements.
+// A brief quotes the ad's first long line, so its quote is in the ad.
 // Modes: "smart" (the default), "fail" (the AI can't be reached), "slow",
 // and "bad" (an answer that never fits).
 
-import type { EmailClassification, EmailEvent, ParsedJob } from '../../shared/contracts/index.ts';
+import type { BriefAnswer, EmailClassification, EmailEvent, ParsedJob } from '../../shared/contracts/index.ts';
 import { AiUnavailableError } from '../../server/core/errors.ts';
-import { FAKE_CARD_RATING, FAKE_RATING, FakeAiProvider } from './fake-ai-provider.ts';
+import { FAKE_BRIEF, FAKE_CARD_RATING, FAKE_PREP, FAKE_RATING, FakeAiProvider } from './fake-ai-provider.ts';
 
-// The quick rating the fake gives every job card in a search list. It lives
-// with the plain fake, which gives the same answer.
-export { FAKE_CARD_RATING };
+// The quick rating the fake gives every job card in a search list, and its
+// prep plan. They live with the plain fake, which gives the same answers.
+export { FAKE_CARD_RATING, FAKE_PREP };
 
 export type SmartMode = 'smart' | 'fail' | 'slow' | 'bad';
 
@@ -110,23 +111,35 @@ export function readEmailLikeAPerson(system: string, user: string): EmailClassif
   };
 }
 
+// The brief, with the ad's own words as its opening line: the first line of
+// the ad that reads like a sentence, or else its first line.
+export function briefFor(ad: string): BriefAnswer {
+  const lines = ad
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const quote = lines.find((l) => l.length >= 30 && !/^[-•]\s/.test(l)) ?? lines[0] ?? FAKE_BRIEF.opening.quote;
+  return { ...FAKE_BRIEF, opening: { ...FAKE_BRIEF.opening, quote: quote.slice(0, 300) } };
+}
+
 export function createSmartFake() {
   let mode: SmartMode = 'smart';
   const provider = new FakeAiProvider((req) => {
     if (mode === 'fail') return new AiUnavailableError(FAIL_MESSAGE);
     if (mode === 'bad') return 'Sorry, I cannot help with that.';
-    if (req.jsonSchema?.name === 'parsed_job') {
-      const user = req.messages[1]?.content ?? '';
-      const ad = user.split('The job ad:').pop() ?? '';
-      return JSON.stringify(readAdLikeAPerson(ad));
-    }
+    const user = req.messages[1]?.content ?? '';
+    const ad = user.split('The job ad:').pop() ?? '';
+    if (req.jsonSchema?.name === 'parsed_job') return JSON.stringify(readAdLikeAPerson(ad));
+    if (req.jsonSchema?.name === 'brief') return JSON.stringify(briefFor(ad));
+    if (req.jsonSchema?.name === 'prep_plan') return JSON.stringify(FAKE_PREP);
     if (req.jsonSchema?.name === 'rating') return JSON.stringify(FAKE_RATING);
     if (req.jsonSchema?.name === 'card_rating') return JSON.stringify(FAKE_CARD_RATING);
     if (req.jsonSchema?.name === 'email_classification') {
       return JSON.stringify(readEmailLikeAPerson(req.messages[0]?.content ?? '', req.messages[1]?.content ?? ''));
     }
-    // Only the prompt's first line says which it is: your guides can mention the other.
-    if (!req.jsonSchema) return /cover letter/i.test((req.messages[0]?.content ?? '').split('\n')[0]!) ? FAKE_COVER_LETTER : FAKE_RESUME;
+    // Only the user part's first line says which it is: the four writing
+    // tasks share their system part, and your guides can mention the other.
+    if (!req.jsonSchema) return /cover letter/i.test(user.split('\n')[0]!) ? FAKE_COVER_LETTER : FAKE_RESUME;
     return 'OK';
   });
   return {

@@ -11,9 +11,9 @@ Two readers decide whether I get a call. Write for both.
 
 ## Facts come first
 
-- Use only facts from my master profile. If you're not sure of something, leave it out. You can't ask me questions here.
-- My master profile decides what's true and how to describe me. Follow its rules on job titles, years of experience, numbers and their labels, wording to avoid, roles to leave off, where my own projects go, and the "Don't claim", "To confirm" and ⚠ items.
-- This guide decides how to write the resume. My profile may have its own notes on layout, section order, date format, length or style. Where they differ from this guide, follow this guide.
+- Use only facts from me: my master profile, my notes, my answers and the approved brief, when given. Unsure? Leave it out.
+- My master profile decides what's true and how to describe me. Follow its rules on job titles, years of experience, numbers and their labels, wording to avoid, roles to leave off, where my own projects go, the "Don't claim" items always, and the "To confirm" and ⚠ items unless my answers settle them.
+- This guide decides how to write the resume. Where my profile's notes on layout, section order, date format, length or style differ, follow this guide.
 - Skip any steps in my profile that don't fit here, such as asking me questions, making a Word file or updating the profile.
 - The ad's own instructions (such as a page limit) beat this guide.
 
@@ -144,6 +144,6 @@ Keep each check to one line. Fix anything that fails. Then reply with the resume
 3. **No evidence:** items marked none aren't claimed or hinted at. (The cover letter deals with gaps.)
 4. **Relevance:** each bullet backs up a must-have, a duty, or a top strength for this ad. Cut the rest.
 5. **Top of page 1:** the summary and skills show the ad's job title words and its three biggest must-haves.
-6. **Facts:** every title, employer, date, number and tool comes from my profile, with its label kept. Nothing from "Don't claim".
+6. **Facts:** every title, employer, date, number and tool comes from me, with its label kept. Nothing from "Don't claim".
 7. **Length:** two pages at most, within the word and bullet limits.
 8. **Form:** the headings and order above; month and year on every role my profile gives them for; bullets start with varied verbs; no "I"; none of the avoided words; no em dashes; no tables; Australian spelling.

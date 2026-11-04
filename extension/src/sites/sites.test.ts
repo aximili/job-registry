@@ -51,6 +51,17 @@ describe('Seek', () => {
     expect(capture!.structured).toMatchObject({ employmentType: 'full-time', closingDate: '2026-11-19' });
   });
 
+  it("keeps a contact's address that Seek hides behind dots", () => {
+    const { extractor, doc, url } = page('seek-job.html', 'https://www.seek.com.au/job/81234567');
+    // Seek shows "••••@…" and only the link holds the real address.
+    doc
+      .querySelector('[data-automation="jobAdDetails"] div')!
+      .insertAdjacentHTML('beforeend', '<p>Questions? Email Alex at <a href="mailto:Alex@example-recruit.com.au">••••@example-recruit.com.au</a>.</p>');
+    const capture = extractor.extract(doc, url, now);
+    expect(capture!.jdText).toContain('Alex@example-recruit.com.au');
+    expect(capture!.jdText).toContain('Questions? Email Alex at ••••@example-recruit.com.au (Alex@example-recruit.com.au).');
+  });
+
   it('reads a real job page at au.seek.com', () => {
     const { extractor, capture } = page('seek-job-real.html', 'https://au.seek.com/job/95339378?type=standard');
     expect(extractor.id).toBe('seek');

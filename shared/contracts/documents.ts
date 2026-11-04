@@ -63,13 +63,28 @@ export type ExporterInfo = z.infer<typeof ExporterInfo>;
 
 export const ExportQuery = z.object({ format: z.string().min(1) });
 
-export const GenerateRequest = z.strictObject({ kind: DocumentKind });
+// brief: 'use' writes with the job's newest brief (and marks it approved);
+// 'skip' lets the AI plan the document itself. Left out, it's 'skip', so
+// older calls work as before. briefId: the brief on screen. With 'use', a
+// brief that isn't the job's newest any more is refused (409), so nothing is
+// written with a brief you haven't seen.
+export const GenerateRequest = z.strictObject({
+  kind: DocumentKind,
+  brief: z.enum(['use', 'skip']).default('skip'),
+  briefId: Id.optional(),
+});
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
 
-// Generating streams one of these per line (NDJSON). The last line is "done",
-// or "error" with a sentence to show, so a cut-off stream is never taken for
-// a finished one.
+// Generating streams one of these per line (NDJSON): waiting in the queue
+// (by is the writing AI picked), working once the AI has started (by is the
+// AI it runs on), then the text as it comes. The last line is "done", or
+// "error" with a sentence to show, so a cut-off stream is never taken for a
+// finished one. While the AI thinks quietly, alive every 20 seconds says the
+// reply is still there: there's nothing to show for it.
 export const GenerateChunk = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('waiting'), by: z.string() }),
+  z.object({ kind: z.literal('working'), by: z.string() }),
+  z.object({ kind: z.literal('alive') }),
   z.object({ kind: z.literal('text'), text: z.string() }),
   z.object({ kind: z.literal('done') }),
   z.object({ kind: z.literal('error'), message: z.string() }),

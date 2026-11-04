@@ -18,7 +18,7 @@ Rules:
 - requirements: the must-haves (skills, experience, qualifications, rights to work). Short items, at most 12.
 - niceToHave: the "bonus" or "desirable" items. At most 12.
 - responsibilities: what the person will do. Short items, at most 12.
-- adContact: only when the ad names a person to contact. Copy their name, email and phone as written.
+- adContact: when the ad gives a person or an address to contact. Copy their name, email and phone as written. When a link's text hides an address, the address in brackets after it is the real one: use that.
 === user ===
 Today is {{today}}.
 

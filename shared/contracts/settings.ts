@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AiId, AiSettings, StrictAiSettings } from './ai.ts';
+import { AiId, AiSettings, AiSettingsChange } from './ai.ts';
 import { EmailSettings } from './email.ts';
 
 export const Status = z.strictObject({
@@ -69,12 +69,13 @@ export type Settings = z.infer<typeof Settings>;
 
 export const DEFAULT_SETTINGS: Settings = Settings.parse({});
 
-// A patch replaces each top-level section it contains.
+// A patch replaces each top-level section it contains. The "ai" section
+// keeps its writer when the patch leaves it out.
 export const UpdateSettingsRequest = z.strictObject({
   server: ServerSettings.optional(),
   backups: BackupSettings.optional(),
   statuses: StatusList.optional(),
-  ai: StrictAiSettings.optional(),
+  ai: AiSettingsChange.optional(),
   email: EmailSettings.optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
@@ -82,3 +83,7 @@ export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
 // Switch the AI the whole app uses to another saved one.
 export const UseAiRequest = z.strictObject({ id: AiId });
 export type UseAiRequest = z.infer<typeof UseAiRequest>;
+
+// Pick the saved AI that writes your documents, or null for the AI in use.
+export const UseWriterRequest = z.strictObject({ id: AiId.nullable() });
+export type UseWriterRequest = z.infer<typeof UseWriterRequest>;

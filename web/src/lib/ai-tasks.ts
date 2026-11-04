@@ -13,7 +13,9 @@ export const TASK_ROWS: { key: TaskKey; label: string }[] = [
   { key: 'parse', label: 'Reading job ads' },
   { key: 'rate', label: 'Rating a job' },
   { key: 'card', label: 'Quick marks on search lists' },
+  { key: 'brief', label: 'Making the brief' },
   { key: 'write', label: 'Writing resumes and cover letters' },
+  { key: 'prep', label: 'Making the prep plan' },
   { key: 'email', label: 'Reading emails' },
 ];
 

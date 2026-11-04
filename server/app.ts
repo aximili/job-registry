@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
-import { activeAi, AI_PRESETS, type SavedAi } from '../shared/contracts/index.ts';
+import { activeAi, AI_PRESETS, writingAi, type SavedAi } from '../shared/contracts/index.ts';
 import { localDate } from '../shared/dates.ts';
 import type { AppPaths, Clock } from './core/config.ts';
 import { openDb, type Db } from './core/db/db.ts';
@@ -40,6 +40,7 @@ import { createEnrichModule, type EnrichService } from './modules/enrich/index.t
 import { createJobsModule, type JobsService } from './modules/jobs/index.ts';
 import { createLiveModule, type LiveService } from './modules/live/index.ts';
 import { createNotesModule, type NotesService } from './modules/notes/index.ts';
+import { createPrepModule, type PrepService } from './modules/prep/index.ts';
 import { createProfileModule, type ProfileService } from './modules/profile/index.ts';
 import { createRatingsModule, type RatingsService } from './modules/ratings/index.ts';
 import { createSearchModule, type SearchService } from './modules/search/index.ts';
@@ -55,6 +56,9 @@ export type AppOptions = {
   fetch?: typeof fetch;
   onShutdown?: () => void;
   version?: string;
+  // How often a quiet brief, prep plan or draft says it's still there
+  // (20 seconds), for tests.
+  heartbeatMs?: number;
 };
 
 // The starter guides and templates that come with the app, copied in when one is missing.
@@ -67,6 +71,7 @@ export type AppServices = {
   settings: SettingsService;
   profile: ProfileService;
   documents: DocumentsService;
+  prep: PrepService;
   ai: AiService;
   ratings: RatingsService;
   enrich: EnrichService;
@@ -129,26 +134,29 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
 
   // The AIs. Each gets its own provider, with its key and its preset's
   // dialect: Claude's own connector, or the OpenAI-style one for the rest.
-  // The AI in use's provider is kept while its settings and key stay the
-  // same, so a connector keeps what it learnt (Claude's model limits). Only
-  // the AI in use as saved (the object from the settings, never a form's
-  // copy) is kept, so a test with a typed key leaves nothing behind. Any
-  // change to the AIs drops it, so a deleted AI's key goes too.
+  // The providers of the AI in use and the writing AI are kept, by AI id,
+  // while their settings and keys stay the same, so a connector keeps what
+  // it learnt (Claude's model limits). Only those AIs as saved (the objects
+  // from the settings, never a form's copy) are kept, so a test with a typed
+  // key leaves nothing behind. Any change to the AIs drops them all, so a
+  // deleted AI's key goes too.
   const aiConfig = () => activeAi(settings.service.get().ai);
-  let kept: { same: string; provider: AiProvider } | null = null;
+  const aiWriter = () => writingAi(settings.service.get().ai);
+  const kept = new Map<string, { same: string; provider: AiProvider }>();
   bus.on('settings.changed', ({ keys }) => {
-    if (keys.includes('ai')) kept = null;
+    if (keys.includes('ai')) kept.clear();
   });
   const providerFor = (one: SavedAi, key: string | null): AiProvider => {
     if (fakes.ai) return fakes.ai;
     const { dialect } = AI_PRESETS[one.preset];
     const config = { name: one.name, preset: one.preset, baseUrl: one.baseUrl, model: one.model, timeoutSec: one.timeoutSec, apiKey: key, dialect };
     const same = JSON.stringify(config);
-    const inUse = one === aiConfig();
-    if (inUse && kept?.same === same) return kept.provider;
+    const keep = one === aiConfig() || one === aiWriter().ai;
+    const had = kept.get(one.id);
+    if (keep && had?.same === same) return had.provider;
     const connect = dialect.connector === 'anthropic' ? createAnthropicProvider : createOpenAiCompatibleProvider;
     const provider = connect(() => config, { fetch: opts.fetch });
-    if (inUse) kept = { same, provider };
+    if (keep) kept.set(one.id, { same, provider });
     return provider;
   };
   // A saved AI's key. An AI that takes none never reads secrets.json, so a
@@ -177,18 +185,26 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     getAll: () => settings.service.get().ai.saved,
     runtime,
     getConfig: aiConfig,
+    getWriter: () => {
+      const w = aiWriter();
+      return { ai: w.ai, inUse: w.inUse };
+    },
     bus,
     logger,
     now,
   });
   const profile = createProfileModule({ dir: opts.paths.profile, templatesDir: opts.paths.templates, startersDir: STARTERS_DIR, bus, now });
-  const installed = profile.service.installStarters();
-  if (installed.length > 0) logger.info(`Added starter files: ${installed.join(', ')}`);
+  const starters = profile.service.syncStarters();
+  if (starters.copied.length > 0) logger.info(`Added starter files: ${starters.copied.join(', ')}`);
+  if (starters.updated.length > 0) logger.info(`Updated the starter guide: ${starters.updated.join(', ')}`);
+  for (const { name, err } of starters.failed) logger.warn({ err }, `Couldn't add or update the starter file ${name}. It's left as it was.`);
   const ratings = createRatingsModule({ db, ai: ai.service, profile: profile.service, now });
   const jobs = createJobsModule({ db, bus, statuses: () => settings.service.statuses(), now });
   const notes = createNotesModule({ db, bus, now });
   const contacts = createContactsModule({ db, bus, now });
   const enrich = createEnrichModule({ bus, jobs: jobs.service, ai: ai.service, ratings: ratings.service, logger });
+  const { heartbeatMs } = opts;
+  const prep = createPrepModule({ db, bus, now, logger, ai: ai.service, profile: profile.service, jobs: jobs.service, notes: notes.service, heartbeatMs });
   const documents = createDocumentsModule({
     db,
     bus,
@@ -196,8 +212,11 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
     ai: ai.service,
     profile: profile.service,
     jobs: jobs.service,
+    notes: notes.service,
+    prep: prep.service,
     exporters: [createPrintHtmlExporter(), createDocxExporter()],
     filesDir: opts.paths.files,
+    heartbeatMs,
   });
   const search = createSearchModule({
     db,
@@ -241,7 +260,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
   });
   registerSecurity(http, { port });
   registerErrorHandler(http, logger);
-  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, documents, search, callsheet, email, live]) {
+  for (const module of [settings, system, capture, ai, profile, ratings, jobs, enrich, notes, contacts, prep, documents, search, callsheet, email, live]) {
     await http.register(module.routes, { prefix: '/api/v1' });
   }
   await serveDashboard(http, opts.paths.webDist);
@@ -255,6 +274,7 @@ export async function buildApp(opts: AppOptions, fakes: Partial<Fakes> = {}): Pr
       settings: settings.service,
       profile: profile.service,
       documents: documents.service,
+      prep: prep.service,
       ai: ai.service,
       ratings: ratings.service,
       enrich: enrich.service,

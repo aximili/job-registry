@@ -10,7 +10,6 @@ import type {
   Attachment,
   AttachmentKind,
   Document,
-  Job,
   DocumentKind,
   DocumentListItem,
   DocumentSummary,
@@ -18,11 +17,16 @@ import type {
   SentDocuments,
 } from '../../../shared/contracts/index.ts';
 import { documentPage } from '../../../shared/document-page.ts';
+import { longDate } from '../../../shared/dates.ts';
+import { describeJob, jobNotes } from '../../../shared/job-text.ts';
+import { NO_PROFILE } from '../../../shared/labels.ts';
 import type { Clock } from '../../core/config.ts';
 import { NotFoundError, ValidationError } from '../../core/errors.ts';
 import type { EventBus } from '../../core/events.ts';
 import type { AiService } from '../ai/index.ts';
 import type { JobsService } from '../jobs/index.ts';
+import type { NotesService } from '../notes/index.ts';
+import type { PrepService } from '../prep/index.ts';
 import type { ProfileFileName, ProfileService } from '../profile/index.ts';
 import type { DocumentExporter, ExportedFile } from './exporter.ts';
 import { attachmentType, cleanFileName, MAX_ATTACHMENT_BYTES, TOO_BIG, WRONG_TYPE } from './files.ts';
@@ -40,10 +44,23 @@ export interface DocumentsService {
   render(id: number): { title: string; html: string };
   exporters(): ExporterInfo[];
   export(id: number, format: string): Promise<ExportedFile>;
-  // Writes a draft with the AI, as it comes. Nothing is saved: the editor
-  // saves a version when you choose. Checks the job and your master profile
-  // before it starts.
-  generate(jobId: number, kind: DocumentKind, opts: { signal: AbortSignal }): AsyncIterable<string>;
+  // Writes a draft with the AI, as it comes, from the job's notes and, with
+  // brief 'use', the job's newest brief (which is marked approved). Nothing
+  // is saved: the editor saves a version when you choose. Checks the job,
+  // your master profile and the brief before it starts: a briefId that
+  // isn't the job's newest brief is a ConflictError. onQueued and onStart
+  // are told who's writing, as the AI service tells them.
+  generate(
+    jobId: number,
+    kind: DocumentKind,
+    opts: {
+      signal: AbortSignal;
+      brief: 'use' | 'skip';
+      briefId?: number;
+      onQueued?: (by: string) => void;
+      onStart?: (by: string) => void;
+    },
+  ): AsyncIterable<string>;
   // Keeps a file you made elsewhere with the job, in data/files/<jobId>/.
   attach(jobId: number, file: { kind: AttachmentKind; fileName: string; data: Buffer }): Attachment;
   listAttachments(jobId: number): Attachment[];
@@ -57,6 +74,8 @@ export type DocumentsOptions = {
   ai: AiService;
   profile: ProfileService;
   jobs: JobsService;
+  notes: NotesService;
+  prep: PrepService;
   exporters: DocumentExporter[];
   // data/files: attachments live in a folder per job inside it.
   filesDir: string;
@@ -66,29 +85,9 @@ const KIND_LABEL: Record<DocumentKind, string> = { resume: 'Resume', cover_lette
 
 export const TEMPLATE_FOR: Record<DocumentKind, ProfileFileName> = { resume: 'resume', cover_letter: 'cover-letter' };
 
-export const NO_PROFILE = 'Add your master profile first: Settings → Profile.';
+const NO_BRIEF = 'Make a brief first, or press Skip, just write.';
 
 const GUIDE_FOR: Record<DocumentKind, ProfileFileName> = { resume: 'resume-guide', cover_letter: 'cover-letter-guide' };
-
-const WORK_MODE: Record<Job['workMode'], string | null> = { onsite: 'On site', hybrid: 'Hybrid', remote: 'Remote', unknown: null };
-
-// The job's details as plain text for the AI, leaving out what isn't known.
-export function describeJob(job: Job): string {
-  const list = (label: string, items: string[]) => (items.length > 0 ? [`${label}:`, ...items.map((i) => `- ${i}`)] : []);
-  return [
-    job.title && `Role: ${job.title}`,
-    job.company && `Company: ${job.company}`,
-    job.agency && `Recruiter: ${job.agency}`,
-    job.location && `Location: ${job.location}`,
-    WORK_MODE[job.workMode] && `Work mode: ${WORK_MODE[job.workMode]}`,
-    job.summary && `Summary: ${job.summary}`,
-    ...list('Requirements', job.requirements),
-    ...list('Nice to have', job.niceToHave),
-    ...list('Responsibilities', job.responsibilities),
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
 
 function cleanMarkdown(markdown: string): string {
   const text = markdown.replace(/\s+$/, '');
@@ -176,12 +175,14 @@ export function createDocumentsService(opts: DocumentsOptions): DocumentsService
       const job = opts.jobs.get(jobId);
       const profile = opts.profile.read('master-profile');
       if (!profile) throw new ValidationError(NO_PROFILE);
+      const brief = o.brief === 'use' ? opts.prep.approvedBrief(jobId, o.briefId) : null;
+      if (o.brief === 'use' && !brief) throw new ValidationError(NO_BRIEF);
+      const notes = jobNotes(opts.notes.listForJob(jobId));
       const ad = opts.jobs.listPostings(jobId)[0]?.jdText ?? '';
-      const today = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }).format(opts.now());
       return opts.ai.writeDocument(
-        { kind, profile, guide: opts.profile.read(GUIDE_FOR[kind]), job: describeJob(job), ad, today },
+        { kind, profile, guide: opts.profile.read(GUIDE_FOR[kind]), job: describeJob(job), ad, today: longDate(opts.now()), notes, brief },
         // Generating again for the same document replaces the first try.
-        { signal: o.signal, key: `doc-${jobId}-${kind}` },
+        { signal: o.signal, key: `doc-${jobId}-${kind}`, onQueued: o.onQueued, onStart: o.onStart },
       );
     },
 

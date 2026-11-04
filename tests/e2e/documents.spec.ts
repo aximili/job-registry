@@ -9,6 +9,8 @@ test.beforeEach(async ({ request }) => {
 const text = (page: Page) => page.getByRole('textbox', { name: 'Document text' });
 const preview = (page: Page) => page.frameLocator('iframe[title="Preview"]');
 const RED = 'rgb(200, 0, 0)';
+// Writes without a brief: the plain draft, as Generate did before the brief.
+const skipAndWrite = (page: Page) => page.getByRole('button', { name: 'Skip, just write' }).click();
 
 async function h1Colour(page: Page): Promise<string> {
   const h1 = preview(page).locator('h1');
@@ -17,10 +19,10 @@ async function h1Colour(page: Page): Promise<string> {
 }
 
 test.describe('the document editor', () => {
-  test('generates a resume, saves it as a version, and marks it as sent', async ({ page, request }) => {
+  test('writes a resume without a brief, saves it as a version, and marks it as sent', async ({ page, request }) => {
     const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian', jdText: 'Senior Engineer\nAtlassian\nTypeScript.' });
     await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
-    await page.getByRole('button', { name: 'Generate resume' }).click();
+    await skipAndWrite(page);
     await expect(text(page)).toHaveValue(FAKE_RESUME);
     await expect(preview(page).locator('h1')).toHaveText('Sam Taylor');
     await expect(page.getByText('No unknown facts found. Still read it yourself.')).toBeVisible();
@@ -75,7 +77,7 @@ test.describe('the document editor', () => {
     const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
     await setAiMode(request, 'slow');
     await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
-    await page.getByRole('button', { name: 'Generate resume' }).click();
+    await skipAndWrite(page);
     await expect(text(page)).toHaveValue(/Sam/, { timeout: 10_000 });
     await page.getByRole('button', { name: 'Stop' }).click();
     await expect(page.getByText('Stopped. The text so far is still here, not saved.')).toBeVisible();
@@ -123,7 +125,10 @@ test('generating without a master profile says how to add one', async ({ page, r
   const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
   await putProfileFile(request, 'master-profile', '');
   await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
-  await page.getByRole('button', { name: 'Generate resume' }).click();
+  await skipAndWrite(page);
+  await expect(page.getByRole('alert')).toContainText('Add your master profile first: Settings → Profile.');
+  // The main button makes a brief first, which needs the profile too.
+  await page.getByRole('button', { name: 'Write the resume' }).click();
   await expect(page.getByRole('alert')).toContainText('Add your master profile first: Settings → Profile.');
 });
 
@@ -148,7 +153,8 @@ test.describe('documents on the job page', () => {
     await page.goto(`/jobs/${job.id}`);
     await page.getByRole('region', { name: 'Documents' }).getByRole('link', { name: 'New cover letter' }).click();
     await expect(page.getByRole('heading', { name: 'Cover letter', level: 1 })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Generate cover letter' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Before I write' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Write the cover letter' })).toBeVisible();
   });
 
   test('attaches a PDF, lists it, and its link downloads it', async ({ page, request }) => {
@@ -206,14 +212,14 @@ test.describe('the editor never loses unsaved text', () => {
     await expect(text(page)).toHaveValue('Half a new resume');
   });
 
-  test('Generate asks first when a draft is waiting to be restored, and keeps it if you say no', async ({ page, request }) => {
+  test('Skip, just write asks first when a draft is waiting to be restored, and keeps it if you say no', async ({ page, request }) => {
     const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
     await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
     await text(page).fill('Yesterday’s words');
     await page.reload();
     await expect(page.getByText(/You have unsaved text from/)).toBeVisible();
     page.once('dialog', (d) => void d.dismiss());
-    await page.getByRole('button', { name: 'Generate resume' }).click();
+    await skipAndWrite(page);
     await page.reload();
     await page.getByRole('button', { name: 'Restore' }).click();
     await expect(text(page)).toHaveValue('Yesterday’s words');
@@ -224,8 +230,10 @@ test.describe('the editor never loses unsaved text', () => {
     await setAiMode(request, 'fail');
     await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
     await text(page).fill('Words I typed');
+    // Typing never folds the brief, so its buttons are still there.
+    await expect(page.getByRole('button', { name: 'Show the brief' })).toHaveCount(0);
     page.once('dialog', (d) => void d.accept());
-    await page.getByRole('button', { name: 'Generate resume' }).click();
+    await skipAndWrite(page);
     await expect(page.getByRole('alert')).toContainText("Can't reach the AI");
     await expect(text(page)).toHaveValue('Words I typed');
   });
@@ -236,7 +244,8 @@ test.describe('the editor, as you use it', () => {
     const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
     await setAiMode(request, 'slow');
     await page.goto(`/jobs/${job.id}/documents/new?kind=resume`);
-    await page.getByRole('button', { name: 'Generate resume' }).click();
+    await skipAndWrite(page);
+    await expect(page.getByText(/^Bonsai 2 is writing…$/)).toBeVisible();
     await expect(preview(page).locator('h1')).toHaveText('Sam Taylor', { timeout: 4000 });
     await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
   });

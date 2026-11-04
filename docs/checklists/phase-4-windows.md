@@ -20,12 +20,12 @@ Before you start: stop the app with `stop.bat`, run `setup.bat`, then start the 
 
 ## Writing with Bonsai
 
-- [ ] **Generate a resume:** open a saved job and press **New resume** in Documents, then **Generate resume**. Note how long Bonsai takes. The text arrives bit by bit, and the A4 preview follows.
+- [ ] **Write a resume:** open a saved job and press **New resume** in Documents, then **Skip, just write**. Note how long Bonsai takes. The text arrives bit by bit, and the A4 preview follows.
   - [ ] Read it closely. Is every employer, title, date, number and certification really in your profile? Note anything invented, even when the fact-check list missed it.
   - [ ] No "thinking" text (the model reasoning to itself) appears in the document.
 - [ ] **The fact-check:** add "Grew sales by 40%" to a bullet point. Within a second, "Not in your profile: 40%" appears above the text, and 40% is highlighted in the preview. Note any highlight that is wrong (a fact that is in your profile).
-- [ ] **Stop:** press **Generate cover letter**, then **Stop** part-way. The text so far stays and nothing is saved. The AI pill goes back to ready (for example "Bonsai 2 · ready").
-- [ ] **Close the tab while it writes:** press **Generate resume**, then close the Firefox tab part-way. Open the job and press **New resume** again. It offers "You have unsaved text from …", and **Restore** brings the text back. The AI pill goes back to ready (for example "Bonsai 2 · ready").
+- [ ] **Stop:** press **Skip, just write** in a new cover letter, then **Stop** part-way. The text so far stays and nothing is saved. The AI pill goes back to ready (for example "Bonsai 2 · ready").
+- [ ] **Close the tab while it writes:** press **Skip, just write** in a new resume, then close the Firefox tab part-way. Open the job and press **New resume** again. It offers "You have unsaved text from …", and **Restore** brings the text back. The AI pill goes back to ready (for example "Bonsai 2 · ready").
 - [ ] **A long draft:** if a draft ends with "sent nothing for 300 seconds", raise your AI's `"timeoutSec"` in `config\settings.json` (under `"ai"` → `"saved"`; for example to 600) and try again. If it ends with "ran out of room", the AI's context is full (writing thinks with No limit): give llama-server a bigger `-c`, or pick High for "Writing resumes and cover letters" in Settings → AI (open your AI in My AIs). Note which one happened.
 - [ ] **Save and send:** press **Save version**, then **Mark as sent** and confirm. The text becomes read-only, with "Sent on {today}".
 

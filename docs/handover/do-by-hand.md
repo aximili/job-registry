@@ -77,6 +77,18 @@ After Claude has fixed the bugs from a run:
   - When you've finished, close the Bonsai 2 window. From then on, the app starts and stops Bonsai 2 itself, as usual.
 - **Quick marks on search lists** use the same Bonsai 2. While the agent tool is working, untick "Rate the jobs in search results" in the extension's options, so a search list open in Firefox doesn't keep Bonsai 2 busy. Tick it again when the agent has finished.
 
+## After the Phase 9 update (about 30 minutes)
+
+Phase 9 adds a writing AI, a brief you check before a letter is written ("Before I write"), "Get ready" for an interview, and a better cover-letter guide. These need your real profile, your Bonsai 2 27B, a Claude key and your eyes. The details, with what to note, are in [the Phase 9 checklist](../checklists/phase-9-windows.md).
+
+1. **Back up first:** copy `config\settings.json` and the whole `profile\` folder somewhere safe. Then run `stop.bat`, `git pull` and `setup.bat`, and start the app.
+2. **The guides:** open **Settings → Profile**.
+   - If you never changed a guide, the app has already updated it. Your old copy is in `profile\old-versions\`.
+   - If you did change one, a note says "A newer starter guide is ready." Press **See what changes**, then **Use the new guide** or **Keep mine**. Either way, nothing of yours is lost.
+3. **Time a brief and a plan on Bonsai 2 27B,** with your real profile: on a real job, open **New cover letter**, press **Write the cover letter**, and note how long the brief takes. Then check it (swap a story, answer a question), write the letter, and note that time too. On the job page, press **Get ready** and note the time. The goal: a brief and a plan each take about as long as a rating.
+4. **Pick a writing AI** once your Claude key is in (Phase 8's checks): **Settings → AI → Writes your documents** → **Claude – mine**. Write the same letter again with Claude, and compare the two. Ratings and quick marks stay on Bonsai 2, so they stay free. To go back, pick "The AI in use (Bonsai 2)".
+5. **A Seek ad with a hidden email** ("••••@…"): save one, and check that the job's contact and its brief have the real address.
+
 ## Your 15-minute check (optional, after the runbook)
 
 These need a person, a signed-in browser or Word. Skip any you don't care about.

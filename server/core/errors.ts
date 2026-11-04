@@ -79,3 +79,13 @@ export class AiAccountError extends AiUnavailableError {
     this.name = 'AiAccountError';
   }
 }
+
+// A task cancelled because a newer one for the same thing took its place
+// ("latest wins": a new draft of the same document, a new brief for the same
+// job). It's a cancel like any other, with the same name and message, but a
+// reply still being read can say why it ended.
+export class ReplacedError extends DOMException {
+  constructor() {
+    super('The AI task was cancelled.', 'AbortError');
+  }
+}

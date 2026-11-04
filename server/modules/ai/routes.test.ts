@@ -137,6 +137,43 @@ describe('app wiring: each AI gets its own connector and its own key', () => {
     expect(lookups('sk-ant-saved')).toBe(2);
   });
 
+  it("keeps the writing AI's provider too, from draft to draft, and drops it when the AIs change", async () => {
+    // Claude writes with No limit, so it asks its model list once per provider, for the model's own limit.
+    const event = (data: Record<string, unknown>) => `data: ${JSON.stringify(data)}\n\n`;
+    const cloud = fakeCloud((url) =>
+      url.includes('/models')
+        ? json(200, { data: [{ id: 'claude-sonnet-5-5', max_tokens: 64000 }] })
+        : new Response(
+            event({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Dear Alex,' } }) +
+              event({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }) +
+              event({ type: 'message_stop' }),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+    );
+    app = await createTestApp({
+      realProvider: true,
+      fetch: cloud.fetch,
+      settings: { ai: { active: 'bonsai-2', writer: 'claude-mine', saved: [bonsai, claude] } },
+      secrets: { aiKeys: { 'claude-mine': 'sk-ant-saved' } },
+    });
+    const write = async () => {
+      let text = '';
+      const input = { kind: 'cover_letter' as const, profile: '# Sam Taylor', guide: null, job: 'Role: Engineer', ad: 'An ad.', today: '3 November 2026', notes: [], brief: null };
+      for await (const chunk of app!.services.ai.writeDocument(input)) text += chunk;
+      return text;
+    };
+    const lookups = () => cloud.sent.filter((s) => s.url.includes('/models')).length;
+    expect(await write()).toBe('Dear Alex,');
+    expect(await write()).toBe('Dear Alex,');
+    expect(lookups()).toBe(1);
+    expect(cloud.sent.every((s) => s.url.startsWith('https://api.anthropic.com/v1/') && s.headers['x-api-key'] === 'sk-ant-saved')).toBe(true);
+    // A change to the AIs drops it.
+    app.services.settings.useWriter(null);
+    app.services.settings.useWriter('claude-mine');
+    await write();
+    expect(lookups()).toBe(2);
+  });
+
   it('a key in the request never comes back, even when the provider repeats it', async () => {
     const typed = 'sk-typed-secret-1234567890';
     const cloud = fakeCloud(() => json(400, { error: { message: `Unknown model for ${typed}` } }));

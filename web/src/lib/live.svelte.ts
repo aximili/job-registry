@@ -39,3 +39,6 @@ export const JOB_EVENTS = [
   'document.sent',
   'attachment.added',
 ];
+
+// A job's brief was made or changed: the editor shows the newest.
+export const BRIEF_EVENTS = ['brief.saved'];

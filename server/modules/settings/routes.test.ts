@@ -97,6 +97,47 @@ it('only the dashboard can switch the AI in use', async () => {
   expect((await app.request('PUT', '/api/v1/settings/ai/active', { id: 'Not An Id' })).status).toBe(400);
 });
 
+it('only the dashboard can pick the AI that writes your documents', async () => {
+  await app.request('PATCH', '/api/v1/settings', { ai: { active: 'bonsai-2', saved: [activeAi(DEFAULT_SETTINGS.ai), claude] } });
+
+  const refused = await app.request('PUT', '/api/v1/settings/ai/writer', { id: 'claude-mine' }, fromExtension);
+  expect(refused.status).toBe(403);
+  expect(refused.body.error).toEqual({ code: 'forbidden', message: 'Only the dashboard can change settings.' });
+  expect(app.services.settings.get().ai.writer).toBeNull();
+
+  const picked = await app.request('PUT', '/api/v1/settings/ai/writer', { id: 'claude-mine' });
+  expect(picked.status).toBe(200);
+  expect(picked.body.ai).toMatchObject({ active: 'bonsai-2', writer: 'claude-mine' });
+  expect((await app.request('GET', '/api/v1/settings')).body.ai.writer).toBe('claude-mine');
+
+  const back = await app.request('PUT', '/api/v1/settings/ai/writer', { id: null });
+  expect(back.status).toBe(200);
+  expect(back.body.ai.writer).toBeNull();
+
+  // An AI that isn't saved: the id is never quoted back.
+  const unknown = await app.request('PUT', '/api/v1/settings/ai/writer', { id: 'nope' });
+  expect(unknown.status).toBe(400);
+  expect(unknown.body.error).toEqual({ code: 'validation', message: "There's no saved AI with that id." });
+  expect((await app.request('PUT', '/api/v1/settings/ai/writer', { id: 'Not An Id' })).status).toBe(400);
+  expect((await app.request('PUT', '/api/v1/settings/ai/writer', {})).status).toBe(400);
+  expect(app.services.settings.get().ai.writer).toBeNull();
+});
+
+// The form for one AI saves the list of AIs, and needn't know the writer.
+it('saving the AIs without a writer keeps the writing AI; sending one changes it', async () => {
+  const saved = [activeAi(DEFAULT_SETTINGS.ai), claude];
+  await app.request('PATCH', '/api/v1/settings', { ai: { active: 'bonsai-2', saved } });
+  await app.request('PUT', '/api/v1/settings/ai/writer', { id: 'claude-mine' });
+
+  const kept = await app.request('PATCH', '/api/v1/settings', { ai: { active: 'bonsai-2', saved: [saved[0], { ...claude, name: 'Claude – work' }] } });
+  expect(kept.status).toBe(200);
+  expect(kept.body.ai.writer).toBe('claude-mine');
+  expect(app.services.settings.get().ai.writer).toBe('claude-mine');
+
+  const changed = await app.request('PATCH', '/api/v1/settings', { ai: { active: 'bonsai-2', writer: null, saved } });
+  expect(changed.body.ai.writer).toBeNull();
+});
+
 it('an API key is never sent back, and only the dashboard can set it', async () => {
   await app.request('PATCH', '/api/v1/settings', { ai: { active: 'bonsai-2', saved: [activeAi(DEFAULT_SETTINGS.ai), claude] } });
 

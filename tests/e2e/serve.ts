@@ -3,7 +3,7 @@
 // on port 4798 for the "paste a link" tests.
 // Run by Playwright (see playwright.config.ts). It isn't part of the app.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +56,7 @@ app.http.post('/__test/reset', async () => {
   mail.fail = null;
   app.db.exec(`
     DELETE FROM email_suggestions; DELETE FROM email_state;
+    DELETE FROM briefs; DELETE FROM prep_plans;
     DELETE FROM documents; DELETE FROM attachments;
     DELETE FROM interactions; DELETE FROM job_contacts; DELETE FROM notes; DELETE FROM status_history;
     DELETE FROM postings; DELETE FROM contacts; DELETE FROM jobs; DELETE FROM search_index; DELETE FROM rating_cache;
@@ -67,6 +68,9 @@ app.http.post('/__test/reset', async () => {
   app.services.profile.write('master-profile', E2E_PROFILE);
   app.services.profile.write('preferences', '');
   for (const [name, file] of STARTER_FILES) app.services.profile.write(name, readFileSync(join(projectRoot, 'starters', file), 'utf8'));
+  // No record of the starters you've seen, as in an install from before
+  // Phase 9: a guide a test changes then gets the "newer starter" note.
+  rmSync(join(paths.profile, '.starter-versions.json'), { force: true });
   return { ok: true };
 });
 

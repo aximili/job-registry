@@ -1,12 +1,15 @@
 // Settings → AI's "My AIs" list and the header's AI switcher: copying and
-// deleting a saved AI, the line that sums one up, and the groups of the
-// "Add an AI" list. Pure functions: the components save what they return.
+// deleting a saved AI, the line that sums one up, the groups of the "Add an
+// AI" list, and the AI that writes your documents. Pure functions: the
+// components save what they return.
 
 import {
+  activeAi,
   AI_PRESETS,
   newAiId,
   opensWindow,
   sameAddressWarning,
+  writingAi,
   type AiPresetId,
   type AiSettings,
   type SavedAi,
@@ -24,9 +27,30 @@ function copyName(name: string, taken: ReadonlySet<string>): string {
   }
 }
 
+// A change to the AI section, as it's sent. With no writer, the server keeps
+// the one saved, or drops it when it isn't among the AIs after the change.
+export type AiChange = Omit<AiSettings, 'writer'> & { writer?: string | null };
+
+// The writer to send with a change to the AI section: none (undefined), so a
+// writer picked meanwhile (here or in another tab) stays; or null when a new
+// AI or a copy gets the id of a writer that isn't saved any more (a hand
+// edit), so it never writes by accident.
+export function writerToSend(ai: AiChange, saved: readonly SavedAi[]): null | undefined {
+  const writer = ai.writer ?? null;
+  const has = (list: readonly SavedAi[]) => list.some((one) => one.id === writer);
+  return writer !== null && !has(ai.saved) && has(saved) ? null : undefined;
+}
+
+// The change with its writer as writerToSend says.
+function change(ai: AiChange, saved: SavedAi[]): AiChange {
+  const { writer: _old, ...rest } = ai;
+  const writer = writerToSend(ai, saved);
+  return writer === undefined ? { ...rest, saved } : { ...rest, writer, saved };
+}
+
 // A copy of one AI, straight after it, with a name and an id of its own.
 // Keys live in secrets.json, not here, so the copy has none.
-export function duplicateAi(ai: AiSettings, id: string): AiSettings {
+export function duplicateAi(ai: AiChange, id: string): AiChange {
   const at = ai.saved.findIndex((one) => one.id === id);
   if (at === -1) return ai;
   const original = ai.saved[at]!;
@@ -39,21 +63,58 @@ export function duplicateAi(ai: AiSettings, id: string): AiSettings {
     ),
     name,
   };
-  return { ...ai, saved: [...ai.saved.slice(0, at + 1), copy, ...ai.saved.slice(at + 1)] };
+  return change(ai, [...ai.saved.slice(0, at + 1), copy, ...ai.saved.slice(at + 1)]);
 }
 
 // Why an AI can't be deleted, or null when it can.
-export function deleteBlock(ai: AiSettings, id: string): string | null {
+export function deleteBlock(ai: Pick<AiSettings, 'active' | 'saved'>, id: string): string | null {
   if (ai.saved.length <= 1) return 'You need at least one AI.';
   if (ai.active === id) return 'Switch to another AI first.';
   return null;
 }
 
 // The AI section without one AI. Throws deleteBlock's sentence when it can't go.
-export function removeAi(ai: AiSettings, id: string): AiSettings {
+export function removeAi(ai: AiChange, id: string): AiChange {
   const block = deleteBlock(ai, id);
   if (block) throw new Error(block);
-  return { ...ai, saved: ai.saved.filter((one) => one.id !== id) };
+  return change(ai, ai.saved.filter((one) => one.id !== id));
+}
+
+// A saved AI's name, or "this AI" when it isn't saved.
+export function nameOf(ai: Pick<AiSettings, 'saved'>, id: string): string {
+  return ai.saved.find((one) => one.id === id)?.name ?? 'this AI';
+}
+
+// What Delete asks: "Delete Claude – mine?", and what goes with it.
+export function deleteQuestion(ai: AiSettings, id: string, hasKey: boolean): string {
+  const name = nameOf(ai, id);
+  const key = hasKey ? ' Its API key is deleted too.' : '';
+  const writes = ai.writer === id ? ` ${name} also writes your documents. After this, the AI in use writes them.` : '';
+  return `Delete ${name}?${key}${writes}`;
+}
+
+// The writing AI's list: "The AI in use ({name})" first (value ''), then
+// every saved AI by name.
+export function writerChoices(ai: AiSettings): { value: string; label: string }[] {
+  return [{ value: '', label: `The AI in use (${activeAi(ai).name})` }, ...ai.saved.map((one) => ({ value: one.id, label: one.name }))];
+}
+
+// What the list shows: the AI you picked while it's saved, or else '' (the
+// AI in use).
+export function writerValue(ai: AiSettings): string {
+  return writingAi(ai).missing || ai.writer === null ? '' : ai.writer;
+}
+
+// The toast after a pick. null is the AI in use.
+export function writerMessage(ai: AiSettings, id: string | null): string {
+  return id === null ? 'The AI in use writes your documents now.' : `${nameOf(ai, id)} writes your documents now.`;
+}
+
+// The sentence when the AI you picked to write isn't saved any more (a hand
+// edit of settings.json), or null.
+export function writerFallback(ai: AiSettings): string | null {
+  const writing = writingAi(ai);
+  return writing.missing ? `Your writing AI isn't saved any more, so ${writing.ai.name}, the AI in use, writes.` : null;
 }
 
 const fileName = (path: string): string => path.trim().replaceAll('\\', '/').split('/').pop() ?? '';

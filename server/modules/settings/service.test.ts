@@ -399,6 +399,97 @@ describe('settings service: saved AIs and their API keys', () => {
     expect(settings.useAi('claude-mine').server.port).toBe(5005);
   });
 
+  it('useWriter picks the AI that writes your documents, saves it, and tells the app', () => {
+    const { file, settings, events } = aisSetup(ai('claude-mine'));
+    const next = settings.useWriter('claude-mine');
+    expect(next.ai.writer).toBe('claude-mine');
+    // The AI in use stays as it was.
+    expect(next.ai.active).toBe('bonsai-2');
+    expect(settings.get().ai.writer).toBe('claude-mine');
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBe('claude-mine');
+    expect(events).toEqual([{ keys: ['ai'] }]);
+  });
+
+  it('useWriter(null) goes back to the AI in use', () => {
+    const { file, settings, events } = aisSetup(ai('claude-mine'));
+    settings.useWriter('claude-mine');
+    events.length = 0;
+    expect(settings.useWriter(null).ai.writer).toBeNull();
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBeNull();
+    expect(events).toEqual([{ keys: ['ai'] }]);
+  });
+
+  it('useWriter refuses an AI that is not saved, without quoting the id, and changes nothing', () => {
+    const { file, settings, events } = aisSetup(ai('claude-mine'));
+    settings.useWriter('claude-mine');
+    events.length = 0;
+    const before = readFileSync(file, 'utf8');
+    expect(() => settings.useWriter('nope')).toThrow(ValidationError);
+    let message = '';
+    try {
+      settings.useWriter('nope');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toBe("There's no saved AI with that id.");
+    expect(message).not.toContain('nope');
+    expect(settings.get().ai.writer).toBe('claude-mine');
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(events).toEqual([]);
+  });
+
+  it('useWriter keeps hand edits made to the file while the app runs, and refuses an AI removed by hand', () => {
+    const { file, settings } = aisSetup(ai('claude-mine'));
+    writeSettings(file, JSON.stringify({ server: { port: 5005 }, ai: { active: 'bonsai-2', saved: [bonsai, ai('claude-mine')] } }));
+    expect(settings.useWriter('claude-mine').server.port).toBe(5005);
+    writeSettings(file, JSON.stringify({ ai: { active: 'bonsai-2', writer: 'claude-mine', saved: [bonsai] } }));
+    expect(() => settings.useWriter('claude-mine')).toThrow("There's no saved AI with that id.");
+  });
+
+  it('deleting the writing AI means the AI in use writes, so a new AI with the same id never writes by accident', () => {
+    const { file, settings, events } = aisSetup(ai('claude-mine'));
+    settings.useWriter('claude-mine');
+    events.length = 0;
+    expect(settings.update({ ai: { active: 'bonsai-2', writer: 'claude-mine', saved: [bonsai] } }).ai.writer).toBeNull();
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBeNull();
+    expect(events).toEqual([{ keys: ['ai'] }]);
+    // The same id comes back later: it isn't the writer.
+    expect(settings.update({ ai: { active: 'bonsai-2', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBeNull();
+  });
+
+  it('a save of the AIs that leaves the writer out keeps the saved one; only a writer sent (an id or null) changes it', () => {
+    const { file, settings } = aisSetup(ai('claude-mine'));
+    settings.useWriter('claude-mine');
+    expect(settings.update({ ai: { active: 'bonsai-2', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBe('claude-mine');
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBe('claude-mine');
+    // Kept from the file, as you may have edited it by hand.
+    writeSettings(file, JSON.stringify({ ai: { active: 'bonsai-2', writer: 'bonsai-2', saved: [bonsai, ai('claude-mine')] } }));
+    expect(settings.update({ ai: { active: 'bonsai-2', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBe('bonsai-2');
+    expect(settings.update({ ai: { active: 'bonsai-2', writer: 'claude-mine', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBe('claude-mine');
+    expect(settings.update({ ai: { active: 'bonsai-2', writer: null, saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBeNull();
+    // A writer kept, but deleted by this save, is none.
+    settings.useWriter('claude-mine');
+    expect(settings.update({ ai: { active: 'bonsai-2', saved: [bonsai] } }).ai.writer).toBeNull();
+  });
+
+  it('a save whose writer names no saved AI saves none', () => {
+    const { file, settings } = aisSetup(ai('claude-mine'));
+    expect(settings.update({ ai: { active: 'bonsai-2', writer: 'claude-gone', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBeNull();
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBeNull();
+    // One that is saved is kept.
+    expect(settings.update({ ai: { active: 'bonsai-2', writer: 'claude-mine', saved: [bonsai, ai('claude-mine')] } }).ai.writer).toBe('claude-mine');
+    // Saving another section leaves the writer alone.
+    expect(settings.update({ server: { port: 5001 } }).ai.writer).toBe('claude-mine');
+  });
+
+  it('a writer removed from settings.json by hand still loads, and the next save of any setting clears it', () => {
+    const { file, bus, settings } = aisSetup(ai('claude-mine'));
+    writeSettings(file, JSON.stringify({ ai: { active: 'bonsai-2', writer: 'claude-gone', saved: [bonsai, ai('claude-mine')] } }));
+    expect(createSettingsService({ file, bus }).get().ai.writer).toBe('claude-gone');
+    expect(settings.update({ server: { port: 5001 } }).ai.writer).toBeNull();
+    expect(JSON.parse(readFileSync(file, 'utf8')).ai.writer).toBeNull();
+  });
+
   it('the settings never hold a key', () => {
     const { settings } = aisSetup(ai('claude-mine'));
     settings.updateSecrets({ aiKeys: { 'claude-mine': 'sk-ant-123' } });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ReplacedError } from '../../core/errors.ts';
 import { createAiQueue, type Priority } from './queue.ts';
 
 // A task that waits until released, so tests control the order.
@@ -115,6 +116,69 @@ describe('AI queue', () => {
     await expect(running).rejects.toMatchObject({ name: 'AbortError' });
     expect(sawAbort).toBe(true);
     expect(await replacement).toBe('C');
+  });
+
+  it('cancelKey cancels a waiting or running task with that key, and the others carry on', async () => {
+    const queue = createAiQueue();
+    let sawAbort = false;
+    const running = queue.run({
+      priority: 'interactive',
+      key: 'doc-1-resume',
+      work: (signal) =>
+        new Promise((_, reject) =>
+          signal.addEventListener('abort', () => {
+            sawAbort = true;
+            reject(signal.reason);
+          }),
+        ),
+    });
+    let ran = false;
+    const waiting = queue.run({ priority: 'interactive', key: 'doc-2-resume', work: async () => void (ran = true) });
+    const other = queue.run({ priority: 'interactive', key: 'tab-7', work: async () => 'other' });
+    const plain = queue.run({ priority: 'parse', work: async () => 'plain' });
+    await new Promise((r) => setTimeout(r, 5));
+    queue.cancelKey('doc-2-resume');
+    await expect(waiting).rejects.toMatchObject({ name: 'AbortError', message: 'The AI task was cancelled.' });
+    expect(sawAbort).toBe(false);
+    queue.cancelKey('doc-1-resume');
+    await expect(running).rejects.toMatchObject({ name: 'AbortError' });
+    expect(sawAbort).toBe(true);
+    expect(await other).toBe('other');
+    expect(await plain).toBe('plain');
+    expect(ran).toBe(false);
+    // A key with no task is nothing to cancel.
+    queue.cancelKey('doc-3-resume');
+    await queue.onIdle();
+  });
+
+  // So a stream still being read can say a newer one took its place, and
+  // say nothing when it was stopped.
+  it('a task replaced by a newer one with its key is cancelled as replaced; one stopped any other way is not', async () => {
+    const queue = createAiQueue();
+    const blocker = gate();
+    const blocking = queue.run({ priority: 'parse', work: () => blocker.opened });
+    const replaced = queue.run({ priority: 'interactive', key: 'brief-1', work: async () => 'A' });
+    const newer = queue.run({ priority: 'interactive', key: 'brief-1', work: async () => 'B' });
+    const err = await replaced.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReplacedError);
+    // Still a cancel, as before.
+    expect(err).toMatchObject({ name: 'AbortError', message: 'The AI task was cancelled.' });
+    const byKey = queue.run({ priority: 'interactive', key: 'brief-2', work: async () => 'C' });
+    queue.cancelKey('brief-2');
+    expect(await byKey.catch((e: unknown) => e)).toBeInstanceOf(ReplacedError);
+
+    const controller = new AbortController();
+    const aborted = queue.run({ priority: 'interactive', signal: controller.signal, work: async () => 'D' });
+    controller.abort();
+    const stopped = queue.run({ priority: 'interactive', key: 'brief-3', work: async () => 'E' });
+    queue.cancelAll();
+    for (const task of [aborted, stopped, newer]) {
+      const cancelled = await task.catch((e: unknown) => e);
+      expect(cancelled).toMatchObject({ name: 'AbortError' });
+      expect(cancelled).not.toBeInstanceOf(ReplacedError);
+    }
+    blocker.open();
+    await blocking.catch(() => {});
   });
 
   it('aborting removes a waiting task, and aborts a running one', async () => {

@@ -9,7 +9,8 @@ const FOUNDATION = ['jobs', 'contacts', 'notes', 'ai', 'profile', 'capture', 'se
 const COMPOSITE = {
   ratings: ['ai', 'profile'],
   enrich: ['jobs', 'ai', 'ratings'],
-  documents: ['ai', 'profile', 'jobs'],
+  prep: ['ai', 'profile', 'jobs', 'notes'],
+  documents: ['ai', 'profile', 'jobs', 'notes', 'prep'],
   search: ['jobs', 'contacts', 'notes'],
   callsheet: ['jobs', 'contacts', 'notes', 'documents'],
   email: ['ai', 'jobs', 'contacts', 'notes'],

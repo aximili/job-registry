@@ -7,6 +7,7 @@
 > - **Phases 1–6** are built and tested on macOS (Phase 5, Gmail, and Phase 6, follow-up reminders and the board, on 29 Oct 2026). From Phase 6 you chose follow-up reminders and the Kanban board, not phone access or the Windows-wide hotkey. See AGENTS.md for the current status.
 > - **Phase 7** (quick marks on search lists) was added at your request on 29 Oct 2026, and built and tested on macOS on 29–30 Oct 2026.
 > - **Phase 8** (several AIs, switched in one click) was added at your request on 31 Oct 2026, and built and tested on macOS on 31 Oct – 1 Nov 2026. You picked ratings per model, the name pill with a grouped menu, and the list-then-form layout for Settings → AI.
+> - **Phase 9** (better letters, and getting ready for a job) was added at your request on 3 Nov 2026, and built and tested on macOS on 3–4 Nov 2026, while you were away. You asked for it without stops, so the design picks were made for you; each is in the phase's ledger with its screenshots.
 
 ## Context
 
@@ -122,6 +123,7 @@ These rules keep each part replaceable and easy to change. The Phase 0 document 
 - `rating_cache`: canonical URL + profile hash (+ the model, since Phase 8) → rating. It covers jobs you rated but didn't save.
 - `card_rating_cache` (Phase 7): a job card (its link and a hash of what it shows) + profile hash → quick rating.
 - `email_suggestions` (Phase 5).
+- `briefs` and `prep_plans` (Phase 9): each brief you check before a letter is written, and each "Get ready" plan, as JSON. A new one is a new row, and the old ones stay.
 - `search_index`: one FTS5 table, updated by app code on every write. It covers company, agency, title, contact names, phones and emails, notes and the ad text.
 
 **Settings** live in `config/settings.json`, which you can edit by hand or on the Settings page. The status list lives there too and is editable. Default statuses:
@@ -213,6 +215,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
   - `rate-card.ts` (Phase 7)
   - `write-resume.ts`
   - `write-cover-letter.ts`
+  - `make-brief.ts` and `make-prep.ts` (Phase 9), on the writing AI, as the resume and cover letter are
   - `classify-email.ts`
 
   Each task is a prompt plus a zod schema (turned into JSON Schema for constrained output), with validation and one retry. The prompts are text files in `server/modules/ai/prompts/`.
@@ -221,6 +224,7 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
   - Settings → AI shows each task's settings, except the extra request fields (Phase 7).
   - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
 - A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached. Since Phase 8 it shows the name of the AI in use too, and one click opens a menu to switch to another.
+- Since Phase 9, one saved AI can do the writing while the AI in use does the rest. A cloud writer gets a queue of its own, so it never waits behind local ratings. Every writing request is fitted to Bonsai 2's window: each part has a cap, and the ad gets what's left.
 
 ## Windows setup and running
 
@@ -337,6 +341,13 @@ tests/
    - Each model keeps its own ratings. When two Bonsai 2 AIs share one address, the app catches the wrong model still answering.
    - A Claude Pro or Max login and Z.ai's GLM Coding Plan can't be used (their terms). API keys can.
    - *Done when:* an AI can be added from a preset, tested before saving, duplicated, and switched to from the pill by mouse and keyboard; a key never reaches the browser; your old settings file loads as one saved AI with nothing lost.
+9. **Better letters, and getting ready for a job** (added 3 Nov 2026, at your request, after a letter from Claude Opus in a chat beat the app's letter from Bonsai 2).
+   - **A writing AI:** pick one saved AI to write resumes, cover letters, briefs and prep plans. Everything else stays on the AI in use, so Bonsai 2 can rate for free while Claude writes. Its problems show where you write, never on the pill.
+   - **"Before I write":** before a letter or resume, the writing AI makes a short brief: who to write to, the ad's biggest needs with a story from your profile for each, the ad's best line to open with, your gaps, and the few questions only you can answer. You check and fix it in a click or two, and it's saved with the job. Ticked answers go into your master profile.
+   - **"Get ready":** a prep plan for each job: what to learn in a day, a practice project, likely interview questions with the story to tell, questions to ask them, and what to refresh.
+   - **Smaller fixes:** a contact's email that Seek hides behind a link is kept; every writing task gets the job's notes; a better cover-letter guide, which reaches your Windows copy at start-up (only when you never changed it; your old text is kept).
+   - **Fits Bonsai 2:** every writing request fits its 32,768-token window with your real profile, with room left to think.
+   - *Done when:* a cover letter can be written with a brief you checked, or without one, on the writing AI; a plan shows its five parts; a cloud writer never holds up Bonsai 2's ratings; your untouched guide is updated with its old text kept; and every writing request with your real profile measures 108,000 characters or fewer.
 
 ## Choices I made (override any of them)
 

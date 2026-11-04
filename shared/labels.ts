@@ -1,4 +1,4 @@
-// Words shared by the dashboard and the extension, so both say the same thing.
+// Words shared by the server, the dashboard and the extension, so all say the same thing.
 
 import type { EmailEvent, SourceSite, Verdict } from './contracts/index.ts';
 
@@ -29,3 +29,6 @@ export const EMAIL_EVENT_LABEL: Record<EmailEvent, string> = {
   offer: 'Offer',
   other: 'Other email',
 };
+
+// A brief, a document, or answers added to your profile all need your master profile first.
+export const NO_PROFILE = 'Add your master profile first: Settings → Profile.';

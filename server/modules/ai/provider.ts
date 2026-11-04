@@ -44,6 +44,18 @@ export type ChatChunk = { kind: 'text' | 'thinking'; text: string };
 
 export type ProviderHealth = { ok: boolean; models: string[]; detail: string | null };
 
+// The sentence for an AI that didn't answer at all: the adapters', and the AI
+// service's when a health check gives no sentence of its own.
+export const cantReachSentence = (ai: { name: string; baseUrl: string }): string =>
+  `Can't reach ${ai.name} at ${ai.baseUrl}. Check that it's running, or pick another AI in Settings.`;
+
+// How to get past a problem with one AI, such as a usage limit or a declined
+// request. The adapters' sentences end with the first: the AI pill changes
+// the AI in use. A writing AI that isn't the AI in use is changed where you
+// write, so the AI service puts the second in its place.
+export const USE_ANOTHER_AI = 'switch to another AI from the AI pill at the top';
+export const USE_ANOTHER_WRITER = 'pick another writing AI beside the button, or in Settings → AI';
+
 export interface AiProvider {
   chat(req: ChatRequest, opts?: { signal?: AbortSignal }): Promise<ChatResult>;
   chatStream(req: ChatRequest, opts?: { signal?: AbortSignal }): AsyncIterable<ChatChunk>;

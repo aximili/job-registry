@@ -116,11 +116,19 @@ describe('generateDocument', () => {
   it('reads each line as it arrives, even when a line is split across chunks', async () => {
     const api = createApiClient({
       baseUrl: 'http://x',
-      fetch: streamingFetch(['{"kind":"text","te', 'xt":"# Sam"}\n{"kind":"text","text":" Taylor"}\n', '{"kind":"done"}\n']),
+      fetch: streamingFetch([
+        '{"kind":"waiting","by":"Claude – mine"}\n{"kind":"working","by":"Claude – mine"}\n{"kind":"alive"}\n',
+        '{"kind":"text","te',
+        'xt":"# Sam"}\n{"kind":"alive"}\n{"kind":"text","text":" Taylor"}\n',
+        '{"kind":"done"}\n',
+      ]),
     });
     const chunks = [];
     for await (const chunk of api.generateDocument(1, 'resume')) chunks.push(chunk);
+    // Who's writing, then the text. An alive line only keeps the reply open: it isn't passed on.
     expect(chunks).toEqual([
+      { kind: 'waiting', by: 'Claude – mine' },
+      { kind: 'working', by: 'Claude – mine' },
       { kind: 'text', text: '# Sam' },
       { kind: 'text', text: ' Taylor' },
       { kind: 'done' },
@@ -155,7 +163,7 @@ describe('generateDocument: a stream that just stops', () => {
       new Response(
         new ReadableStream<Uint8Array>({
           start(c) {
-            c.enqueue(new TextEncoder().encode('{"kind":"text","text":"# Sam"}\n'));
+            c.enqueue(new TextEncoder().encode('{"kind":"text","text":"# Sam"}\n{"kind":"alive"}\n'));
             c.close();
           },
         }),
@@ -168,6 +176,146 @@ describe('generateDocument: a stream that just stops', () => {
     };
     await expect(run()).rejects.toThrow('The AI stopped before the draft was finished. The text so far is still here. Try again.');
     expect(chunks).toEqual([{ kind: 'text', text: '# Sam' }]);
+  });
+});
+
+describe('generateDocument: with or without the brief', () => {
+  it("sends brief and the brief on screen only when they're given, so the server's default ('skip') holds otherwise", async () => {
+    const { fetch, calls } = fakeFetch(200, { kind: 'done' });
+    const api = createApiClient({ baseUrl: 'http://x', fetch });
+    for await (const _chunk of api.generateDocument(1, 'cover_letter', { brief: 'use', briefId: 3 })) {
+      // one done line
+    }
+    for await (const _chunk of api.generateDocument(1, 'resume')) {
+      // one done line
+    }
+    expect(calls.map((c) => JSON.parse(String(c.init.body)))).toEqual([{ kind: 'cover_letter', brief: 'use', briefId: 3 }, { kind: 'resume' }]);
+  });
+});
+
+// A reply that arrives in these parts, as a stream.
+function streamingFetch(parts: string[]) {
+  return (async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          for (const part of parts) c.enqueue(new TextEncoder().encode(part));
+          c.close();
+        },
+      }),
+      { status: 200 },
+    )) as unknown as typeof globalThis.fetch;
+}
+
+describe('the brief', () => {
+  const brief = {
+    id: 3,
+    jobId: 1,
+    by: 'Bonsai 2',
+    createdAt: '2026-11-03T01:00:00.000Z',
+    updatedAt: '2026-11-03T01:00:00.000Z',
+    approvedAt: null,
+    contact: { name: 'Alex', email: 'alex@example-recruit.com.au', recruiter: true, organisation: 'Example Recruit' },
+    opening: { quote: "You'll help our engineers ship faster.", why: 'I cut build times by 30%.', inAd: true },
+    needs: [{ need: 'TypeScript', stories: [{ title: 'Moving to TypeScript', text: 'I moved the web app to TypeScript.' }], chosen: 0, dropped: false }],
+    gaps: [],
+    questions: [{ question: 'Have you used Go?', why: 'The ad lists Go.', answer: null, skipped: false, addToProfile: false, addedAt: null, fromEarlier: false }],
+  };
+
+  it('reads the lines as the brief is made, ending with the brief', async () => {
+    const parts = ['{"kind":"waiting","by":"Bonsai 2"}\n{"kind":"work', `ing","by":"Bonsai 2"}\n{"kind":"alive"}\n${JSON.stringify({ kind: 'done', brief })}\n`];
+    const api = createApiClient({ baseUrl: 'http://x', fetch: streamingFetch(parts) });
+    const got = [];
+    for await (const line of api.makeBrief(1)) got.push(line);
+    // An alive line only keeps the reply open: it isn't passed on.
+    expect(got).toEqual([{ kind: 'waiting', by: 'Bonsai 2' }, { kind: 'working', by: 'Bonsai 2' }, { kind: 'done', brief }]);
+  });
+
+  it('a stream that just stops is an error, so a brief is never taken as made', async () => {
+    const api = createApiClient({ baseUrl: 'http://x', fetch: streamingFetch(['{"kind":"waiting","by":"Bonsai 2"}\n{"kind":"alive"}\n']) });
+    const run = async () => {
+      for await (const _line of api.makeBrief(1)) {
+        // waiting, then nothing
+      }
+    };
+    await expect(run()).rejects.toThrow('The brief stopped before it was finished. Try again.');
+  });
+
+  it('gets, edits and adds answers at their addresses', async () => {
+    const { fetch, calls } = fakeFetch(200, { brief });
+    const api = createApiClient({ baseUrl: 'http://x', fetch });
+    expect(await api.getBrief(1)).toEqual({ brief });
+    const edit = fakeFetch(200, brief);
+    await createApiClient({ baseUrl: 'http://x', fetch: edit.fetch }).editBrief(3, { contact: { name: 'Alex', recruiter: true } });
+    const added = fakeFetch(200, { added: 2 });
+    expect(await createApiClient({ baseUrl: 'http://x', fetch: added.fetch }).addAnswersToProfile(3)).toEqual({ added: 2 });
+    expect(calls[0]!.url).toBe('http://x/api/v1/jobs/1/brief');
+    expect([edit.calls[0]!.url, edit.calls[0]!.init.method, JSON.parse(String(edit.calls[0]!.init.body))]).toEqual([
+      'http://x/api/v1/briefs/3',
+      'PATCH',
+      { contact: { name: 'Alex', recruiter: true } },
+    ]);
+    expect([added.calls[0]!.url, added.calls[0]!.init.method]).toEqual(['http://x/api/v1/briefs/3/answers-to-profile', 'POST']);
+  });
+});
+
+describe('the prep plan', () => {
+  const plan = {
+    id: 4,
+    jobId: 1,
+    by: 'Bonsai 2',
+    createdAt: '2026-11-03T01:00:00.000Z',
+    // A topic whose steps were only links keeps none.
+    learn: [{ topic: 'Go basics', why: 'The ad lists Go.', steps: [], hours: 4, afterwards: "I've learnt Go's basics." }],
+    project: { title: 'A build-time dashboard', what: 'A small app.', touches: ['Go'], hours: 6, afterwards: 'I built a small tool.' },
+    interview: [{ question: 'Tell us about a time you made developers faster.', story: 'Cutting build times by 30%.' }],
+    ask: [],
+    refresh: [],
+  };
+
+  it('reads the lines as the plan is made, ending with the plan', async () => {
+    const parts = ['{"kind":"waiting","by":"Bonsai 2"}\n{"kind":"work', `ing","by":"Bonsai 2"}\n{"kind":"alive"}\n${JSON.stringify({ kind: 'done', plan })}\n`];
+    const api = createApiClient({ baseUrl: 'http://x', fetch: streamingFetch(parts) });
+    const got = [];
+    for await (const line of api.makePrepPlan(1)) got.push(line);
+    expect(got).toEqual([{ kind: 'waiting', by: 'Bonsai 2' }, { kind: 'working', by: 'Bonsai 2' }, { kind: 'done', plan }]);
+  });
+
+  it('a stream that just stops is an error, so a plan is never taken as made', async () => {
+    const api = createApiClient({ baseUrl: 'http://x', fetch: streamingFetch(['{"kind":"waiting","by":"Bonsai 2"}\n{"kind":"alive"}\n']) });
+    const run = async () => {
+      for await (const _line of api.makePrepPlan(1)) {
+        // waiting, then nothing
+      }
+    };
+    await expect(run()).rejects.toThrow('The plan stopped before it was finished. Try again.');
+  });
+
+  it("gets the job's plans, and makes one, at their addresses", async () => {
+    const { fetch, calls } = fakeFetch(200, { plans: [plan] });
+    expect(await createApiClient({ baseUrl: 'http://x', fetch }).prepPlans(1)).toEqual({ plans: [plan] });
+    expect([calls[0]!.url, calls[0]!.init.method]).toEqual(['http://x/api/v1/jobs/1/prep', 'GET']);
+    const made = fakeFetch(200, { kind: 'done', plan });
+    for await (const _line of createApiClient({ baseUrl: 'http://x', fetch: made.fetch }).makePrepPlan(1)) {
+      // one done line
+    }
+    expect([made.calls[0]!.url, made.calls[0]!.init.method]).toEqual(['http://x/api/v1/jobs/1/prep', 'POST']);
+  });
+});
+
+describe('profile files', () => {
+  it('saves a file with the updatedAt the editor loaded, when given, so a file changed since is never saved over', async () => {
+    const { fetch, calls } = fakeFetch(200, { name: 'master-profile', text: '# Sam Taylor', updatedAt: '2026-11-03T01:00:00.000Z' });
+    const api = createApiClient({ baseUrl: 'http://x', fetch });
+    await api.putProfileFile('master-profile', '# Sam Taylor', '2026-11-03T01:00:00.000Z');
+    // A file that was missing when the editor opened.
+    await api.putProfileFile('preferences', 'Sydney only.', null);
+    await api.putProfileFile('master-profile', '# Sam Taylor');
+    expect(calls.map((c) => [c.url, c.init.method, JSON.parse(String(c.init.body))])).toEqual([
+      ['http://x/api/v1/profile/master-profile', 'PUT', { text: '# Sam Taylor', updatedAt: '2026-11-03T01:00:00.000Z' }],
+      ['http://x/api/v1/profile/preferences', 'PUT', { text: 'Sydney only.', updatedAt: null }],
+      ['http://x/api/v1/profile/master-profile', 'PUT', { text: '# Sam Taylor' }],
+    ]);
   });
 });
 
@@ -201,6 +349,55 @@ describe('api client: switching the AI in use', () => {
     expect(calls[0]!.url).toBe('http://127.0.0.1:4777/api/v1/settings/ai/active');
     expect(calls[0]!.init.method).toBe('PUT');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ id: 'bonsai-2' });
+  });
+});
+
+describe('api client: picking the AI that writes your documents', () => {
+  it('sends the id, or null for the AI in use, with PUT and reads back the settings', async () => {
+    const { fetch, calls } = fakeFetch(200, { ai: { active: 'bonsai-2', writer: 'bonsai-2', saved: [{ id: 'bonsai-2', name: 'Bonsai 2' }] } });
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    expect((await api.useWriter('bonsai-2')).ai.writer).toBe('bonsai-2');
+    await api.useWriter(null);
+    expect(calls.map((c) => [c.init.method, c.url, JSON.parse(String(c.init.body))])).toEqual([
+      ['PUT', 'http://127.0.0.1:4777/api/v1/settings/ai/writer', { id: 'bonsai-2' }],
+      ['PUT', 'http://127.0.0.1:4777/api/v1/settings/ai/writer', { id: null }],
+    ]);
+  });
+
+  it('asks the browser to finish the request even if the page closes', async () => {
+    const { fetch, calls } = fakeFetch(200, { ai: { active: 'bonsai-2', writer: null, saved: [{ id: 'bonsai-2', name: 'Bonsai 2' }] } });
+    const api = createApiClient({ baseUrl: '', fetch });
+    await api.useWriter(null);
+    expect(calls[0]!.init.keepalive).toBe(true);
+    // Other requests don't.
+    await api.useAi('bonsai-2');
+    expect(calls[1]!.init.keepalive).toBeUndefined();
+  });
+});
+
+describe('api client: starter guides', () => {
+  it("starters GETs each guide's state", async () => {
+    const states = [
+      { name: 'resume-guide', state: 'same', diff: null },
+      { name: 'cover-letter-guide', state: 'newer', diff: [{ kind: 'removed', text: 'Mine.' }, { kind: 'added', text: 'Keep it short.' }] },
+    ];
+    const { fetch, calls } = fakeFetch(200, states);
+    const api = createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch });
+    expect(await api.starters()).toEqual(states);
+    expect([calls[0]!.init.method, calls[0]!.url]).toEqual(['GET', 'http://127.0.0.1:4777/api/v1/profile/starters']);
+  });
+
+  it('starterAction POSTs the action, and reads back the guide (use) or its state (keep)', async () => {
+    const file = { name: 'cover-letter-guide', text: '# Cover letters', updatedAt: '2026-11-03T03:15:00.000Z' };
+    const used = fakeFetch(200, file);
+    expect(await createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch: used.fetch }).starterAction('cover-letter-guide', 'use')).toEqual(file);
+    const status = { name: 'cover-letter-guide', state: 'yours', diff: null };
+    const kept = fakeFetch(200, status);
+    expect(await createApiClient({ baseUrl: 'http://127.0.0.1:4777', fetch: kept.fetch }).starterAction('cover-letter-guide', 'keep')).toEqual(status);
+    expect([...used.calls, ...kept.calls].map((c) => [c.init.method, c.url, JSON.parse(String(c.init.body))])).toEqual([
+      ['POST', 'http://127.0.0.1:4777/api/v1/profile/cover-letter-guide/starter', { action: 'use' }],
+      ['POST', 'http://127.0.0.1:4777/api/v1/profile/cover-letter-guide/starter', { action: 'keep' }],
+    ]);
   });
 });
 
