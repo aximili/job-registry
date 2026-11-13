@@ -1,6 +1,6 @@
 # What only you can do
 
-Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need you, because they install programs, need your passwords or a signed-in browser, or need a person to look. Allow about an hour, mostly waiting for downloads.
+The agent tool runs the checks for you (the [runbook](runbook.md)), on your Strata AI. These steps need you, because they install programs, need your passwords or a signed-in browser, or need a person to look. Allow about an hour, mostly waiting for downloads.
 
 ## Before Bonsai 2 starts (about 45 minutes)
 
@@ -16,12 +16,12 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
    - Already have it from Phase 1? Run `stop.bat`, then `git pull` in that folder. Your jobs in `data\` stay.
    - New PC? Clone your repository into a short path without OneDrive, such as `C:\JobRegistry`.
 3. **Run `setup.bat`** (double-click it). Answer **Y** to the Desktop shortcut, and your choice to "start when you log in". For "Download the AI":
-   - **N** if you run Bonsai 2 yourself, as you do from `D:\aitest\Bonsai-demo`. The app then uses yours (step 8).
+   - **N** — you run Strata yourself from `F:\CODE\Random\LocalAI\Strata`. The app then uses it (step 8).
    - **Y** only if you want the app to start and stop its own copy of Bonsai 2. That's about 8 GB.
-4. **Start Bonsai 2:** run `stop.bat` first (if Job Registry is running, it may have started its own AI on port 8080). Then start your Bonsai 2: `D:\aitest\Bonsai-demo\start_bonsai.bat`. (If you downloaded the AI in step 3 instead, double-click `start-bonsai-server.bat`.) Wait until its window says the server is listening on port 8080. Leave that window open the whole time. Bonsai 2 now runs once, on port 8080, for both the agent tool and the app.
-5. **The agent tool.** It's the tool that runs Bonsai 2 and follows the runbook. Any tool works (yours is KiloCode in VS Code right now; OpenCode, ZCode and others are fine too), if you can set it up like this:
+4. **Start Strata:** run `stop.bat` first (if Job Registry is running, it may have started its own AI on port 8080). Then run `F:\CODE\Random\LocalAI\Strata\start-strata-iq2xs.bat`. It stops Ollama first (Ollama competes for the RAM Strata needs), and the first load takes 1 to 3 minutes. Wait until Strata answers on port 8080 (`strata status`). Leave it running the whole time. Strata runs once, on port 8080, for both the agent tool and the app. Stop it with `F:\CODE\Random\LocalAI\Strata\stop-strata.bat`.
+5. **The agent tool.** It's the tool that runs your AI (Strata on port 8080, or Bonsai 2) and follows the runbook. Any tool works (yours is KiloCode in VS Code right now; OpenCode, ZCode and others are fine too), if you can set it up like this:
    - **API provider:** OpenAI Compatible, with base URL `http://127.0.0.1:8080/v1`. Any API key and model name work, because llama-server checks neither.
-   - **Context window:** the same as your Bonsai 2 gives each request (32,768 with `start-bonsai-server.bat`). No images.
+   - **Context window:** the same as your AI gives each request (Strata: 262,144; Bonsai 2 with `start-bonsai-server.bat`: 32,768). No images.
    - **Terminal:** PowerShell, in the app folder (in VS Code: Terminal → Select Default Profile → PowerShell).
    - **Long commands:** it must let one command run for up to 40 minutes (step 8 takes that long). Some tools stop a command after a few minutes: look for a command timeout setting, and raise it.
    - **Approvals:** allow reading files and running commands, but not editing files. Bonsai 2 should only ever edit files in `handover-results\`, so approve only those edits. Stay near the PC: each bug it writes waits for your OK.
@@ -30,18 +30,10 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
 ## Your own data (10 minutes)
 
 7. **Start the app** with the Desktop shortcut. In **Settings → Profile**, paste your master profile (your full resume) and press **Save**. Add your preferences if you like.
-8. **Point the app at your Bonsai 2** (skip this if you answered Y to the download in step 3). Open **Settings → AI**. Bonsai 2 is the first AI under **My AIs**, and its settings are open under the list already (if another AI's are, press **Bonsai 2** in the list). Set:
-   - **Server address:** `http://127.0.0.1:8080/v1`
-   - Tick **Start it for me when it isn't running**.
-   - **Program or .bat file:** `D:\aitest\Bonsai-demo\start_bonsai.bat`
-   - **Model file** (it shows once the .bat file is in): leave it empty, or type the name of the .gguf file your `start_bonsai.bat` runs. With it, the app can tell when a different model is answering on port 8080.
-
-   Press **Save AI settings**, then **Test connection**. It should say "Connected to Bonsai 2 (llama-server)". In My AIs, Bonsai 2 should say **In use**. If it doesn't, press its **Use this**. The AI pill at the top of the page now says **Bonsai 2**. The app sends its AI work to your Bonsai 2, and never stops it.
-   - If Bonsai 2 isn't running, the app opens `start_bonsai.bat` in its own window (minimised) the next time it needs the AI for you: when you save an ad, press Test connection, or open a job page or a search list (any rating). Checking Gmail never opens it.
-   - Close that window yourself when you want Bonsai 2 to stop. It stays open after Job Registry stops.
-   - No Bonsai 2 in My AIs? Then you set up "Another OpenAI-style server" in run 1, and it now shows as **My AI server**. That still works, but it never starts Bonsai 2 for you. To have the app open your .bat file, press **Add an AI**, pick **Bonsai 2 (llama-server)** as the **Provider**, set the fields above, and press **Save AI settings**. Adding an AI never switches to it, so then press **Use this** on the new Bonsai 2 in My AIs.
-   - To try another AI later (Ollama, LM Studio, or a cloud AI such as Claude), press **Add an AI**. Then switch between them from the AI pill at the top of the page.
-   - **A cloud AI and the runbook:** if a cloud AI is in use when the runbook runs, steps 6 and 7 skip their AI checks (they print SKIP). The test copy never gets an API key, and those checks are for Bonsai 2. That's fine. If you want them, switch back to Bonsai 2 first. Step 10 still asks the AI in use one short question, which a cloud AI bills to your key.
+8. **Point the app at Strata** (Settings → AI). This PC is already set up: the saved AI **Strata** uses `http://127.0.0.1:8080/v1`, opens `start-strata-iq2xs.bat` when Strata isn't running, and its Model name is left empty so the app uses whatever model Strata has loaded (IQ2_XS, or IQ3 when you switch). On a new PC, press **Add an AI**, pick **Bonsai 2 (llama-server)**, and set the same fields. Then press **Use this** on Strata in My AIs. The AI pill now says **Strata**.
+   - The app never stops Strata, so the idle stop does not apply. Stop it with `stop-strata.bat`.
+    - **Thinking quirk:** Strata can't stop thinking when asked to. The saved Strata AI handles this with `chat_template_kwargs` `enable_thinking: false` on the no-thinking tasks (reading ads, quick marks, email). Keep those task settings as they are.
+    - **A cloud AI and the runbook:** if a cloud AI is in use when the runbook runs, steps 6 and 7 skip their AI checks (they print SKIP), because the test copy never gets an API key. That's fine. If you want those checks, switch back to Strata or Bonsai 2 first.
 9. **Gmail (optional):**
    1. Make an app password at myaccount.google.com/apppasswords (it needs 2-Step Verification).
    2. In **Settings → Email**, tick "Check Gmail…", enter your Gmail address, paste the app password, and press **Test connection**.
@@ -52,7 +44,7 @@ Bonsai 2 runs the checks for you (the [runbook](runbook.md)). These steps need y
    ```
    Restart your agent tool after that, so it sees them.
 
-## Start Bonsai 2 on the runbook
+## Start the agent tool on the runbook
 
 11. In your agent tool, type: **"Follow docs/handover/runbook.md from Step 1. Read one step at a time, and do every step in order."** It takes about an hour and a half. Approve its edits to files in `handover-results\` when it asks.
 12. When it says "Done", bring the `handover-results` folder back to Claude: `summary.md`, `results.txt`, the `bugs` folder and the `logs-…` folder.
@@ -67,19 +59,17 @@ After Claude has fixed the bugs from a run:
 3. Do any step above that you haven't done yet.
 4. In your agent tool, type the same sentence as in step 11.
 
-## How the app and the agent share Bonsai 2
+## How the app and the agent share Strata
 
-- **Your own Bonsai 2** (Settings → AI with your `start_bonsai.bat`, or Another OpenAI-style server): the app sends it requests and never stops it, so the agent is never cut off. With `start_bonsai.bat`, the app only opens it when nothing answers on port 8080.
+- **Strata** (Settings → AI with `start-strata-iq2xs.bat`): the app sends it requests and never stops it, so the agent is never cut off. The app only opens the `.bat` when nothing answers on port 8080. Strata takes one request at a time, so a long task can make you wait for a quick one.
   - While a check script runs, the agent tool waits for it, so the two don't compete.
-  - Your server's own settings decide how long a request can be (llama-server's `-c`, shared between its `-np` slots). If writing a resume fails with a message about the context size, give it a bigger `-c`. `start-bonsai-server.bat` uses `-c 65536 -np 2`: two requests at once, each up to 32,768 tokens.
-- **The app's own Bonsai 2** (Settings → AI → Bonsai 2, started by the app): if a server already answers on port 8080, the app uses it and never stops it, even after 15 idle minutes.
-  - During step 6 of the runbook, the test copy starts a second, small llama-server on port 8081 and stops it again. Close games and other GPU-heavy apps while the runbook runs.
-  - When you've finished, close the Bonsai 2 window. From then on, the app starts and stops Bonsai 2 itself, as usual.
-- **Quick marks on search lists** use the same Bonsai 2. While the agent tool is working, untick "Rate the jobs in search results" in the extension's options, so a search list open in Firefox doesn't keep Bonsai 2 busy. Tick it again when the agent has finished.
+  - Strata's context is 262,144 tokens, so writing a resume has plenty of room.
+- **If you use Bonsai 2 instead** (`start_bonsai.bat` or Another OpenAI-style server): the app sends it requests and never stops it, so the agent is never cut off, and the app only opens `start_bonsai.bat` when nothing answers on port 8080. `start-bonsai-server.bat` uses `-c 65536 -np 2`: two requests at once, each up to 32,768 tokens.
+- **Quick marks on search lists** use the same AI. While the agent tool is working, untick "Rate the jobs in search results" in the extension's options, so a search list open in Firefox doesn't keep the AI busy. Tick it again when the agent has finished.
 
 ## After the Phase 9 update (about 30 minutes)
 
-Phase 9 adds a writing AI, a brief you check before a letter is written ("Before I write"), "Get ready" for an interview, and a better cover-letter guide. These need your real profile, your Bonsai 2 27B, a Claude key and your eyes. The details, with what to note, are in [the Phase 9 checklist](../checklists/phase-9-windows.md).
+Phase 9 adds a writing AI, a brief you check before a letter is written ("Before I write"), "Get ready" for an interview, and a better cover-letter guide. These need your real profile, a local AI (Strata or Bonsai 2 27B), a Claude key and your eyes. The details, with what to note, are in [the Phase 9 checklist](../checklists/phase-9-windows.md).
 
 1. **Back up first:** copy `config\settings.json` and the whole `profile\` folder somewhere safe. Then run `stop.bat`, `git pull` and `setup.bat`, and start the app.
 2. **The guides:** open **Settings → Profile**.
@@ -100,12 +90,12 @@ These need a person, a signed-in browser or Word. Skip any you don't care about.
   - Drag the panel by its top bar ("Job Registry"), and make it bigger from its top-left corner. Open another job: the panel is where you left it. Double-click the bar: it goes back to the corner.
   - Open three quite different jobs. Their match scores should differ, not all be 72.
   - Signed in, open Seek's home page (au.seek.com). The cards under "Recommended" get marks too. Click one: the job opens on the side, and the panel shows it. Type a note in the panel, and scroll it with the mouse wheel: both work while Seek's side window is open. Close the side window: the panel goes.
-- **Thinking:** in **Settings → AI**, open Bonsai 2. In **How the AI works on each task**, set "Rating a job" to **Low** and press **Save AI settings**. Open a job: its rating comes, a little later than with Off. Set it back to Off if you'd rather have it quick.
-  - "Writing resumes and cover letters" should say **No limit**. If it says Medium (you saved these settings before), pick No limit and save. Then make a resume: it thinks for longer, then writes. If it ends with "ran out of room", Bonsai 2's context is full: pick High instead, or give it a bigger context (llama-server's `-c`; Bonsai-demo's own launcher takes it from `BONSAI_CTX`).
+- **Thinking:** Strata can't stop thinking when asked, so task "Off" works only through `chat_template_kwargs` `enable_thinking: false` (already in the saved Strata settings). Check: open a job and its rating comes with thinking; a quick card mark comes without thinking, within a couple of seconds.
+  - "Writing resumes and cover letters" should say **No limit** (it does in the saved Strata settings). Strata's context is 262,144, so a resume has plenty of room.
 - **Print to PDF:** on a job, make a resume, press **Print / PDF**, then Ctrl+P → Save to PDF. It looks like the preview.
 - **.docx:** press **Export .docx** and open it in Word for the web. It looks tidy.
 - **Gmail:** after the app has run for 15 minutes with email on, open the Inbox. Do the cards make sense? Were the emails still unread in Gmail?
 - **The board:** drag a card with your touchpad in Firefox.
 - **Follow-ups:** set one for tomorrow late in the evening, and check it says "Today" next morning. The date field opens Firefox's date picker, in day-month-year order.
-- **Bonsai 2 opening by itself** (if you set up step 8): close Bonsai 2's window. In the app, save an ad. `start_bonsai.bat` opens, minimised in the taskbar, and the ad is read once Bonsai 2 is ready. Then close Job Registry's server window: Bonsai 2 keeps running.
-- **Bonsai's resume:** read the resume that step 6 wrote (in the test copy, `%USERPROFILE%\JobRegistryTest`, on the job "Senior Data Analyst"). Is everything in it from the sample profile?
+- **Strata opening by itself** (if you set up step 8): stop Strata (`stop-strata.bat`). In the app, save an ad. `start-strata-iq2xs.bat` runs, and the ad is read once Strata is ready (the first load takes 1 to 3 minutes). The app keeps using Strata and never stops it.
+- **The AI's resume:** read the resume that step 6 wrote (in the test copy, `%USERPROFILE%\JobRegistryTest`, on the job "Senior Data Analyst"). Is everything in it from the sample profile?

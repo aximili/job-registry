@@ -1,12 +1,14 @@
 # Windows handover
 
-Job Registry was built and tested on a Mac. These files check it on your Windows PC, with Bonsai 2 doing the work.
+Job Registry was built and tested on a Mac. These files check it on your Windows PC, with the agent tool doing the work on your local AI — Strata on port 8080 now, or Bonsai 2.
+
+Run 1 (29 Oct 2026) and run 2 (2 Nov 2026) are done: run 2 was a clean run, all steps PASS, no bugs. What is left is the person-checks in do-by-hand.md that only you can do.
 
 | File | For | What it is |
 |------|-----|------------|
-| [do-by-hand.md](do-by-hand.md) | You | What only you can do: install the programs, start Bonsai 2 and your agent tool, paste your profile and passwords. Then one sentence starts Bonsai 2 on the runbook. |
-| [runbook.md](runbook.md) | Bonsai 2 | 13 numbered steps. Each has the exact command, what to expect, and what to do if it differs. It also lists the only fixes Bonsai 2 may make, and what it must never touch. |
-| [bug-report.md](bug-report.md) | Bonsai 2 | The fixed format for the bug files in `handover-results\bugs\`, which you bring back to Claude. |
+| [do-by-hand.md](do-by-hand.md) | You | What only you can do: install the programs, start Strata and your agent tool, paste your profile and passwords. Then one sentence starts the agent tool on the runbook. |
+| [runbook.md](runbook.md) | The agent tool | 13 numbered steps. Each has the exact command, what to expect, and what to do if it differs. It also lists the only fixes it may make, and what it must never touch. |
+| [bug-report.md](bug-report.md) | The agent tool | The fixed format for the bug files in `handover-results\bugs\`, which you bring back to Claude. |
 | [findings.md](findings.md) | You and Claude | Bonsai 2's notes on the first run (29 Oct 2026), and what changed after it. |
 
 The checks are scripts in `scripts/handover/`. Each prints PASS, FAIL, SKIP or INFO lines, and keeps them in `handover-results\results.txt`.

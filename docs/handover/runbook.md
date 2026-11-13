@@ -1,6 +1,6 @@
-# Windows runbook (for Bonsai 2)
+# Windows runbook (for the agent tool)
 
-You are checking Job Registry on this Windows PC. Follow the steps in order. Read one step, do it, then read the next.
+You are checking Job Registry on this Windows PC, using its local AI (Strata or Bonsai 2, port 8080). Follow the steps in order. Read one step, do it, then read the next.
 
 Each step has:
 - **Run:** the exact command. Type it in the PowerShell terminal, in the app folder, and wait until it ends.
@@ -83,8 +83,8 @@ This uses `start.bat`, `setup.bat` and `stop.bat` themselves.
 ## Step 6: The AI in the test copy (5 to 25 minutes)
 
 The user may have several AIs saved. The test copy uses the one in use (Settings → AI). The first line says which:
-- **`INFO the AI used - your own AI server at …`**: a server the user runs, such as the Bonsai 2 you run on (port 8080). This includes a Bonsai 2 the app opens with the user's own .bat file. The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
-- **`INFO the AI used - Bonsai 2 started by the app …`**: the test copy starts its own small llama-server on port 8081, so the Bonsai 2 you run on (port 8080) is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
+- **`INFO the AI used - your own AI server at …`**: a server the user runs, such as Strata or Bonsai 2 on port 8080. This includes an AI the app opens with the user's own .bat file (the checks treat a .bat as "you run it", so it must already be running). The test copy uses it, and checks that the app leaves it running. About 5 to 10 minutes.
+- **`INFO the AI used - Bonsai 2 started by the app …`**: the test copy starts its own small llama-server on port 8081, so the AI the user runs on port 8080 is never stopped. It needs about 9 GB of free graphics memory. About 15 to 25 minutes.
 - **`SKIP the local AI checks - the AI in use is …, a cloud AI; these checks are for Bonsai 2`**: the user's AI in use is on the internet (such as Claude). The test copy never gets an API key, so this step checks nothing, and neither does step 7. That's fine: it takes a few seconds, and the last line is `ai-smoke: all PASS, 1 SKIP.` Don't write a bug. Go on to step 7.
 
 - **Run:** `node scripts\handover\ai-smoke.ts`
@@ -94,7 +94,7 @@ The user may have several AIs saved. The test copy uses the one in use (Settings
   - "your AI server answers", "there is room on the graphics card" or "the AI is downloaded": write a bug with **Type: needs you**, then go to step 8 (skip step 7).
   - Anything else: write a bug for each FAIL, run `node scripts\handover\cleanup.ts`, and go on.
 
-## Step 7: How well Bonsai 2 reads ads (a report, not a test; about 5 minutes)
+## Step 7: How well the AI reads ads (a report, not a test; about 5 minutes)
 
 It needs step 6 first, which gives the test copy its AI settings.
 
