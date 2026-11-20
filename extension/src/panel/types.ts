@@ -13,7 +13,7 @@ export type PanelState =
   | { kind: 'error'; message: string };
 
 export type RatingState =
-  | { kind: 'off' }
+  | { kind: 'off'; reason?: string }
   | { kind: 'pending' }
   | { kind: 'done'; rating: Rating }
   | { kind: 'none'; reason: string }

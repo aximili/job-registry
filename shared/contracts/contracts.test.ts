@@ -13,10 +13,13 @@ import {
   expectedModelFile,
   IsoDateTime,
   JobCard,
+  MAX_DOCUMENT_LENGTH,
+  MAX_REVISE_NOTE,
   newAiId,
   PrepAnswer,
   PrepPlan,
   Rating,
+  ReviseRequest,
   sameAddressWarning,
   SaveJobRequest,
   SetFollowUpRequest,
@@ -69,6 +72,25 @@ describe('contracts', () => {
     const result = Settings.safeParse({ statuses: [first, first] });
     expect(result.success).toBe(false);
     expect(JSON.stringify(result.error?.issues)).toContain("Status id 'saved' is used twice.");
+  });
+});
+
+describe('contracts: rewriting a document', () => {
+  it('needs a kind, a note and the current draft', () => {
+    expect(ReviseRequest.parse({ kind: 'cover_letter', note: 'Fix it', draft: 'Dear Hiring Manager,' })).toEqual({
+      kind: 'cover_letter',
+      note: 'Fix it',
+      draft: 'Dear Hiring Manager,',
+    });
+    expect(ReviseRequest.parse({ kind: 'resume', note: '  Short note  ', draft: '  Draft  ' }).note).toBe('Short note');
+  });
+
+  it('refuses a blank note, an empty draft, a note over 1,500 characters, and a draft over the document limit', () => {
+    expect(ReviseRequest.safeParse({ kind: 'resume', note: '   ', draft: 'Draft' }).success).toBe(false);
+    expect(ReviseRequest.safeParse({ kind: 'resume', note: 'ab', draft: 'Draft' }).success).toBe(false);
+    expect(ReviseRequest.safeParse({ kind: 'resume', note: 'abc', draft: '   ' }).success).toBe(false);
+    expect(ReviseRequest.safeParse({ kind: 'resume', note: 'x'.repeat(MAX_REVISE_NOTE + 1), draft: 'Draft' }).success).toBe(false);
+    expect(ReviseRequest.safeParse({ kind: 'resume', note: 'abc', draft: 'x'.repeat(MAX_DOCUMENT_LENGTH + 1) }).success).toBe(false);
   });
 });
 

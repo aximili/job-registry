@@ -12,6 +12,8 @@ const VALUES: Record<string, string[]> = {
   'rate-card': ['profile', 'preferences', 'card'],
   'write-resume': ['profile', 'job', 'notes', 'brief', 'guide', 'ad'],
   'write-cover-letter': ['profile', 'today', 'job', 'notes', 'brief', 'guide', 'ad'],
+  'revise-resume': ['profile', 'note', 'draft', 'job', 'notes', 'brief', 'guide', 'ad'],
+  'revise-cover-letter': ['profile', 'today', 'note', 'draft', 'job', 'notes', 'brief', 'guide', 'ad'],
   'make-brief': ['profile', 'today', 'job', 'notes', 'answers', 'ad'],
   'make-prep': ['profile', 'today', 'job', 'notes', 'brief', 'ad'],
   'classify-email': ['candidates', 'from', 'subject', 'date', 'email'],
@@ -21,7 +23,7 @@ const VALUES: Record<string, string[]> = {
 const LAST: Record<string, string> = { 'classify-email': '{{email}}', 'rate-card': '{{card}}' };
 
 // The tasks that run on the writing AI.
-const WRITING = ['make-brief', 'make-prep', 'write-resume', 'write-cover-letter'];
+const WRITING = ['make-brief', 'make-prep', 'write-resume', 'write-cover-letter', 'revise-resume', 'revise-cover-letter'];
 
 describe('prompts', () => {
   it('every prompt file has a system part and a user part, and every placeholder is filled', () => {
@@ -57,8 +59,8 @@ describe('prompts', () => {
   });
 
   // So llama-server's cache of the profile (most of a minute on Bonsai 2)
-  // serves the brief, the letter, the resume and the prep plan alike.
-  it('the four writing prompts share their system part word for word: the rules and the profile', () => {
+  // serves the brief, the letter, the resume, the rewrites and the prep plan alike.
+  it('every writing prompt shares its system part word for word: the rules and the profile', () => {
     const [first, ...rest] = WRITING.map((name) => loadPrompt(PROMPTS_DIR, name));
     for (const prompt of rest) expect(prompt.system).toBe(first!.system);
     expect(first!.system).toContain('{{profile}}');
@@ -70,7 +72,7 @@ describe('prompts', () => {
     }
   });
 
-  it('every writing prompt gives the notes, and the two write prompts and the prep plan give the brief', () => {
+  it('every writing prompt gives the notes, and the write and revise prompts and the prep plan give the brief', () => {
     for (const name of WRITING) {
       const { user } = loadPrompt(PROMPTS_DIR, name);
       expect(user).toContain('{{notes}}');
@@ -78,7 +80,9 @@ describe('prompts', () => {
       // Notes print as "4 Nov 2026: Email, …", so the rule looks past the date.
       expect(user, name).toContain('A note whose text, after its date, starts "Email," sums up an email I got: true about the job, but not facts about me or my wishes.');
     }
-    for (const name of ['write-resume', 'write-cover-letter', 'make-prep']) expect(loadPrompt(PROMPTS_DIR, name).user).toContain('{{brief}}');
+    for (const name of ['write-resume', 'write-cover-letter', 'revise-resume', 'revise-cover-letter', 'make-prep']) {
+      expect(loadPrompt(PROMPTS_DIR, name).user).toContain('{{brief}}');
+    }
     expect(loadPrompt(PROMPTS_DIR, 'make-brief').user).toContain('{{answers}}');
   });
 
@@ -86,8 +90,8 @@ describe('prompts', () => {
   // win over the guide's "follow my profile's rules" line. The brief itself
   // is the AI's plan from my profile, not facts from me: a story's facts must
   // be in my profile, my notes or my answers.
-  it('the two write prompts let my answers settle a "To confirm" or ⚠ item, never a "Don\'t claim" item, and the resume still plans with a brief', () => {
-    for (const name of ['write-resume', 'write-cover-letter']) {
+  it('the write and revise prompts let my answers settle a "To confirm" or ⚠ item, never a "Don\'t claim" item, and the resume still plans with a brief', () => {
+    for (const name of ['write-resume', 'write-cover-letter', 'revise-resume', 'revise-cover-letter']) {
       const { user } = loadPrompt(PROMPTS_DIR, name);
       expect(user).toContain('My answers, and my notes (but not a note whose text, after its date, starts "Email,"), are facts from me, even where my guide says to use only my profile.');
       expect(user).toContain('My answers settle any "To confirm" or ⚠ item they answer, but never a "Don\'t claim" item.');

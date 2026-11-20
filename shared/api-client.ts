@@ -247,6 +247,19 @@ export function createApiClient(opts: ApiClientOptions) {
       const body = { kind, brief: o.brief, briefId: o.briefId } satisfies z.input<typeof C.GenerateRequest>;
       yield* taskLines(C.GenerateChunk, await send('POST', `/jobs/${jobId}/documents/generate`, body, o.signal), CUT_OFF);
     },
+    // Rewrites the editor's current text from a short note. Who's writing comes
+    // first (waiting, working), then the new text, then done or error; a reply
+    // without one of those two was cut off.
+    async *reviseDocument(
+      jobId: number,
+      kind: C.DocumentKind,
+      note: string,
+      draft: string,
+      o: { signal?: AbortSignal } = {},
+    ) {
+      const body = { kind, note, draft } satisfies z.input<typeof C.ReviseRequest>;
+      yield* taskLines(C.GenerateChunk, await send('POST', `/jobs/${jobId}/documents/revise`, body, o.signal), CUT_OFF);
+    },
 
     getBrief: (jobId: number) => call(C.BriefResponse, 'GET', `/jobs/${jobId}/brief`),
     // Waiting, working (with the AI's name), then done with the brief, or error.

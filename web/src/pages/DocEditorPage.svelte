@@ -7,7 +7,7 @@
   // button makes one when the job has none, and otherwise writes with it.
   import { onMount, tick } from 'svelte';
   import { ApiError } from '../../../shared/api-client.ts';
-  import { writingAi, type Brief, type Document, type DocumentKind, type DocumentSummary, type ExporterInfo, type Job, type Note } from '../../../shared/contracts/index.ts';
+  import { MAX_REVISE_NOTE, writingAi, type Brief, type Document, type DocumentKind, type DocumentSummary, type ExporterInfo, type Job, type Note } from '../../../shared/contracts/index.ts';
   import { formatDate } from '../../../shared/dates.ts';
   import { createFactChecker, type Flag } from '../../../shared/fact-check.ts';
   import BriefPanel from '../components/BriefPanel.svelte';
@@ -58,6 +58,9 @@
   let textBox = $state<HTMLTextAreaElement>();
   // The version chosen in the picker, opened with the Open button.
   let picked = $state('new');
+  let rewriteNote = $state('');
+  // The text before the latest rewrite, until the rewrite is saved or reverted.
+  let prevText = $state<string | null>(null);
 
   // The job's brief, and what's going on with it.
   let brief = $state<Brief | null>(null);
@@ -83,6 +86,8 @@
   const css = $derived(sent ? (doc?.sentCss ?? '') : templateCss);
   const title = $derived(`${KIND_LABEL[kind]} – ${displayCompany(job?.company ?? null)}`);
   const hasText = $derived(text.trim() !== '');
+  const canRewrite = $derived(!sent && !generating && !busy && hasText && rewriteNote.trim().length >= 3);
+  const canRevert = $derived(!sent && !generating && !busy && prevText !== null && prevText !== text);
   // Facts from you: your master profile, your notes on this job, and your
   // answers in its brief.
   const answersText = $derived(
@@ -388,6 +393,52 @@
     controller?.abort();
   }
 
+  // Rewriting with a note ------------------------------------------------
+
+  async function reviseWithNote() {
+    if (!canRewrite) return;
+    if (!mayReplace()) return;
+    const note = rewriteNote.trim();
+    const run = startWriting();
+    const signal = run.signal;
+    let started = false;
+    let failed: string | null = null;
+    try {
+      for await (const chunk of api.reviseDocument(jobId, kind, note, text, { signal })) {
+        if (chunk.kind === 'waiting') writing = { task: 'draft', phase: 'waiting', by: chunk.by, since: Date.now() };
+        else if (chunk.kind === 'working') writing = { task: 'draft', phase: 'working', by: chunk.by, since: Date.now() };
+        else if (chunk.kind === 'text') {
+          if (!started) {
+            started = true;
+            draft = null;
+            prevText = text;
+            text = '';
+            // A rewrite is an edit, even when untouched.
+            generatedText = null;
+            folded = true;
+          }
+          text += chunk.text;
+        } else if (chunk.kind === 'error') failed = chunk.message;
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) await briefFailed(err);
+      else if (!signal.aborted) failed = friendlyError(err);
+      else briefNotice = started ? 'Stopped. The rewrite so far is still here, not saved.' : 'Stopped before the AI wrote anything.';
+    } finally {
+      endWriting(run);
+    }
+    if (failed) briefError = failed;
+    await tick();
+    if (started && (document.activeElement === document.body || !document.activeElement)) textBox?.focus();
+  }
+
+  function revertRewrite() {
+    if (!canRevert) return;
+    text = prevText!;
+    prevText = null;
+    generatedText = null;
+  }
+
   // Versions -------------------------------------------------------------
 
   async function saveVersion() {
@@ -397,6 +448,7 @@
       const origin = text === generatedText ? 'generated' : 'edited';
       const saved = await api.saveDocument(jobId, { kind, markdown: text, origin });
       savedText = text;
+      prevText = null;
       // The stored draft is this text, unless one is still waiting to be restored.
       if (!draft) localStorage.removeItem(draftKey(jobId, kind));
       showToast(`Saved as version ${saved.version}.`);
@@ -503,6 +555,32 @@
       />
     {/if}
 
+    {#if !sent}
+      <section class="rewrite" aria-labelledby="rewrite-heading">
+        <h2 id="rewrite-heading">Rewrite with a note</h2>
+        <label class="field" for="rewrite-note">
+          <span>What to change</span>
+          <textarea
+            id="rewrite-note"
+            bind:value={rewriteNote}
+            rows="2"
+            maxlength={MAX_REVISE_NOTE}
+            placeholder="Use my real manager's title and put the build-time result earlier."
+            disabled={generating || busy}
+          ></textarea>
+        </label>
+        <div class="rewrite-actions">
+          <button type="button" class="button primary" disabled={!canRewrite} onclick={reviseWithNote}>Rewrite with my note</button>
+          {#if prevText !== null}
+            <button type="button" class="button" disabled={!canRevert} onclick={revertRewrite}>Revert</button>
+          {/if}
+          <p class="muted hint">
+            This rewrites the text you have now. It uses your note, your profile, your notes, the job's newest brief, your guide and the ad. Nothing is saved until you press Save version.
+          </p>
+        </div>
+      </section>
+    {/if}
+
     <div class="toolbar">
       {#if sent}
         <p class="sent-note">Sent on {formatDate(doc?.sentAt ?? null)}. Save a copy to change it.</p>
@@ -601,6 +679,46 @@
     border: 1px solid var(--rule);
     border-radius: var(--radius);
     background: var(--sheet);
+  }
+
+  .rewrite {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--sheet);
+  }
+
+  .rewrite h2 {
+    font-size: var(--step-1);
+  }
+
+  .rewrite textarea {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .rewrite-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .rewrite .hint {
+    flex-basis: 100%;
+    margin: 0;
+  }
+
+  @media (max-width: 30rem) {
+    .rewrite-actions {
+      align-items: stretch;
+    }
+
+    .rewrite-actions .button {
+      width: 100%;
+    }
   }
 
   .panes {

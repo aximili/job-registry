@@ -83,6 +83,7 @@
   }
 
   const now = () => new Date();
+  const ratingOff = $derived(view.rating.kind === 'off' ? view.rating.reason ?? null : null);
 
   function toggle() {
     actions.setMinimised(!view.minimised);
@@ -175,9 +176,11 @@
         <button type="button" onclick={actions.retry}>Try again</button>
       {/if}
 
-      {#if view.rating.kind !== 'off'}
+      {#if view.rating.kind !== 'off' || ratingOff}
         <div class="rating" aria-live="polite">
-          {#if view.rating.kind === 'pending'}
+          {#if view.rating.kind === 'off'}
+            <p class="muted">{ratingOff}</p>
+          {:else if view.rating.kind === 'pending'}
             <p class="muted">Rating…</p>
           {:else if view.rating.kind === 'done'}
             {@const r = view.rating.rating}

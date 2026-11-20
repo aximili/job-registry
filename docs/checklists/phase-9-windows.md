@@ -75,3 +75,10 @@ Only if you have a second local AI (say Ollama, or a second Bonsai .bat file on 
 
 - Pick it to write while Bonsai 2 is in use, with it **not** running. Write a letter: the editor says "Can't reach {name} at {address}. …", and no window opens for it. The app never starts or stops a writing AI that isn't the AI in use.
 - Start it yourself, and write again: it works. Note the time.
+
+## Guided rewrite (added 13 Nov 2026)
+
+- Open a resume or cover letter that is not marked **sent**. Type one sentence under **What to change**, then press **Rewrite with my note**.
+- Check the draft is replaced, **Revert** restores the old text, rewriting again works, and saving creates a new version labelled **edited**.
+- Note how long the rewrite takes. If the app says the request is too long, copy the whole sentence into the results.
+- Agent-run API check already done on 13 Nov 2026: PASS on Strata in the handover test copy with the sample profile (cover-letter write 207 s, rewrite 179 s, saved version labelled `edited`). The real-profile and browser **Revert** checks still need the user.

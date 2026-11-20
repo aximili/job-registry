@@ -75,6 +75,17 @@ export const GenerateRequest = z.strictObject({
 });
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
 
+export const MAX_REVISE_NOTE = 1_500;
+
+// Rewriting uses the editor's current text. The note says what to change;
+// the draft is what to change.
+export const ReviseRequest = z.strictObject({
+  kind: DocumentKind,
+  note: z.string().trim().min(3, 'Say what to change first.').max(MAX_REVISE_NOTE, 'Keep the note to 1,500 characters or fewer.'),
+  draft: z.string().trim().min(1, 'Write or save some text first.').max(MAX_DOCUMENT_LENGTH, 'That document is too long.'),
+});
+export type ReviseRequest = z.infer<typeof ReviseRequest>;
+
 // Generating streams one of these per line (NDJSON): waiting in the queue
 // (by is the writing AI picked), working once the AI has started (by is the
 // AI it runs on), then the text as it comes. The last line is "done", or

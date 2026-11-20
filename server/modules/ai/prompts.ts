@@ -13,7 +13,7 @@ const SPLIT = /^=== user ===$/m;
 export type Prompt = { system: string; user: string };
 
 export function loadPrompt(dir: string, name: string): Prompt {
-  const text = readFileSync(join(dir, `${name}.md`), 'utf8').replace(/^\uFEFF/, '');
+  const text = readFileSync(join(dir, `${name}.md`), 'utf8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   const parts = text.split(SPLIT);
   if (parts.length !== 2) throw new Error(`Prompt ${name}.md needs exactly one "=== user ===" line`);
   return { system: parts[0]!.trim(), user: parts[1]!.trim() };

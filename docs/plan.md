@@ -8,6 +8,7 @@
 > - **Phase 7** (quick marks on search lists) was added at your request on 29 Oct 2026, and built and tested on macOS on 29–30 Oct 2026.
 > - **Phase 8** (several AIs, switched in one click) was added at your request on 31 Oct 2026, and built and tested on macOS on 31 Oct – 1 Nov 2026. You picked ratings per model, the name pill with a grouped menu, and the list-then-form layout for Settings → AI.
 > - **Phase 9** (better letters, and getting ready for a job) was added at your request on 3 Nov 2026, and built and tested on macOS on 3–4 Nov 2026, while you were away. You asked for it without stops, so the design picks were made for you; each is in the phase's ledger with its screenshots.
+> - **Guided rewrite** was added after Phase 9 on 13 Nov 2026. It rewrites the current resume or cover-letter draft from a short note, lets you revert before saving, and saves the result as a new `edited` version. Tests pass; a live local-AI check remains.
 
 ## Context
 
@@ -213,14 +214,14 @@ Each status has a stable id plus a `setsAppliedDate` flag, so renaming a status 
   - `parse-job.ts`
   - `rate-job.ts`
   - `rate-card.ts` (Phase 7)
-  - `write-resume.ts`
-  - `write-cover-letter.ts`
+  - `write-document.ts` (resume and cover letter)
+  - `revise-document.ts` (guided rewrite, after Phase 9)
   - `make-brief.ts` and `make-prep.ts` (Phase 9), on the writing AI, as the resume and cover letter are
   - `classify-email.ts`
 
   Each task is a prompt plus a zod schema (turned into JSON Schema for constrained output), with validation and one retry. The prompts are text files in `server/modules/ai/prompts/`.
 - Each task can have its own settings in `settings.json`: model, temperature, thinking on or off, extra request fields.
-  - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on with no limit** for resume and cover letter (Bonsai 2's own default, `"xhigh"`; changed from `"medium"` on 30 Oct 2026, at the user's request).
+  - Default: thinking **off** for parsing, rating, quick marks and email (`reasoning_effort: "none"`), and **on with no limit** for resume and cover letter writing (Bonsai 2's own default, `"xhigh"`; changed from `"medium"` on 30 Oct 2026, at the user's request). Guided rewrites use the same writing task settings.
   - Settings → AI shows each task's settings, except the extra request fields (Phase 7).
   - Ollama's OpenAI-style API uses the same field, so no preset needs its own mapping. (Changed in Phase 2: Bonsai 2's template ignores `chat_template_kwargs` for this.)
 - A header pill shows the AI state: off, loading, ready or busy. It also shows a clear hint if the AI server can't be reached. Since Phase 8 it shows the name of the AI in use too, and one click opens a menu to switch to another.

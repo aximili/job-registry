@@ -1,6 +1,6 @@
 # 0012 — A writing AI, a brief you check, and a budget for Bonsai 2's window
 
-**Status:** Accepted (3 Nov 2026). Built in Phase 9 (3–4 Nov 2026). It extends [0011](0011-several-ais-and-cloud-providers.md).
+**Status:** Accepted (3 Nov 2026). Built in Phase 9 (3–4 Nov 2026). It extends [0011](0011-several-ais-and-cloud-providers.md), and is extended by [0013](0013-guided-document-rewrite.md) for guided rewrites.
 
 ## Context
 - On 3 Nov 2026 you compared two cover letters for the same ad: one the app wrote on Bonsai 2, and one Claude Opus wrote in a chat. The Opus letter was much stronger, for three reasons:

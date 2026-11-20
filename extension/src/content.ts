@@ -78,11 +78,17 @@ async function check(mine: number): Promise<void> {
   await rate(mine);
 }
 
+const RATE_OFF = 'Automatic ratings are off. Turn them on in Job Registry options.';
+
 async function rate(mine: number): Promise<void> {
   const autoRate = capture ? (await loadSettings()).autoRate : false;
   if (mine !== seq) return;
-  if (!capture || !autoRate) {
+  if (!capture) {
     show({ rating: { kind: 'off' } });
+    return;
+  }
+  if (!autoRate) {
+    show({ rating: { kind: 'off', reason: RATE_OFF } });
     return;
   }
   show({ rating: { kind: 'pending' } });

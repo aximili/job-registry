@@ -39,6 +39,25 @@ test.describe('the document editor', () => {
     await expect(page.getByRole('combobox', { name: 'Version' }).locator('option:checked')).toHaveText(/Version 1 · sent/);
   });
 
+  test('rewrites a saved resume from a note, reverts before saving, then saves it as edited', async ({ page, request }) => {
+    const job = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
+    const oldText = '# Sam Taylor\n\nOld words.';
+    const doc = await seedDocument(request, job.id, { markdown: oldText });
+    await page.goto(`/jobs/${job.id}/documents/${doc.id}`);
+    await page.getByRole('textbox', { name: 'What to change' }).fill('Use my TypeScript story.');
+    await page.getByRole('button', { name: 'Rewrite with my note' }).click();
+    await expect(text(page)).toHaveValue(FAKE_RESUME);
+    await expect(page.getByRole('button', { name: 'Revert' })).toBeVisible();
+    await page.getByRole('button', { name: 'Revert' }).click();
+    await expect(text(page)).toHaveValue(oldText);
+
+    await page.getByRole('button', { name: 'Rewrite with my note' }).click();
+    await expect(text(page)).toHaveValue(FAKE_RESUME);
+    await page.getByRole('button', { name: 'Save version' }).click();
+    await expect(page.getByRole('combobox', { name: 'Version' }).locator('option:checked')).toHaveText(/Version 2 · edited/);
+    await expect(text(page)).toHaveValue(FAKE_RESUME);
+  });
+
   test("changing resume.css afterwards doesn't change how either job's sent resume looks (the Phase 4 done criterion)", async ({ page, request }) => {
     const a = await seedJob(request, { title: 'Senior Engineer', company: 'Atlassian' });
     const b = await seedJob(request, { title: 'Platform Engineer', company: 'Canva' });

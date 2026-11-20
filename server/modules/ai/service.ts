@@ -30,7 +30,7 @@ import { AiAnswerError, AiUnavailableError } from '../../core/errors.ts';
 import type { AppEvents, EventBus } from '../../core/events.ts';
 import type { Logger } from '../../core/logger.ts';
 import type { CutBrief } from './budget.ts';
-import { loadPrompt, PROMPTS_DIR } from './prompts.ts';
+import { loadPrompt, PROMPTS_DIR, type Prompt } from './prompts.ts';
 import { cantReachSentence, USE_ANOTHER_AI, USE_ANOTHER_WRITER, type AiProvider } from './provider.ts';
 import { createAiQueue, type AiQueue, type Priority } from './queue.ts';
 import type { ModelRuntime } from './runtime.ts';
@@ -40,9 +40,10 @@ import { makePrepTask, prepRequest, type PrepInput } from './tasks/make-prep.ts'
 import { parseJobTask } from './tasks/parse-job.ts';
 import { rateCardTask, type CardInput } from './tasks/rate-card.ts';
 import { rateJobTask, type RateInput } from './tasks/rate-job.ts';
+import { reviseDocumentTask, reviseRequest, type ReviseInput } from './tasks/revise-document.ts';
 import { writeDocumentTask, writeRequest, type WriteInput } from './tasks/write-document.ts';
 
-export type { BriefInput, CardInput, ClassifyInput, CutBrief, PrepInput, Priority, RateInput, WriteInput };
+export type { BriefInput, CardInput, ClassifyInput, CutBrief, PrepInput, Priority, RateInput, ReviseInput, WriteInput };
 
 // For a writing task: onQueued is told the name of the writing AI picked, as
 // the task is queued; onStart the name of the AI it runs on, as it starts
@@ -62,6 +63,10 @@ export interface AiService {
   // A resume or cover letter, as it's written, by the writing AI. It holds
   // that AI until the stream ends, is cancelled, or the reader stops early.
   writeDocument(input: WriteInput, opts?: WritingOptions): AsyncIterable<string>;
+  // A rewrite of the editor's current document draft, guided by a short note,
+  // by the writing AI. It replaces that draft in the UI only after the user
+  // agrees; nothing is saved by this stream.
+  reviseDocument(input: ReviseInput, opts?: WritingOptions): AsyncIterable<string>;
   // The brief to check before writing, by the writing AI, cut to its caps.
   // by is the name of the AI it ran on.
   briefJob(input: BriefInput, opts?: WritingOptions): Promise<{ brief: CutBrief; by: string }>;
@@ -178,6 +183,10 @@ export function createAiService(opts: AiOptions): AiService {
     card: loadPrompt(dir, 'rate-card'),
     resume: loadPrompt(dir, 'write-resume'),
     cover_letter: loadPrompt(dir, 'write-cover-letter'),
+    revise: {
+      resume: loadPrompt(dir, 'revise-resume'),
+      cover_letter: loadPrompt(dir, 'revise-cover-letter'),
+    },
     brief: loadPrompt(dir, 'make-brief'),
     prep: loadPrompt(dir, 'make-prep'),
     email: loadPrompt(dir, 'classify-email'),
@@ -422,6 +431,68 @@ export function createAiService(opts: AiOptions): AiService {
     while (queues().some((q) => q.running() || q.pending() > 0)) await Promise.all(queues().map((q) => q.onIdle()));
   }
 
+  // A writing stream, shared by a new document and a rewrite. The request is
+  // fitted once for the AI picked now, before it waits or starts, so an AI on
+  // this computer never queues a request it can't fit.
+  async function* streamWriting(
+    prompt: Prompt,
+    request: (ai: SavedAi) => void,
+    task: (signal: AbortSignal, ai: SavedAi, provider: AiProvider) => AsyncIterable<string>,
+    o: WritingOptions,
+  ): AsyncGenerator<string> {
+    request(opts.getWriter().ai);
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    if (o.signal?.aborted) cancel();
+    o.signal?.addEventListener('abort', cancel, { once: true });
+    const buffer: string[] = [];
+    let wake: (() => void) | null = null;
+    // Set by the queue task's callbacks, so it's an object TypeScript can't narrow away.
+    const state = { ended: false, failed: null as { error: unknown } | null };
+    const notify = () => {
+      wake?.();
+      wake = null;
+    };
+    const work = writing(
+      o.key,
+      controller.signal,
+      async (signal, ai, provider) => {
+        for await (const text of task(signal, ai, provider)) {
+          buffer.push(text);
+          notify();
+        }
+      },
+      { onQueued: (ai) => o.onQueued?.(ai.name), onStart: (ai) => o.onStart?.(ai.name) },
+    ).then(
+      () => {
+        state.ended = true;
+        notify();
+      },
+      (error: unknown) => {
+        state.failed = { error };
+        state.ended = true;
+        notify();
+      },
+    );
+    try {
+      for (;;) {
+        if (controller.signal.aborted) {
+          await work;
+          throw state.failed?.error ?? new DOMException('The AI task was cancelled.', 'AbortError');
+        }
+        if (buffer.length > 0) yield buffer.shift()!;
+        else if (state.ended) {
+          if (state.failed) throw state.failed.error;
+          return;
+        } else await new Promise<void>((resolve) => (wake = resolve));
+      }
+    } finally {
+      o.signal?.removeEventListener('abort', cancel);
+      if (!state.ended) cancel();
+      await work;
+    }
+  }
+
   // A switch to another AI. The old runtime stops if the new AI uses another
   // one, as with any change of runtime. Then the new AI's program starts at
   // once, if the app runs it: you switched, so a window it opens is expected.
@@ -594,61 +665,23 @@ export function createAiService(opts: AiOptions): AiService {
     },
 
     async *writeDocument(input, o = {}) {
-      // Too long for the writing AI: refused now, before it waits or starts.
-      // The task checks again on the AI it runs on.
-      writeRequest(prompts[input.kind], input, opts.getWriter().ai);
-      // The queue task writes chunks into a buffer; this generator hands them on.
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
-      if (o.signal?.aborted) cancel();
-      o.signal?.addEventListener('abort', cancel, { once: true });
-      const buffer: string[] = [];
-      let wake: (() => void) | null = null;
-      // Set by the queue task's callbacks, so it's an object TypeScript can't narrow away.
-      const state = { ended: false, failed: null as { error: unknown } | null };
-      const notify = () => {
-        wake?.();
-        wake = null;
-      };
-      const work = writing(
-        o.key,
-        controller.signal,
-        async (signal, ai, provider) => {
-          const prompt = prompts[input.kind];
-          for await (const text of writeDocumentTask({ provider, prompt, config: ai, input, signal })) {
-            buffer.push(text);
-            notify();
-          }
-        },
-        { onQueued: (ai) => o.onQueued?.(ai.name), onStart: (ai) => o.onStart?.(ai.name) },
-      ).then(
-        () => {
-          state.ended = true;
-          notify();
-        },
-        (error: unknown) => {
-          state.failed = { error };
-          state.ended = true;
-          notify();
-        },
+      const prompt = prompts[input.kind];
+      yield* streamWriting(
+        prompt,
+        (ai) => void writeRequest(prompt, input, ai),
+        (signal, ai, provider) => writeDocumentTask({ provider, prompt, config: ai, input, signal }),
+        o,
       );
-      try {
-        for (;;) {
-          if (controller.signal.aborted) {
-            await work;
-            throw state.failed?.error ?? new DOMException('The AI task was cancelled.', 'AbortError');
-          }
-          if (buffer.length > 0) yield buffer.shift()!;
-          else if (state.ended) {
-            if (state.failed) throw state.failed.error;
-            return;
-          } else await new Promise<void>((resolve) => (wake = resolve));
-        }
-      } finally {
-        o.signal?.removeEventListener('abort', cancel);
-        if (!state.ended) cancel();
-        await work;
-      }
+    },
+
+    async *reviseDocument(input, o = {}) {
+      const prompt = prompts.revise[input.kind];
+      yield* streamWriting(
+        prompt,
+        (ai) => void reviseRequest(prompt, input, ai),
+        (signal, ai, provider) => reviseDocumentTask({ provider, prompt, config: ai, input, signal }),
+        o,
+      );
     },
 
     async briefJob(input, o = {}) {

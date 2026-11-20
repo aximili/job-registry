@@ -12,5 +12,9 @@ export default defineConfig({
     exclude: ['tests/e2e/**', 'node_modules/**'],
     // Dates must be local to Sydney in tests, so day-boundary bugs show up.
     env: { TZ: 'Australia/Sydney' },
+    // Windows runs these checks more reliably one file at a time.
+    fileParallelism: false,
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

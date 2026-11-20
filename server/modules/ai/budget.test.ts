@@ -9,6 +9,7 @@ import {
   BRIEF_CAP,
   briefBlock,
   capJob,
+  capNote,
   CHARS_PER_TOKEN,
   checkSize,
   cutBrief,
@@ -17,6 +18,7 @@ import {
   HARD_CHARS,
   JOB_CAP,
   NOTES_CAP,
+  NOTE_CAP,
   notesBlock,
   REQUEST_CHARS,
   REQUEST_TOKENS,
@@ -51,12 +53,13 @@ describe('the budget', () => {
     expect(REQUEST_TOKENS).toBe(27_000);
     expect(REQUEST_CHARS).toBe(108_000);
     expect(HARD_CHARS).toBe(120_000);
-    expect({ NOTES_CAP, ANSWER_CAP, ANSWERS_CAP, BRIEF_CAP, JOB_CAP, AD_FLOOR, AD_LIMIT }).toEqual({
+    expect({ NOTES_CAP, ANSWER_CAP, ANSWERS_CAP, BRIEF_CAP, JOB_CAP, NOTE_CAP, AD_FLOOR, AD_LIMIT }).toEqual({
       NOTES_CAP: 1_200,
       ANSWER_CAP: 240,
       ANSWERS_CAP: 2_000,
       BRIEF_CAP: 4_500,
       JOB_CAP: 2_000,
+      NOTE_CAP: 1_500,
       AD_FLOOR: 2_000,
       AD_LIMIT: 12_000,
     });
@@ -249,6 +252,13 @@ describe('capJob and fitAd', () => {
   it("cuts the job's details to 2,000 characters", () => {
     expect(capJob(text(3_000)).length).toBeLessThanOrEqual(JOB_CAP);
     expect(capJob('  Role: Engineer \n')).toBe('Role: Engineer');
+  });
+
+  it('cuts the rewrite note to 1,500 characters, and trims it first', () => {
+    expect(capNote('  Use my TypeScript story. ')).toBe('Use my TypeScript story.');
+    const cut = capNote(text(3_000));
+    expect(cut.length).toBe(1_500);
+    expect(cut.endsWith('…')).toBe(true);
   });
 
   const ad = text(20_000, 'ad');

@@ -47,6 +47,9 @@ export interface PrepService {
   // when the job has none. With briefId (the brief on screen), a brief that
   // isn't the newest any more is a ConflictError, and nothing is marked.
   approvedBrief(jobId: number, briefId?: number): WriterBrief | null;
+  // The newest brief as the writer gets it, without marking it approved. Null
+  // when the job has none (or it can't be read).
+  newestWriterBrief(jobId: number): WriterBrief | null;
   // Adds each ticked answer not yet added to the end of your master profile.
   // added counts the lines it wrote.
   addAnswersToProfile(id: number): { added: number };
@@ -234,6 +237,12 @@ export function createPrepService(opts: PrepOptions): PrepService {
       if (briefId !== undefined && brief.id !== briefId) throw new ConflictError(NEWER);
       repo.approveBrief(brief.id, opts.now().toISOString());
       return writerBriefOf(brief);
+    },
+
+    newestWriterBrief(jobId) {
+      opts.jobs.get(jobId);
+      const brief = newest(jobId);
+      return brief ? writerBriefOf(brief) : null;
     },
 
     addAnswersToProfile(id) {

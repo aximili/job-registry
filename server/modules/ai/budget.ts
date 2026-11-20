@@ -9,6 +9,7 @@ import {
   AI_PRESETS,
   BRIEF_CAPS,
   BRIEF_LISTS,
+  MAX_REVISE_NOTE,
   PREP_CAPS,
   PREP_HOURS,
   PREP_LISTS,
@@ -36,6 +37,8 @@ export const ANSWERS_CAP = 2_000;
 export const BRIEF_CAP = 4_500;
 // The job's details: role, company and its lists.
 export const JOB_CAP = 2_000;
+// The rewrite note. The draft itself is sent whole, so the ad gets what's left.
+export const NOTE_CAP = MAX_REVISE_NOTE;
 // The least of the ad a local AI gets, however long the rest is.
 export const AD_FLOOR = 2_000;
 // Over this, a request to a local AI is refused: about 30,000 tokens.
@@ -174,6 +177,10 @@ export function checkSize(chars: number, local: boolean, name: string): void {
 
 export function capJob(job: string): string {
   return cut(job.trim(), JOB_CAP);
+}
+
+export function capNote(note: string): string {
+  return cut(note.trim(), NOTE_CAP);
 }
 
 // The ad, cut to fit. On a local AI it gets what's left of the request after

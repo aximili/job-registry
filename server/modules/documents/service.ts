@@ -61,6 +61,21 @@ export interface DocumentsService {
       onStart?: (by: string) => void;
     },
   ): AsyncIterable<string>;
+  // Rewrites the editor's current draft with the writing AI, from a short
+  // note and the job's newest brief (without marking it approved). Nothing is
+  // saved: the editor saves a version when you choose. Checks the job and
+  // your master profile before it starts.
+  revise(
+    jobId: number,
+    kind: DocumentKind,
+    opts: {
+      signal: AbortSignal;
+      note: string;
+      draft: string;
+      onQueued?: (by: string) => void;
+      onStart?: (by: string) => void;
+    },
+  ): AsyncIterable<string>;
   // Keeps a file you made elsewhere with the job, in data/files/<jobId>/.
   attach(jobId: number, file: { kind: AttachmentKind; fileName: string; data: Buffer }): Attachment;
   listAttachments(jobId: number): Attachment[];
@@ -182,6 +197,31 @@ export function createDocumentsService(opts: DocumentsOptions): DocumentsService
       return opts.ai.writeDocument(
         { kind, profile, guide: opts.profile.read(GUIDE_FOR[kind]), job: describeJob(job), ad, today: longDate(opts.now()), notes, brief },
         // Generating again for the same document replaces the first try.
+        { signal: o.signal, key: `doc-${jobId}-${kind}`, onQueued: o.onQueued, onStart: o.onStart },
+      );
+    },
+
+    revise(jobId, kind, o) {
+      const job = opts.jobs.get(jobId);
+      const profile = opts.profile.read('master-profile');
+      if (!profile) throw new ValidationError(NO_PROFILE);
+      const brief = opts.prep.newestWriterBrief(jobId);
+      const notes = jobNotes(opts.notes.listForJob(jobId));
+      const ad = opts.jobs.listPostings(jobId)[0]?.jdText ?? '';
+      return opts.ai.reviseDocument(
+        {
+          kind,
+          profile,
+          guide: opts.profile.read(GUIDE_FOR[kind]),
+          job: describeJob(job),
+          ad,
+          today: longDate(opts.now()),
+          notes,
+          brief,
+          note: o.note,
+          draft: o.draft,
+        },
+        // A rewrite and a new draft compete for the same editor draft: the newer one wins.
         { signal: o.signal, key: `doc-${jobId}-${kind}`, onQueued: o.onQueued, onStart: o.onStart },
       );
     },

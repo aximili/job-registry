@@ -304,6 +304,18 @@ test('a card for a job you saved says so', async ({ page, request }) => {
   expect(await cardCalls(request)).toBe(2);
 });
 
+test('with automatic job-page ratings off, the panel says why there is no rating', async ({ page, background }) => {
+  await background.evaluate(() => chrome.storage.local.set({ autoRate: false }));
+  try {
+    await page.goto(`${SITES}/seek/job/81234567`);
+    await expect(panel(page)).toContainText('Senior Software Engineer · Atlassian');
+    await expect(panel(page)).toContainText('Automatic ratings are off. Turn them on in Job Registry options.', { timeout: 10_000 });
+    await expect(panel(page)).not.toContainText('Good match · 72');
+  } finally {
+    await background.evaluate(() => chrome.storage.local.remove('autoRate'));
+  }
+});
+
 test("with 'Rate the jobs in search results' off, no marks", async ({ page, request, extensionId }) => {
   await page.goto(`chrome-extension://${extensionId}/options.html`);
   const option = page.getByLabel('Rate the jobs in search results (a quick rating from each card)');

@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import multipart from '@fastify/multipart';
 import type { FastifyPluginAsync } from 'fastify';
-import { AttachQuery, ExportQuery, GenerateRequest, ListDocumentsQuery, SaveDocumentRequest, type GenerateChunk } from '../../../shared/contracts/index.ts';
+import { AttachQuery, ExportQuery, GenerateRequest, ListDocumentsQuery, ReviseRequest, SaveDocumentRequest, type GenerateChunk } from '../../../shared/contracts/index.ts';
 import { PAGE_CSP } from '../../../shared/document-page.ts';
 import { ValidationError } from '../../core/errors.ts';
 import { sendLines } from '../../core/http/lines.ts';
@@ -99,6 +99,35 @@ export function documentsRoutes(service: DocumentsService, o: { heartbeatMs?: nu
         {
           failed: 'Something went wrong while writing. See the log for details.',
           what: 'Writing a document failed',
+          replaced: 'A newer draft took its place.',
+          heartbeatMs: o.heartbeatMs,
+        },
+      );
+    });
+
+    http.post('/jobs/:id/documents/revise', { config: dashboardOnly('Only the dashboard can write documents.') }, async (req, reply) => {
+      const { id } = parseOrThrow(IdParams, req.params);
+      const { kind, note, draft } = parseOrThrow(ReviseRequest, req.body);
+      return sendLines<GenerateChunk>(
+        req,
+        reply,
+        (signal, push) => {
+          // The job and your master profile are checked now, before the reply starts.
+          const stream = service.revise(id, kind, {
+            signal,
+            note,
+            draft,
+            onQueued: (by) => push({ kind: 'waiting', by }),
+            onStart: (by) => push({ kind: 'working', by }),
+          });
+          return (async () => {
+            for await (const text of stream) push({ kind: 'text', text });
+            push({ kind: 'done' });
+          })();
+        },
+        {
+          failed: 'Something went wrong while rewriting. See the log for details.',
+          what: 'Rewriting a document failed',
           replaced: 'A newer draft took its place.',
           heartbeatMs: o.heartbeatMs,
         },

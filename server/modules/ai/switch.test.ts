@@ -37,10 +37,10 @@ const task = (c: ChatRequest) => c.jsonSchema?.name ?? 'write';
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
 const services: AiService[] = [];
-const cleanups: (() => void)[] = [];
+const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const service of services.splice(0)) await service.stop();
-  for (const fn of cleanups.splice(0).reverse()) fn();
+  for (const fn of cleanups.splice(0).reverse()) await fn();
 });
 
 function setup(o: {
@@ -674,9 +674,30 @@ describe('switching quickly between two AIs the app starts (Review Focus 4)', ()
         };
       },
     });
-    cleanups.push(() => {
+    const waitExit = (child: ChildProcess) =>
+      child.exitCode !== null || child.signalCode !== null
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 2_000);
+            child.once('exit', () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
+    cleanups.push(async () => {
       for (const { child } of spawned) if (child.pid && alive(child.pid)) child.kill('SIGKILL');
-      rmSync(root, { recursive: true, force: true });
+      await Promise.all(spawned.map(({ child }) => waitExit(child)));
+      let last: unknown = null;
+      for (let i = 0; i < 5; i++) {
+        try {
+          rmSync(root, { recursive: true, force: true });
+          return;
+        } catch (err) {
+          last = err;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      if (last) throw last;
     });
     return { t, ports, spawned, outcomes };
   }
